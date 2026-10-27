@@ -36,8 +36,9 @@ use drywire_proto::control::SECRET_SIZE;
 use drywire_proto::crypto::{KEY_SIZE, ROOM_ID_SIZE, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
-/// A parsed and checked client configuration.
-#[derive(Clone, Debug)]
+/// A parsed and checked client configuration. Its `Debug` output leaves
+/// out the secrets, so a log line or a `dbg!` cannot leak them.
+#[derive(Clone)]
 pub struct ClientConfig {
     /// Whether the file's secrets are public (committed to the repository).
     pub dev_only: bool,
@@ -55,6 +56,21 @@ pub struct ClientConfig {
     pub identity: SigningKey,
     /// Every member of the room, this client included.
     pub members: Vec<Member>,
+}
+
+impl fmt::Debug for ClientConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientConfig")
+            .field("dev_only", &self.dev_only)
+            .field("relay", &self.relay)
+            .field("room_id", &to_hex(&self.room_id))
+            .field("space_key", &"<secret>")
+            .field("session", &self.session)
+            .field("session_secret", &"<secret>")
+            .field("identity", &"<secret>")
+            .field("members", &self.members)
+            .finish()
+    }
 }
 
 /// One member of the room.
@@ -300,6 +316,15 @@ mod tests {
         }
         let short = sample().to_json().replace(&"0f".repeat(16), "0f");
         assert!(ClientConfig::parse(&short).is_err());
+    }
+
+    #[test]
+    fn debug_output_hides_the_secrets() {
+        let shown = format!("{:?}", sample());
+        assert!(shown.contains("alex"), "{shown}");
+        for secret in ["5a5a", "1111", "a1a1"] {
+            assert!(!shown.contains(secret), "{secret} leaked: {shown}");
+        }
     }
 
     #[test]
