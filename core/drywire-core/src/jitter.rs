@@ -432,7 +432,9 @@ impl JitterBuffer {
     }
 
     /// Returns what to play at the tick happening at `now_us`. Call it once
-    /// per frame period, at the pace of the sound card.
+    /// per frame period, at the pace of the sound card. Between spurts, when
+    /// it returns [`Playout::Silence`], it may be called more often: it only
+    /// starts the next spurt once its time has come.
     pub fn pop(&mut self, now_us: u64) -> Playout {
         if let State::Idle { start } = self.state {
             let Some(first) = self.frames.first_timestamp() else {

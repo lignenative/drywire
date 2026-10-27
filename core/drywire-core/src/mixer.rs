@@ -4,9 +4,12 @@
 //! The [`Mixer`] runs where the sound card's output callback runs. Each
 //! sender is a track that decodes one frame at a time, and pops its jitter
 //! buffer when the previous frame has been played, so each track ticks at
-//! the pace of its own frame size, all driven by the card's clock. Tracks
-//! are summed, then softly clipped: a sum under half of full scale is left
-//! exactly as it is.
+//! the pace of its own frame size, all driven by the card's clock. Between
+//! talk spurts a track ticks every [`IDLE_TICK`] samples instead, so a
+//! spurt starts within half a millisecond of the time its jitter buffer
+//! scheduled, not up to a whole frame later. Tracks are summed, then
+//! softly clipped: a sum under half of full scale is left exactly as it
+//! is.
 //!
 //! In a call, every track is made before playback starts
 //! ([`Mixer::add_track`]): making one creates an Opus decoder, which
@@ -19,6 +22,12 @@ use std::collections::BTreeMap;
 use crate::inbound::Event;
 use crate::jitter::{Arrival, JitterBuffer, JitterConfig, JitterStats, Playout};
 use crate::opus::{Decoder, FrameSize, OpusError, SAMPLE_RATE, packet_samples};
+
+/// How often, in samples, an idle track asks its jitter buffer whether a
+/// spurt starts: 0.5 ms. Asking costs a comparison; waiting for a whole
+/// frame instead would delay each spurt, and so every frame in it, by half
+/// a frame on average.
+pub const IDLE_TICK: usize = 24;
 
 /// What one track is doing, for display.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,12 +121,17 @@ impl Track {
     }
 
     /// Fills `pcm` with the next frame: decoded, concealed, or silence.
+    /// Silence lasts one [`IDLE_TICK`], so the next spurt is asked for
+    /// again soon.
     fn next_frame(&mut self, frame: FrameSize, now_us: u64) {
         self.pcm.clear();
         self.pcm.resize(frame.samples(), 0.0);
         self.played = 0;
         let decoded = match self.buffer.pop(now_us) {
-            Playout::Silence => return,
+            Playout::Silence => {
+                self.pcm.truncate(IDLE_TICK);
+                return;
+            }
             Playout::Frame { frame: bytes, .. } => self.decoder.decode(&bytes, &mut self.pcm),
             Playout::Conceal => self.decoder.conceal(&mut self.pcm),
         };

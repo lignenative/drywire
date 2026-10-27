@@ -295,17 +295,12 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         let probe = talk_start..talk_start + 4800;
         let lag = best_lag(&input[probe.clone()], &output[probe.start..], 3360);
         // The delay is exactly what the latency budget says (spec section
-        // 4): the codec's lookahead, one frame to capture it, the jitter
-        // buffer's target, and the wait for the playback tick, which starts
-        // with the track at the start of a 1 ms card period and so falls
-        // anywhere in one frame.
-        let frame_samples = frame.samples();
+        // 4): the codec's lookahead, one frame to capture it, and the jitter
+        // buffer's target. The spurt starts on its schedule: playback asks
+        // every 0.5 ms between spurts, and every time here falls on a
+        // multiple of 0.5 ms.
         let target = track.jitter.target_us as usize * SAMPLE_RATE as usize / 1_000_000;
-        let earliest = LOOKAHEAD + frame_samples + target;
-        assert!(
-            (earliest..earliest + frame_samples).contains(&lag),
-            "{frame}: lag {lag} samples, expected {earliest} plus less than a frame"
-        );
+        assert_eq!(lag, LOOKAHEAD + frame.samples() + target, "{frame}");
         let edge = 960;
         let snr = snr_db(
             &input[talk_start + edge..talk_end - edge],
