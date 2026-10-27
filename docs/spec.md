@@ -1,14 +1,11 @@
-# Snapline — Specification
+# Drywire — Specification
 
 Draft 2 · 2026-10-27 · Publisher: Ligne Native · License: MIT
 
-Snapline is an open source team voice chat built for the lowest possible
+Drywire is an open source team voice chat built for the lowest possible
 mouth-to-ear latency. This document is the reference for what we build and
 why. When the code and this document disagree, the code wins and this
 document gets fixed.
-
-> **Working name.** "Snapline" (snapline.gg) is pending a trademark check.
-> The name may change before the first public release.
 
 ## 1. Vision and principles
 
@@ -92,7 +89,7 @@ Not in the table, and to be measured per device:
   jack.
 
 Smaller frames cost bandwidth. Each packet carries about 60 bytes of overhead
-(IPv4 + UDP 28, Snapline header 16, authentication tag 16):
+(IPv4 + UDP 28, Drywire header 16, authentication tag 16):
 
 | Frame size | Packets per second | Overhead | Total upstream at 64 kb/s Opus |
 | --- | --- | --- | --- |
@@ -139,12 +136,12 @@ Parked until real-world tests ask for them:
  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
         └────────────────┴───────┬────────┴────────────────┘
                      ┌───────────┴───────────┐
-                     │ snapline-core (Rust)  │  audio I/O, Opus, jitter
+                     │ drywire-core (Rust)   │  audio I/O, Opus, jitter
                      │ same code everywhere  │  buffer, protocol, crypto
                      └───────────┬───────────┘
               UDP (encrypted) ── │ ── HTTPS (control plane)
                      ┌───────────┴───────────┐
-                     │ snapline-server (Go)  │  blind relay + control
+                     │ drywire-server (Go)   │  blind relay + control
                      └───────────────────────┘  plane + SQLite
 ```
 
@@ -152,7 +149,7 @@ Every client embeds the same Rust core. Only the user interface changes from
 one platform to another. The server forwards encrypted UDP packets without
 reading them, and manages identities, spaces and rooms over HTTPS.
 
-### Server: `snapline-server` (Go)
+### Server: `drywire-server` (Go)
 
 - A single static binary (`CGO_ENABLED=0`), run in a `scratch` container or
   as a systemd service.
@@ -167,7 +164,7 @@ reading them, and manages identities, spaces and rooms over HTTPS.
 - **Accepted dependencies**: `modernc.org/sqlite` now, `quic-go` for the web
   client later. Anything else needs an explicit decision recorded in an ADR.
 
-### Core: `snapline-core` (Rust)
+### Core: `drywire-core` (Rust)
 
 - Audio capture and playback, Opus encoding and decoding (libopus), voice
   gate, jitter buffer, protocol, encryption, statistics.
@@ -291,7 +288,7 @@ and an encryption key the server never sees.
 
 ### Data model
 
-- Instance (one `snapline-server`) › Spaces (a group, like a community
+- Instance (one `drywire-server`) › Spaces (a group, like a community
   server) › Rooms › Members.
 - Roles: owner, admin, member.
 - A client can connect to several instances.
@@ -301,7 +298,7 @@ and an encryption key the server never sees.
 An invitation link looks like this:
 
 ```text
-https://snapline.gg/i#<payload>
+https://drywire.gg/i#<payload>
 ```
 
 - The payload holds the instance address, the invitation code and the space
@@ -310,7 +307,7 @@ https://snapline.gg/i#<payload>
   or a `Referer` header.
 - The link always points to the project's domain, even for a self-hosted
   instance, because universal links (Apple) and App Links (Android) only work
-  for domains the app declares. Desktop apps register the `snapline://`
+  for domains the app declares. Desktop apps register the `drywire://`
   scheme as well.
 - `/i` is a static page from `site/`. It makes no network request with the
   fragment. If the app is not installed, it explains how to get it.
@@ -322,9 +319,9 @@ Keys are derived with HKDF-SHA256:
 
 ```text
 space_key   256 random bits, shared through the invitation link
-room_key    = HKDF(space_key, info = "snapline/room/v1" ‖ room_id)
+room_key    = HKDF(space_key, info = "drywire/room/v1" ‖ room_id)
 sender_key  = HKDF(room_key,  salt = sender_salt,
-                              info = "snapline/sender/v1" ‖ sender_public_key)
+                              info = "drywire/sender/v1" ‖ sender_public_key)
 ```
 
 - Each sender draws a fresh random 32-byte `sender_salt` every time it joins a
@@ -354,7 +351,7 @@ sender_key  = HKDF(room_key,  salt = sender_salt,
 
 ## 9. Personal data (GDPR)
 
-Snapline is designed to comply with the GDPR from the start (article 25). The
+Drywire is designed to comply with the GDPR from the start (article 25). The
 operator of an instance is the data controller: the person self-hosting it,
 or Ligne Native for the hosted instance.
 
@@ -486,7 +483,7 @@ received sound.
    through the voice tool, plays it on a speaker or earphone.
 2. A third recorder (a phone is fine) captures both the direct click and the
    replayed one.
-3. `snapline-bench measure <recording.wav>` finds each pair of clicks by
+3. `drywire-bench measure <recording.wav>` finds each pair of clicks by
    cross-correlation and computes the gaps. At least 20 clicks; we keep the
    median (p50) and p95.
 
@@ -505,7 +502,7 @@ devices, connection, frame size, software version. Phase 0 results go to
 **Local statistics**: jitter p50/p95, losses, late packets, buffer depth,
 audio underruns. Visible in the app, never sent without consent.
 
-**`snapline-bench`** replays simulated network traces (jitter, losses,
+**`drywire-bench`** replays simulated network traces (jitter, losses,
 bursts) against the jitter buffer. It runs in CI as a regression test.
 
 ## 12. Repository, licenses and conventions
@@ -525,17 +522,17 @@ logo belong to Ligne Native and are not covered by the license.
 ### Layout
 
 ```text
-snapline/
+drywire/
   Makefile            Entry point for every local and deploy command
   scripts/            What the Makefile runs
   server/             Go: UDP relay + control plane
   core/               Rust workspace
-    snapline-proto/   Packet format, binary test vectors
-    snapline-core/    Audio I/O, Opus, gate, jitter buffer, crypto, stats
-    snapline-ffi/     UniFFI bindings (Swift, Kotlin)
-    snapline-wasm/    Web build
-    snapline-bench/   Network simulation, latency measurement
-    snapline-cli/     Command-line client (phase 1)
+    drywire-proto/    Packet format, binary test vectors
+    drywire-core/     Audio I/O, Opus, gate, jitter buffer, crypto, stats
+    drywire-ffi/      UniFFI bindings (Swift, Kotlin)
+    drywire-wasm/     Web build
+    drywire-bench/    Network simulation, latency measurement
+    drywire-cli/      Command-line client (phase 1)
   apps/
     desktop/          Tauri v2 + React (Windows, Linux)
     apple/            SwiftUI (iOS, macOS)
@@ -559,7 +556,7 @@ snapline/
   at every commit. The subject line is imperative and short; the body
   explains why.
 - `docs/protocol.md` is the source of truth for the wire format. The binary
-  vectors in `core/snapline-proto/vectors/` are read by both the Go and Rust
+  vectors in `core/drywire-proto/vectors/` are read by both the Go and Rust
   tests.
 - **Semantic versioning.** The protocol version byte changes on every breaking
   change.
@@ -570,7 +567,7 @@ snapline/
 - No secret in the repository. Server configuration through environment
   variables.
 - CI on GitHub Actions: Go tests, `cargo test` and `clippy`, license checks,
-  builds of every client, `snapline-bench` regression tests.
+  builds of every client, `drywire-bench` regression tests.
 
 ## 13. Local development and deployment
 
@@ -582,8 +579,8 @@ variable.
 
 | Port | Service | Variable |
 | --- | --- | --- |
-| 10050/tcp | Control plane | `SNAPLINE_HTTP_ADDR` |
-| 10050/udp | Relay | `SNAPLINE_UDP_ADDR` |
+| 10050/tcp | Control plane | `DRYWIRE_HTTP_ADDR` |
+| 10050/udp | Relay | `DRYWIRE_UDP_ADDR` |
 | 10051 | Vite dev server, desktop UI | `DEV_PORT` |
 | 10052 | Project site preview | `SITE_PORT` |
 | 10057 | Vite dev server, web client (later) | `WEB_PORT` |
@@ -610,10 +607,10 @@ help` lists them.
 - `HOST` is an SSH alias from `~/.ssh/config`. The repository contains no
   host name: each operator sets `HOST` in an untracked `.env` file.
 - The developer's machine is the reference. `make deploy` cross-compiles a
-  static Linux binary, sends it with `deploy/` to `/srv/snapline` over rsync,
+  static Linux binary, sends it with `deploy/` to `/srv/drywire` over rsync,
   and starts it with Docker Compose in a `scratch` image. The server never
   pulls from GitHub.
-- Snapline owns `/srv/snapline` on the host and touches nothing else, so it
+- Drywire owns `/srv/drywire` on the host and touches nothing else, so it
   can share a server with other services.
 - The control plane listens on a local port behind the host's reverse proxy,
   which terminates TLS. The UDP port is opened in the host firewall and, if
@@ -629,8 +626,8 @@ phase ends on a measurable criterion.
    chain, and the network paths (`mtr` to the relay from each player's
    connection). **Exit**: results in `docs/baseline.md`.
 1. **Low-level prototype.** UDP relay with rooms from a config file, Rust
-   core, `snapline-cli` on Windows and macOS, all three frame sizes, voice
-   gate, `snapline-bench`. No encryption yet. **Exit**: two CLIs talk through
+   core, `drywire-cli` on Windows and macOS, all three frame sizes, voice
+   gate, `drywire-bench`. No encryption yet. **Exit**: two CLIs talk through
    the relay with a median below the phase 0 baseline on the same setup, for
    30 minutes without audible artifacts; default frame size chosen and the
    measurements recorded.
@@ -676,8 +673,6 @@ and the project as a showcase for Ligne Native).
 
 None blocks phase 1.
 
-- [ ] Name: trademark clearance for "Snapline" (the "Snap" prefix is crowded
-      in communication apps). A fallback name is on hold.
 - [ ] Reference Android phone for the console player, and 3.5 mm versus
       USB-C earbud (blocks phase 5).
 - [ ] TLS termination on the relay host: existing reverse proxy or
