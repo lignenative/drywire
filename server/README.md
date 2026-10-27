@@ -62,6 +62,8 @@ but a loopback address.
 | `cmd/drywire-server` | Reads the environment, opens the sockets, runs the relay and the HTTP API |
 | `internal/relay` | The data plane: binding sessions, forwarding audio and announcements, rate limits, loss counting |
 | `internal/wire` | Encodes and decodes packets as the relay sees them: header, control packets, replay window |
+| `internal/store` | The control plane's lasting state in SQLite: identities, spaces, rooms, members, bans, invitation codes; schema migrations |
+| `internal/ledger` | The deletion ledger, replayed at every start so a restored backup cannot bring deleted data back (ADR 0019) |
 | `internal/ratelimit` | The token bucket behind every rate limit |
 | `internal/api` | HTTP routes: health, version, status |
 | `internal/clientref` | Reference of what clients do above the relay (key derivation, audio encryption, payload framing, signed announcements); used only to build and check test vectors |
