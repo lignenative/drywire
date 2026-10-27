@@ -28,8 +28,8 @@ fixed in the same change.
 - Go server: standard library only, except `modernc.org/sqlite` (control
   plane) and `quic-go` (web client), both accepted in the spec. Any other
   dependency needs an ADR first.
-- Rust core: every new crate is checked against the list above; `cargo-deny`
-  enforces it once CI exists.
+- Rust core: every new crate is checked against the list above; `cargo deny`
+  (`core/deny.toml`) enforces it in CI, and in `make test` when installed.
 - JavaScript: Bun is the package manager, script runner and test runner.
   Node.js is not used.
 
@@ -79,7 +79,7 @@ The Makefile is thin: each target calls a script in `scripts/`.
 
 ```sh
 make help     # list the commands
-make test     # gofmt, go vet, go test -race; cargo fmt, clippy, test; Windows clippy
+make test     # gofmt, go vet, go test -race; cargo fmt, clippy, test; Windows clippy; cargo deny
 make fmt      # gofmt and cargo fmt
 make dev      # run the relay on 127.0.0.1:10050
 make live     # live call on this Mac: you, an echo bot, a local relay

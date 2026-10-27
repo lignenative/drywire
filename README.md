@@ -39,6 +39,7 @@ The full design, its reasons and the roadmap are in
 | `docs/` | The specification, the protocol, and decision records (`docs/adr/`) |
 | `scripts/` | The scripts behind every `make` command |
 | `Makefile` | Entry point for every command; `make help` lists them |
+| `.github/` | Continuous integration: Linux, macOS and Windows builds and tests, license checks |
 
 More directories (`apps/`, `site/`, `deploy/`) appear as each phase starts.
 The target layout is in section 12 of the specification.

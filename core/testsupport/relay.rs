@@ -48,7 +48,11 @@ fn server_binary() -> &'static Path {
         // One binary per test process, so parallel test binaries never
         // write the same file.
         let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("drywire-server-{}", std::process::id()));
+            .join(format!(
+                "drywire-server-{}{}",
+                std::process::id(),
+                std::env::consts::EXE_SUFFIX
+            ));
         let status = Command::new("go")
             .args(["build", "-o"])
             .arg(&out)

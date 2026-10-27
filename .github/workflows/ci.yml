@@ -1,0 +1,82 @@
+# Continuous integration. Every job runs the same checks a contributor
+# runs with `make test`, on the systems Drywire targets.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # The relay and the Rust core on Linux and macOS: gofmt, go vet,
+  # go test -race, cargo fmt, clippy and test, as make test runs them.
+  # The Rust tests start the real relay, so Go is installed everywhere.
+  test:
+    name: make test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.mod
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          # Lets make test check that the Windows backend compiles.
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - run: make test
+
+  # The real Windows build: libopus with MSVC and CMake, the WASAPI
+  # backend linked, and the tests run. A hosted runner has no sound card,
+  # so `drywire-cli devices` only shows that WASAPI answers without
+  # crashing; its output is informative, not checked.
+  windows:
+    name: Windows build and tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.mod
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: cargo test
+        working-directory: core
+        run: cargo test
+      - name: cargo build --release -p drywire-cli
+        working-directory: core
+        run: cargo build --release -p drywire-cli
+      - name: drywire-cli devices
+        working-directory: core
+        continue-on-error: true
+        run: .\target\release\drywire-cli.exe devices
+      - uses: actions/upload-artifact@v4
+        with:
+          name: drywire-cli-windows
+          path: core/target/release/drywire-cli.exe
+
+  # Licenses, banned and duplicate crates, sources and security advisories
+  # of every Rust dependency (core/deny.toml).
+  cargo-deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: core/Cargo.toml
+          command: check

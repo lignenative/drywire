@@ -40,4 +40,12 @@ if [ -f "$root/core/Cargo.toml" ]; then
 	else
 		echo "note: Windows build check skipped; run: rustup target add x86_64-pc-windows-msvc"
 	fi
+
+	# Licenses, bans and sources work offline; CI also checks advisories.
+	if command -v cargo-deny >/dev/null 2>&1; then
+		echo "==> core (cargo deny)"
+		cargo deny --log-level error check licenses bans sources
+	else
+		echo "note: license check skipped; run: cargo install cargo-deny --locked"
+	fi
 fi

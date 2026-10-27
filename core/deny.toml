@@ -1,0 +1,48 @@
+# cargo-deny configuration: the license rules of CLAUDE.md, enforced on
+# every crate the workspace pulls in, for every target we build.
+# Run with `cargo deny check` from core/ (CI does).
+
+[graph]
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-linux-android",
+    "aarch64-apple-ios",
+]
+
+[licenses]
+# CLAUDE.md, "Dependencies and licenses". Unicode-3.0 is allowed for the
+# Unicode tables of unicode-ident (ADR 0008). A crate offering a choice
+# ("MIT OR Apache-2.0 OR LGPL-2.1-or-later") passes when one of its
+# options is on this list.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# Our own crates are MIT and never published.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Path dependencies inside the workspace have no version, by design.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+[advisories]
+# A crate with a known vulnerability fails the check; yanked crates too.
+yanked = "deny"
