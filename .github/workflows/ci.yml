@@ -1,5 +1,8 @@
 # Continuous integration. Every job runs the same checks a contributor
 # runs with `make test`, on the systems Drywire targets.
+#
+# Actions are pinned to a commit, not a tag, so that a moved tag can never
+# change what runs here; the comment says which release that commit is.
 name: CI
 
 on:
@@ -22,17 +25,18 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.mod
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10
         with:
+          toolchain: stable
           components: rustfmt, clippy
           # Lets make test check that the Windows backend compiles.
           targets: x86_64-pc-windows-msvc
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: core
       - run: make test
@@ -40,18 +44,22 @@ jobs:
   # The real Windows build: libopus with MSVC and CMake, the WASAPI
   # backend linked, and the tests run. A hosted runner has no sound card,
   # so `drywire-cli devices` only shows that WASAPI answers without
-  # crashing; its output is informative, not checked.
+  # crashing; its output is informative, not checked. The release
+  # binaries are kept as a workflow artifact, "drywire-windows", to
+  # download from the run's page and try on a Windows PC.
   windows:
     name: Windows build and tests
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.mod
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-10
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: core
       - name: cargo test
@@ -64,10 +72,16 @@ jobs:
         working-directory: core
         continue-on-error: true
         run: .\target\release\drywire-cli.exe devices
-      - uses: actions/upload-artifact@v4
+      - name: go build drywire-server
+        working-directory: server
+        run: go build -o drywire-server.exe ./cmd/drywire-server
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: drywire-cli-windows
-          path: core/target/release/drywire-cli.exe
+          name: drywire-windows
+          path: |
+            core/target/release/drywire-cli.exe
+            server/drywire-server.exe
+          if-no-files-found: error
 
   # Licenses, banned and duplicate crates, sources and security advisories
   # of every Rust dependency (core/deny.toml).
@@ -75,8 +89,8 @@ jobs:
     name: cargo deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           manifest-path: core/Cargo.toml
           command: check
