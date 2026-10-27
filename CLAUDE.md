@@ -21,7 +21,9 @@ fixed in the same change.
 
 ## Dependencies and licenses
 
-- Allowed licenses: MIT, BSD, Apache 2.0, ISC, Zlib, MPL 2.0.
+- Allowed licenses: MIT, BSD, Apache 2.0, ISC, Zlib, MPL 2.0, and Unicode-3.0
+  for the Unicode tables that `unicode-ident` brings to every proc macro
+  (ADR 0008).
 - Forbidden: GPL, LGPL, AGPL, and anything without a clear license.
 - Go server: standard library only, except `modernc.org/sqlite` (control
   plane) and `quic-go` (web client), both accepted in the spec. Any other

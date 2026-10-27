@@ -25,3 +25,4 @@ Status: Accepted · YYYY-MM-DD
 | [0005](0005-keep-the-relay-a-single-loop-around-a-pure-handler.md) | Keep the relay a single loop around a pure handler |
 | [0006](0006-encrypt-audio-from-phase-1.md) | Encrypt audio from phase 1 |
 | [0007](0007-send-sender-announcements-through-the-relay.md) | Send sender announcements through the relay |
+| [0008](0008-use-rustcrypto-and-dalek-in-the-core.md) | Use RustCrypto and dalek for the core's cryptography |

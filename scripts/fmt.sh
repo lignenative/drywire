@@ -3,6 +3,10 @@
 set -eu
 
 cd "$(dirname "$0")/.."
+
+# Homebrew installs rustup keg-only, outside the PATH; cargo installs land
+# in ~/.cargo/bin. Appending both is harmless where they do not exist.
+PATH="$PATH:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin"
 root=$(pwd)
 
 if [ -f server/go.mod ]; then

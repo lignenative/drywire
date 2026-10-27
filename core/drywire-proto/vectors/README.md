@@ -22,4 +22,5 @@ make vectors
 
 A Go test (`server/internal/vectors`) fails whenever the files differ from
 what the generator writes, and another decodes each file and compares it with
-the manifest. The Rust tests will do the same from their side.
+the manifest. `core/drywire-proto/tests/vectors.rs` does the same from the
+Rust side, and also re-encodes every valid packet.
