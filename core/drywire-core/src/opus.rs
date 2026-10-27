@@ -304,7 +304,9 @@ mod tests {
 
     #[test]
     fn every_frame_size_round_trips_with_2_5_ms_of_lookahead() {
-        // Two tones mixed, so that a wrong lag cannot line up by accident.
+        // Two tones mixed, so that no wrong lag within the 10 ms searched
+        // lines up by accident. (They do line up again 545 samples apart:
+        // tests/simulated_call.rs, which searches further, uses a sweep.)
         let n = SAMPLE_RATE as usize / 2;
         let input: Vec<f32> = sine(440.0, 0.3, n)
             .iter()

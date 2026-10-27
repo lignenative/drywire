@@ -24,15 +24,21 @@ const LOOKAHEAD: usize = 120;
 /// The network's one-way delay.
 const TRANSIT_US: u64 = 1_000;
 
-/// 200 ms of silence, 600 ms of two mixed tones, 400 ms of silence: the
-/// gate opens on the tones and closes during the last silence.
+/// 200 ms of silence, a 600 ms sweep from 300 Hz to 3 kHz, 400 ms of
+/// silence: the gate opens on the sweep and closes during the last silence.
+///
+/// A sweep, because its frequency never repeats, so it looks like itself at
+/// one delay only. Steady tones did not: two tones of 440 and 1234 Hz were
+/// 99.9% alike 545 samples apart, and libopus built for Windows tipped the
+/// search to that wrong delay.
 fn speech() -> Vec<f32> {
     let n = |ms: usize| ms * SAMPLE_RATE as usize / 1000;
     let mut signal = vec![0.0; n(200)];
+    let (f0, f1, seconds) = (300.0f64, 3_000.0f64, 0.6f64);
     signal.extend((0..n(600)).map(|i| {
-        let t = i as f32 / SAMPLE_RATE as f32;
-        let tau = 2.0 * std::f32::consts::PI;
-        0.3 * (tau * 440.0 * t).sin() + 0.2 * (tau * 1234.0 * t).sin()
+        let t = i as f64 / f64::from(SAMPLE_RATE);
+        let phase = 2.0 * std::f64::consts::PI * (f0 * t + (f1 - f0) * t * t / (2.0 * seconds));
+        (0.4 * phase.sin()) as f32
     }));
     signal.extend(vec![0.0; n(400)]);
     signal
@@ -42,19 +48,30 @@ fn us_to_samples(us: u64) -> usize {
     (us * u64::from(SAMPLE_RATE) / 1_000_000) as usize
 }
 
+/// How much `output`, delayed by `lag`, looks like `input`.
+fn correlation(input: &[f32], output: &[f32], lag: usize) -> f32 {
+    input
+        .iter()
+        .zip(output.get(lag..).unwrap_or(&[]))
+        .map(|(a, b)| a * b)
+        .sum()
+}
+
 /// The delay at which `output` best matches `input`, searched up to
-/// `max_lag` samples.
-fn best_lag(input: &[f32], output: &[f32], max_lag: usize) -> usize {
-    let correlation = |lag: usize| -> f32 {
-        input
-            .iter()
-            .zip(output.get(lag..).unwrap_or(&[]))
-            .map(|(a, b)| a * b)
-            .sum()
-    };
-    (0..max_lag)
-        .max_by(|a, b| correlation(*a).total_cmp(&correlation(*b)))
-        .unwrap()
+/// `max_lag` samples, and how much better it matches than any delay more
+/// than half a millisecond away from it.
+fn best_lag(input: &[f32], output: &[f32], max_lag: usize) -> (usize, f32) {
+    let scores: Vec<f32> = (0..max_lag)
+        .map(|lag| correlation(input, output, lag))
+        .collect();
+    let best = (0..max_lag)
+        .max_by(|a, b| scores[*a].total_cmp(&scores[*b]))
+        .unwrap();
+    let runner_up = (0..max_lag)
+        .filter(|lag| lag.abs_diff(best) > 24)
+        .map(|lag| scores[lag])
+        .fold(f32::MIN, f32::max);
+    (best, scores[best] / runner_up)
 }
 
 fn snr_db(input: &[f32], output: &[f32]) -> f32 {
@@ -134,10 +151,31 @@ fn playback_is_on_time_at_every_frame_size() {
         let talk_start = 200 * SAMPLE_RATE as usize / 1000;
         let talk_end = 800 * SAMPLE_RATE as usize / 1000;
         let probe = talk_start..talk_start + 4800;
-        let lag = best_lag(&input[probe.clone()], &output[probe.start..], 3360);
+        let (lag, margin) = best_lag(&input[probe.clone()], &output[probe.start..], 3360);
+        // The test signal must make the answer clear-cut, so that no
+        // rounding difference between platforms can move it.
+        assert!(
+            margin > 2.0,
+            "{label}: best delay {lag} only {margin:.3} times the next"
+        );
         let expected =
             frame.samples() + us_to_samples(TRANSIT_US) + us_to_samples(j.target_us) + LOOKAHEAD;
-        assert_eq!(lag, expected, "{label}");
+        // Should it ever fail, say how sure the search was: the match at
+        // the expected delay, at the one found, and how alike the input is
+        // to itself over the difference.
+        let probe_in = &input[probe.clone()];
+        let probe_out = &output[probe.start..];
+        assert_eq!(
+            lag,
+            expected,
+            "{label}: correlation {:.3} at {expected}, {:.3} at {lag}; input self-similarity \
+             {:.3} at 0, {:.3} at {}",
+            correlation(probe_in, probe_out, expected),
+            correlation(probe_in, probe_out, lag),
+            correlation(probe_in, probe_in, 0),
+            correlation(probe_in, &input[probe.start..], lag.abs_diff(expected)),
+            lag.abs_diff(expected),
+        );
 
         // And what plays is the input. Compare the tones, minus 20 ms at
         // each edge where the gate and the codec settle.
