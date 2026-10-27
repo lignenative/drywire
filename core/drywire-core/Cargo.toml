@@ -1,6 +1,6 @@
 [package]
 name = "drywire-core"
-description = "Drywire's audio logic: Opus, voice gate, jitter buffer"
+description = "Drywire's client logic: Opus, voice gate, jitter buffer, sender, receiver, mixer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 drywire-proto.workspace = true
+getrandom.workspace = true
 opusic-sys.workspace = true
 serde.workspace = true
 serde_json.workspace = true
