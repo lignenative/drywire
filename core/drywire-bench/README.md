@@ -41,7 +41,6 @@ Everything is deterministic: the same seed always gives the same report.
 `tests/regression.rs` runs every scenario with seed 1 on each `make test`,
 in under a second, and checks bounds: nothing is concealed or dropped on a
 clean path, only the lost frames are concealed on a wired one, targets
-stay near the floor,
-redundancy halves concealment, clock drift costs at most a stretch per talk
-spurt, and so on. The bounds are what the buffer achieved when they were
+stay near the floor, redundancy halves concealment, clock drift costs at
+most a stretch per talk spurt, and so on. The bounds are what the buffer achieved when they were
 written, plus headroom; tighten them when the buffer improves.

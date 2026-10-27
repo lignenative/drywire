@@ -516,7 +516,8 @@ logo belong to Ligne Native and are not covered by the license.
 
 ### Licenses
 
-- Allowed dependency licenses: MIT, BSD, Apache 2.0, ISC, Zlib, MPL 2.0.
+- Allowed dependency licenses: MIT, BSD, Apache 2.0, ISC, Zlib, MPL 2.0, and
+  Unicode-3.0 for the Unicode tables of `unicode-ident` (ADR 0008).
   No GPL, LGPL or AGPL.
 - Checked in CI: `cargo-deny` for Rust, `go-licenses` for Go, an equivalent
   check for JavaScript dependencies installed with Bun.
@@ -531,8 +532,8 @@ drywire/
   scripts/            What the Makefile runs
   server/             Go: UDP relay + control plane
   core/               Rust workspace
-    drywire-proto/    Packet format, binary test vectors
-    drywire-core/     Audio I/O, Opus, gate, jitter buffer, crypto, stats
+    drywire-proto/    Packet format, end-to-end crypto, binary test vectors
+    drywire-core/     Audio I/O, Opus, gate, jitter buffer, stats
     drywire-ffi/      UniFFI bindings (Swift, Kotlin)
     drywire-wasm/     Web build
     drywire-bench/    Network simulation, latency measurement
