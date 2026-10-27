@@ -5,8 +5,11 @@
 //! The HAL output unit is the lowest layer of Core Audio that still converts
 //! formats for us. Unlike the voice processing unit it applies no echo
 //! cancellation, gain control or noise suppression: what the microphone
-//! hears is what we get. We ask it for mono 48 kHz float on our side; when
-//! the device runs at another rate, the unit resamples.
+//! hears is what we get. We ask it for mono 48 kHz float on our side. On
+//! output, when the device runs at another rate, the unit resamples. On
+//! input it cannot: the HAL output unit never converts the sample rate of
+//! what it captures, so a microphone must run at 48 kHz, and `start` says
+//! how to set it when it does not.
 //!
 //! The bindings below are written by hand (ADR 0013): Core Audio is a plain
 //! C API, and the few functions, structures and constants we need are
@@ -700,6 +703,19 @@ impl CoreAudio {
 
     fn start_input(&mut self, callback: InputCallback) -> Result<StreamInfo, AudioError> {
         let device = default_device(Direction::Input)?;
+        let rate: f64 = get(
+            device,
+            kAudioDevicePropertyNominalSampleRate,
+            kAudioObjectPropertyScopeGlobal,
+        )?;
+        if rate.round() as u32 != SAMPLE_RATE {
+            return Err(AudioError(format!(
+                "the microphone {:?} runs at {rate} Hz; Drywire captures at {SAMPLE_RATE} Hz \
+                 and Core Audio does not convert input rates: set it to 48000 Hz in \
+                 Audio MIDI Setup",
+                device_name(device)
+            )));
+        }
         let buffer = wanted_buffer(device, Direction::Input, self.options)?;
         set(
             device,
