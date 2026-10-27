@@ -3,9 +3,12 @@
 //!
 //! Two clients of the development room "lobby" bind their sessions with
 //! `hello`. The first one announces its key, then talks for 600 ms in real
-//! time, at each frame size. The second records what it receives with the
-//! arrival times, then plays it through the mixer on a simulated sound card
-//! clock, so the analysis is exact while the network timing is real. On the
+//! time, at each frame size. The second records what it receives, over the
+//! real network path, then plays it through the mixer on a simulated clock:
+//! each packet arrives exactly one capture period after the previous one, as
+//! its timestamp says. The network part (relay, sockets, encryption) is
+//! real and checked exactly; the playback part does not depend on how the
+//! test machine schedules threads, so it is checked exactly too. On the
 //! way, the first client pings the relay and sends a keepalive, and the
 //! relay's own counters must show nothing dropped.
 
@@ -97,24 +100,41 @@ fn speech() -> Vec<f32> {
     signal
 }
 
-/// Sends `input` frame by frame at the pace of a real microphone, and
-/// returns how many audio packets went out.
-fn talk(alex: &Client, sender: &mut Sender, input: &[f32]) -> u64 {
+/// What [`talk`] did, for the simulated playback clock.
+struct Talk {
+    /// Audio packets sent.
+    sent: u64,
+    /// When the first input sample was captured.
+    started: Instant,
+    /// The index of the first frame the gate let through.
+    first_audio_frame: u64,
+}
+
+/// Sends `input` frame by frame at the pace of a real microphone.
+fn talk(alex: &Client, sender: &mut Sender, input: &[f32]) -> Talk {
     let frame = sender.config().frame;
     let mut packets = Vec::new();
     alex.socket.send(&sender.announce()).unwrap();
-    let start = Instant::now();
+    let started = Instant::now();
+    let mut first_audio_frame = None;
     for (k, pcm) in input.chunks_exact(frame.samples()).enumerate() {
         // A frame is ready once it has been fully captured.
-        let ready = start + Duration::from_micros((k as u64 + 1) * frame.micros());
+        let ready = started + Duration::from_micros((k as u64 + 1) * frame.micros());
         std::thread::sleep(ready.saturating_duration_since(Instant::now()));
         packets.clear();
         sender.process(pcm, &mut packets).unwrap();
+        if sender.stats().audio > 0 {
+            first_audio_frame.get_or_insert(k as u64);
+        }
         for p in &packets {
             alex.socket.send(p).unwrap();
         }
     }
-    sender.stats().audio
+    Talk {
+        sent: sender.stats().audio,
+        started,
+        first_audio_frame: first_audio_frame.expect("the gate opened"),
+    }
 }
 
 /// Records every packet the client receives until `quiet` passes without
@@ -129,20 +149,55 @@ fn record(sam: &Client, quiet: Duration) -> Vec<(u64, Vec<u8>)> {
     got
 }
 
-/// Plays the received packets through the mixer, on a sound card that asks
-/// for 64 samples at a time starting at the first arrival.
+/// Plays the received packets through the mixer, on a simulated clock whose
+/// time 0 is the capture of the first input sample, and a sound card that
+/// asks for 1 ms (48 samples) at a time.
 ///
-/// The jitter buffers aim for at least 30 ms: this test checks the path,
-/// not the machine's scheduling, and a busy test machine can delay one
-/// packet by more than a frame now and then. A concealed frame would make
-/// the comparison with the input meaningless.
-fn play(received: Vec<(u64, Vec<u8>)>, inbound: &mut Inbound, samples: usize) -> (Vec<f32>, Mixer) {
-    let mut mixer = Mixer::with_min_target(30_000);
-    let first_us = received.first().expect("received something").0;
-    let mut incoming = received.into_iter().peekable();
+/// Each audio packet is handed to the mixer at the time a perfect network
+/// would deliver it: the instant its frame was fully captured, as its
+/// timestamp says. Real arrival times depend on the test machine: a sender
+/// thread that stalls on a loaded CI runner sends a few frames at once, and
+/// the jitter buffer then rightly drops or conceals one, which says nothing
+/// about the path under test. With ideal arrivals the whole playback is
+/// deterministic, down to the delay of the output, which the test checks
+/// exactly. The real timing is still measured and returned, as the largest
+/// lateness of a packet against that ideal schedule, for the log.
+fn play(
+    received: Vec<(u64, Vec<u8>)>,
+    recorder: &Client,
+    talk: &Talk,
+    frame: FrameSize,
+    inbound: &mut Inbound,
+    samples: usize,
+) -> (Vec<f32>, Mixer, u64) {
+    let mut mixer = Mixer::new();
+    // Time 0 on the recorder's clock, which started first.
+    let origin_us = talk.started.duration_since(recorder.started).as_micros() as u64;
+    let first_ready_us = (talk.first_audio_frame + 1) * frame.micros();
+    // An announcement goes with the packet before it, so the order stays;
+    // the ones before the first audio packet are known at time 0.
+    let mut first_timestamp = None;
+    let mut ideal = 0;
+    let mut worst_late_us = 0;
+    let scheduled: Vec<(u64, Vec<u8>)> = received
+        .into_iter()
+        .map(|(real, packet)| {
+            let header = parse(&packet).expect("a valid packet");
+            if header.packet_type == PacketType::Audio {
+                let first = *first_timestamp.get_or_insert(header.timestamp);
+                let elapsed = u64::from(header.timestamp.wrapping_sub(first));
+                ideal = first_ready_us + elapsed * 1_000_000 / u64::from(SAMPLE_RATE);
+                let real = real.saturating_sub(origin_us);
+                worst_late_us = worst_late_us.max(real.saturating_sub(ideal));
+            }
+            (ideal, packet)
+        })
+        .collect();
+
+    let mut incoming = scheduled.into_iter().peekable();
     let mut output = vec![0.0; samples];
-    for (i, chunk) in output.chunks_mut(64).enumerate() {
-        let now = first_us + (i * 64) as u64 * 1_000_000 / u64::from(SAMPLE_RATE);
+    for (i, chunk) in output.chunks_mut(48).enumerate() {
+        let now = i as u64 * 1_000;
         while let Some((at, packet)) = incoming.next_if(|(at, _)| *at <= now) {
             if let Some(event) = inbound.handle(&packet) {
                 mixer.push(at, event).unwrap();
@@ -150,7 +205,7 @@ fn play(received: Vec<(u64, Vec<u8>)>, inbound: &mut Inbound, samples: usize) ->
         }
         mixer.render(now, chunk);
     }
-    (output, mixer)
+    (output, mixer, worst_late_us)
 }
 
 /// The delay at which `output` best matches `input`, searched up to
@@ -205,13 +260,16 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         // longer run's sequences as duplicates of the previous run's.
         let alex = alex.insert(Client::join(&relay, 1));
         // Receive while talking, so arrival times are real.
-        let (sent, received) = std::thread::scope(|scope| {
+        let (talked, received) = std::thread::scope(|scope| {
             let recorder = scope.spawn(|| record(&sam, Duration::from_millis(300)));
             (talk(alex, &mut sender, &input), recorder.join().unwrap())
         });
+        let sent = talked.sent;
 
         let mut inbound = Inbound::new(ROOM_ID, &SPACE_KEY, [(1, alex_identity.verifying_key())]);
-        let (output, mixer) = play(received, &mut inbound, input.len() + SAMPLE_RATE as usize);
+        let samples = input.len() + SAMPLE_RATE as usize;
+        let (output, mixer, worst_late_us) =
+            play(received, &sam, &talked, frame, &mut inbound, samples);
 
         // Every packet arrived, decrypted, and was played.
         let stats = inbound.stats();
@@ -233,7 +291,18 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         // Search 70 ms of lag on the first 100 ms of tones.
         let probe = talk_start..talk_start + 4800;
         let lag = best_lag(&input[probe.clone()], &output[probe.start..], 3360);
-        assert!(lag >= LOOKAHEAD, "{frame}: lag {lag} samples");
+        // The delay is exactly what the latency budget says (spec section
+        // 4): the codec's lookahead, one frame to capture it, the jitter
+        // buffer's target, and the wait for the playback tick, which starts
+        // with the track at the start of a 1 ms card period and so falls
+        // anywhere in one frame.
+        let frame_samples = frame.samples();
+        let target = track.jitter.target_us as usize * SAMPLE_RATE as usize / 1_000_000;
+        let earliest = LOOKAHEAD + frame_samples + target;
+        assert!(
+            (earliest..earliest + frame_samples).contains(&lag),
+            "{frame}: lag {lag} samples, expected {earliest} plus less than a frame"
+        );
         let edge = 960;
         let snr = snr_db(
             &input[talk_start + edge..talk_end - edge],
@@ -241,10 +310,14 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         );
         // A concealed frame would stretch the spurt and break the alignment.
         assert_eq!(track.jitter.concealed, 0, "{frame}: {track:?}");
-        assert!(snr > 15.0, "{frame}: SNR {snr:.1} dB at lag {lag}");
+        assert!(
+            snr > 15.0,
+            "{frame}: SNR {snr:.1} dB at lag {lag} {track:?}"
+        );
         last_sent = sent;
         eprintln!(
-            "{frame}{}: {sent} packets, SNR {snr:.1} dB at lag {lag}, buffer target {} µs",
+            "{frame}{}: {sent} packets, SNR {snr:.1} dB at lag {lag}, buffer target {} µs, \
+             real arrivals up to {worst_late_us} µs behind schedule",
             if redundancy { " + redundancy" } else { "" },
             track.jitter.target_us
         );
