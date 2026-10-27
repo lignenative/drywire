@@ -45,7 +45,9 @@ pub struct JitterConfig {
     pub frame: FrameSize,
     /// Added to the 95th percentile of jitter to get the target delay.
     pub margin_us: u64,
-    /// The smallest target delay. The spec's floor is one frame.
+    /// The smallest target delay. The spec's floor is one frame. While the
+    /// sender uses redundancy, the floor is at least two frames, since the
+    /// copy of a frame arrives one frame after it (spec section 7).
     pub min_target_us: u64,
     /// How many recent packets the jitter statistics cover.
     pub history: usize,
@@ -153,6 +155,8 @@ pub struct JitterBuffer {
     /// The last raw timestamp seen and its unwrapped value, to turn 32-bit
     /// timestamps that wrap into ever-growing ones.
     unwrap_reference: Option<(u32, i64)>,
+    /// Whether the sender currently adds a redundant copy to its packets.
+    redundancy: bool,
     /// Timestamp of the last frame played, dropped or given up on; anything
     /// at or before it arrives too late to play.
     last_played: Option<i64>,
@@ -168,6 +172,7 @@ impl JitterBuffer {
             frames: BTreeMap::new(),
             transits: VecDeque::with_capacity(config.history),
             unwrap_reference: None,
+            redundancy: false,
             last_played: None,
             state: State::Idle { start: None },
             stats: JitterStats {
@@ -206,6 +211,7 @@ impl JitterBuffer {
     pub fn push(&mut self, now_us: u64, arrival: Arrival) {
         self.stats.received += 1;
         let timestamp = self.unwrap(arrival.timestamp);
+        self.note_redundancy(timestamp, arrival.redundant.is_some());
         self.record_transit(now_us, timestamp);
 
         if self.is_late(timestamp) {
@@ -360,6 +366,18 @@ impl JitterBuffer {
         self.last_played.is_some_and(|last| timestamp <= last)
     }
 
+    /// Tracks whether the sender uses redundancy. A packet with a copy says
+    /// yes. A packet without one says no only if its predecessor exists,
+    /// since the first packet of a spurt never carries a copy.
+    fn note_redundancy(&mut self, timestamp: i64, has_copy: bool) {
+        let previous = timestamp - self.frame_samples();
+        if has_copy {
+            self.redundancy = true;
+        } else if self.frames.contains_key(&previous) || self.last_played == Some(previous) {
+            self.redundancy = false;
+        }
+    }
+
     /// Turns a 32-bit timestamp into a 64-bit one that does not wrap, by
     /// assuming it is within ±2³¹ samples (12 hours) of the previous one.
     fn unwrap(&mut self, timestamp: u32) -> i64 {
@@ -390,7 +408,14 @@ impl JitterBuffer {
         let mut jitter: Vec<u64> = self.transits.iter().map(|t| (t - base) as u64).collect();
         jitter.sort_unstable();
         let p95 = percentile(&jitter, 95);
-        self.stats.target_us = (p95 + self.config.margin_us).max(self.config.min_target_us);
+        let floor = if self.redundancy {
+            self.config
+                .min_target_us
+                .max(2 * self.config.frame.micros())
+        } else {
+            self.config.min_target_us
+        };
+        self.stats.target_us = (p95 + self.config.margin_us).max(floor);
 
         // On-time arrival of the first frame, plus the target.
         let on_time = media_us(first) + base;
@@ -534,22 +559,34 @@ mod tests {
 
     #[test]
     fn a_redundant_copy_replaces_a_lost_frame() {
-        let mut jb = JitterBuffer::new(JitterConfig {
-            min_target_us: 2 * F_US, // redundancy needs two frames of depth
-            ..JitterConfig::new(FRAME)
-        });
+        // Spurt 1 tells the buffer the sender uses redundancy; spurt 2 then
+        // starts with a two-frame target, deep enough for the copies.
+        let mut jb = JitterBuffer::new(JitterConfig::new(FRAME));
+        let packet = |i: u32, first: u32, last: u32| Arrival {
+            redundant: (i > first).then(|| vec![(i - 1) as u8]),
+            end_of_spurt: i == last,
+            ..arrival(i)
+        };
+        for i in 0..3u32 {
+            jb.push(u64::from(i) * F_US, packet(i, 0, 2));
+            jb.pop(u64::from(i) * F_US + 1_000);
+        }
         let mut out = Vec::new();
-        for i in 0..20u32 {
+        for i in 10..30u32 {
             let t = u64::from(i) * F_US;
-            if i != 7 {
-                let mut a = arrival(i);
-                a.redundant = (i > 0).then(|| vec![(i - 1) as u8]);
-                jb.push(t, a);
+            if i != 17 {
+                jb.push(t, packet(i, 10, 29));
             }
             out.push(jb.pop(t + 1_000));
         }
-        let played: Vec<u8> = out.iter().filter_map(frame_of).collect();
-        assert_eq!(&played[..15], &(0..15).collect::<Vec<u8>>()[..]);
+        assert_eq!(jb.stats().target_us, 2 * F_US);
+        // The end of spurt 1 plays first; then spurt 2, without a gap.
+        let played: Vec<u8> = out
+            .iter()
+            .filter_map(frame_of)
+            .filter(|f| *f >= 10)
+            .collect();
+        assert_eq!(&played[..15], &(10..25).collect::<Vec<u8>>()[..]);
         let s = jb.stats();
         assert_eq!((s.concealed, s.recovered), (0, 1));
         assert!(out.iter().any(|p| matches!(
