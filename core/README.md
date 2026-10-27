@@ -8,6 +8,7 @@ Section 6 of [`docs/spec.md`](../docs/spec.md) says where it is going.
 | Crate | What it does |
 | --- | --- |
 | [`drywire-proto`](drywire-proto/) | Packets, key derivation, AES-GCM, signed announcements, replay window. No I/O, no clock. |
+| [`drywire-core`](drywire-core/) | Opus (libopus, CELT only), the voice gate and the jitter buffer. No sound card, no socket. |
 
 ## Run the tests
 
@@ -18,7 +19,8 @@ clippy` and `cargo test` here after the Go suite. Inside `core/`:
 cargo test
 ```
 
-Rust comes from `rustup`; on a Mac with Homebrew's keg-only `rustup`, put
+Building `drywire-core` compiles libopus from source, so it needs CMake and
+a C compiler besides Rust (ADR 0009). Rust comes from `rustup`; on a Mac with Homebrew's keg-only `rustup`, put
 `/opt/homebrew/opt/rustup/bin` on your `PATH`.
 
 ## Where to start reading

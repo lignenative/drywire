@@ -1,0 +1,14 @@
+[package]
+name = "drywire-core"
+description = "Drywire's audio logic: Opus, voice gate, jitter buffer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+opusic-sys.workspace = true
+
+[lints]
+workspace = true

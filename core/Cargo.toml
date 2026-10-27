@@ -1,7 +1,7 @@
 # The Rust workspace shared by every Drywire client. See README.md.
 [workspace]
 resolver = "3"
-members = ["drywire-proto"]
+members = ["drywire-proto", "drywire-core"]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,6 +13,7 @@ publish = false
 # Every dependency is checked against the allowed licenses in CLAUDE.md
 # before it is added here. Versions are pinned to a minor release.
 [workspace.dependencies]
+opusic-sys = "0.7"
 aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
 ed25519-dalek = "3.0"
 hkdf = "0.13"
