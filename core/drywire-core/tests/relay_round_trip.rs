@@ -22,7 +22,7 @@ use drywire_core::inbound::Inbound;
 use drywire_core::link::{Link, LinkConfig};
 use drywire_core::mixer::Mixer;
 use drywire_core::opus::{FrameSize, SAMPLE_RATE};
-use drywire_core::sender::{Sender, SenderConfig};
+use drywire_core::sender::{Packets, Sender, SenderConfig};
 use drywire_proto::control::{new_keepalive, new_ping};
 use drywire_proto::crypto::SigningKey;
 use drywire_proto::{PacketType, parse};
@@ -113,7 +113,7 @@ struct Talk {
 /// Sends `input` frame by frame at the pace of a real microphone.
 fn talk(alex: &Client, sender: &mut Sender, input: &[f32]) -> Talk {
     let frame = sender.config().frame;
-    let mut packets = Vec::new();
+    let mut packets = Packets::new();
     alex.socket.send(&sender.announce()).unwrap();
     let started = Instant::now();
     let mut first_audio_frame = None;
@@ -121,12 +121,11 @@ fn talk(alex: &Client, sender: &mut Sender, input: &[f32]) -> Talk {
         // A frame is ready once it has been fully captured.
         let ready = started + Duration::from_micros((k as u64 + 1) * frame.micros());
         std::thread::sleep(ready.saturating_duration_since(Instant::now()));
-        packets.clear();
         sender.process(pcm, &mut packets).unwrap();
         if sender.stats().audio > 0 {
             first_audio_frame.get_or_insert(k as u64);
         }
-        for p in &packets {
+        for p in packets.iter() {
             alex.socket.send(p).unwrap();
         }
     }

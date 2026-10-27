@@ -33,7 +33,7 @@ use crate::inbound::{Event, Inbound, InboundStats};
 use crate::link::{Link, LinkConfig, LinkStats};
 use crate::mixer::{Mixer, TrackStats};
 use crate::opus::OpusError;
-use crate::sender::{Sender, SenderConfig, SenderStats};
+use crate::sender::{Packets, Sender, SenderConfig, SenderStats};
 use crate::socket;
 
 /// How a call is set up.
@@ -315,7 +315,7 @@ struct Capture {
     shared: Arc<Shared>,
     sender: Sender,
     pending: Vec<f32>,
-    packets: Vec<Vec<u8>>,
+    packets: Packets,
     send_dropped: u64,
     send_errors: u64,
 }
@@ -331,11 +331,10 @@ impl Capture {
             if self.pending.len() < frame {
                 break;
             }
-            self.packets.clear();
             // An Opus error drops this one frame; the next may be fine.
             let _ = self.sender.process(&self.pending, &mut self.packets);
             self.pending.clear();
-            for packet in &self.packets {
+            for packet in self.packets.iter() {
                 match self.socket.send(packet) {
                     Ok(_) => {}
                     // Waiting for room would delay this frame and every
@@ -378,7 +377,7 @@ fn capture_callback(socket: Arc<UdpSocket>, shared: Arc<Shared>, sender: Sender)
         shared,
         sender,
         pending: Vec::with_capacity(frame),
-        packets: Vec::with_capacity(4),
+        packets: Packets::new(),
         send_dropped: 0,
         send_errors: 0,
     };

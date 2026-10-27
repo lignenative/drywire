@@ -222,7 +222,7 @@ impl Inbound {
 mod tests {
     use super::*;
     use crate::opus::FrameSize;
-    use crate::sender::{Sender, SenderConfig};
+    use crate::sender::{Packets, Sender, SenderConfig};
     use drywire_proto::crypto::SigningKey;
 
     const ROOM: [u8; 16] = [2; 16];
@@ -240,9 +240,9 @@ mod tests {
 
     fn loud_packets(s: &mut Sender) -> Vec<Vec<u8>> {
         let pcm: Vec<f32> = (0..240).map(|i| 0.3 * (i as f32 * 0.1).sin()).collect();
-        let mut out = Vec::new();
+        let mut out = Packets::new();
         s.process(&pcm, &mut out).unwrap();
-        out
+        out.iter().map(<[u8]>::to_vec).collect()
     }
 
     fn is_audio(e: &Option<Event>) -> bool {

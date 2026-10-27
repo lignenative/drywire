@@ -10,17 +10,21 @@
 //! It does no I/O and reads no clock: the frame count is its clock, which is
 //! what the timestamp measures anyway. The caller sends the packets it
 //! returns, in order.
+//!
+//! It runs in the capture callback, so after [`Sender::new`] it never
+//! allocates: frames, plaintexts and packets are written into buffers made
+//! once, with room for the largest of each (ADR 0017).
 
 use drywire_proto::Header;
 use drywire_proto::PacketType;
 use drywire_proto::crypto::{
     AudioKey, KEY_SIZE, ROOM_ID_SIZE, SigningKey, new_announce, room_key, sender_key,
 };
-use drywire_proto::header::{FLAG_END_OF_SPURT, SALT_SIZE};
+use drywire_proto::header::{ANNOUNCE_SIZE, FLAG_END_OF_SPURT, MAX_PACKET_SIZE, SALT_SIZE};
 use drywire_proto::payload::AudioPayload;
 
 use crate::gate::{GateConfig, GateDecision, VoiceGate};
-use crate::opus::{Encoder, FrameSize, OpusError, SAMPLE_RATE};
+use crate::opus::{Encoder, FrameSize, MAX_FRAME_BYTES, OpusError, SAMPLE_RATE};
 
 /// A sender starts a new key epoch before its sequence reaches this value
 /// (protocol section 8.3).
@@ -67,6 +71,60 @@ pub struct SenderStats {
     pub epochs: u64,
 }
 
+/// The packets one frame produced, in the order to send them: at most an
+/// announcement and an audio packet. Its buffers are made once, with room
+/// for the largest packet, and reused for every frame.
+pub struct Packets {
+    buffers: [Vec<u8>; 2],
+    len: usize,
+}
+
+impl Packets {
+    /// Room for the packets of one frame.
+    pub fn new() -> Packets {
+        Packets {
+            buffers: [
+                Vec::with_capacity(MAX_PACKET_SIZE),
+                Vec::with_capacity(MAX_PACKET_SIZE),
+            ],
+            len: 0,
+        }
+    }
+
+    /// How many packets the last frame produced.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether the last frame produced no packet.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The packets, in order.
+    pub fn iter(&self) -> impl Iterator<Item = &[u8]> {
+        self.buffers[..self.len].iter().map(Vec::as_slice)
+    }
+
+    fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    /// The buffer of the next packet, emptied.
+    fn push(&mut self) -> &mut Vec<u8> {
+        let buffer = &mut self.buffers[self.len];
+        self.len += 1;
+        buffer.clear();
+        buffer
+    }
+}
+
+impl Default for Packets {
+    fn default() -> Packets {
+        Packets::new()
+    }
+}
+
 /// The sending state of one client in one room.
 pub struct Sender {
     session: u32,
@@ -85,9 +143,14 @@ pub struct Sender {
     timestamp: u32,
     /// Timestamp of the last announcement, while the gate is open.
     announced_at: Option<u32>,
-    /// The previous packet's primary frame, while it can serve as the
-    /// redundant copy: same spurt, same epoch.
-    previous: Option<Vec<u8>>,
+    /// The frame being encoded.
+    frame: Vec<u8>,
+    /// The previous packet's primary frame, valid while `has_previous`: it
+    /// serves as the redundant copy while in the same spurt and epoch.
+    previous: Vec<u8>,
+    has_previous: bool,
+    /// The payload being sealed.
+    plaintext: Vec<u8>,
     stats: SenderStats,
 }
 
@@ -119,7 +182,10 @@ impl Sender {
             // Any start value is valid; a random one keeps restarts apart.
             timestamp: u32::from_be_bytes(random_salt()[..4].try_into().expect("4 bytes")),
             announced_at: None,
-            previous: None,
+            frame: Vec::with_capacity(MAX_FRAME_BYTES),
+            previous: Vec::with_capacity(MAX_FRAME_BYTES),
+            has_previous: false,
+            plaintext: Vec::with_capacity(2 + 2 * MAX_FRAME_BYTES),
             stats: SenderStats {
                 epochs: 1,
                 ..SenderStats::default()
@@ -144,6 +210,10 @@ impl Sender {
 
     /// The signed announcement of the current epoch.
     pub fn announce(&mut self) -> Vec<u8> {
+        self.signed_announce().to_vec()
+    }
+
+    fn signed_announce(&mut self) -> [u8; ANNOUNCE_SIZE] {
         self.stats.announces += 1;
         new_announce(
             &self.identity,
@@ -152,12 +222,12 @@ impl Sender {
             self.epoch,
             &self.salt,
         )
-        .to_vec()
     }
 
     /// Processes one captured frame of exactly the configured size, and
-    /// appends the packets to send, in order, to `out`.
-    pub fn process(&mut self, pcm: &[f32], out: &mut Vec<Vec<u8>>) -> Result<(), OpusError> {
+    /// puts the packets to send, in order, in `out`, replacing what it held.
+    pub fn process(&mut self, pcm: &[f32], out: &mut Packets) -> Result<(), OpusError> {
+        out.clear();
         let timestamp = self.timestamp;
         self.timestamp = timestamp.wrapping_add(self.config.frame.samples() as u32);
         self.stats.frames += 1;
@@ -170,11 +240,11 @@ impl Sender {
             return Ok(());
         };
         // Encode first: a frame Opus refuses changes nothing below.
-        let frame = self.encoder.encode(pcm)?;
+        self.encoder.encode_into(pcm, &mut self.frame)?;
 
         if start_of_spurt {
             self.stats.spurts += 1;
-            self.previous = None; // never a copy on a spurt's first packet
+            self.has_previous = false; // never a copy on a spurt's first packet
         }
         // Before the first packet of every spurt and of every epoch, then
         // once per second.
@@ -187,7 +257,8 @@ impl Sender {
             announce = true;
         }
         if announce {
-            out.push(self.announce());
+            let signed = self.signed_announce();
+            out.push().extend_from_slice(&signed);
             self.announced_at = Some(timestamp);
         }
 
@@ -199,23 +270,27 @@ impl Sender {
             ..Header::new(PacketType::Audio, self.session)
         };
         let payload = AudioPayload {
-            redundant: self.previous.as_deref().filter(|_| self.config.redundancy),
-            primary: &frame,
+            redundant: (self.config.redundancy && self.has_previous)
+                .then_some(self.previous.as_slice()),
+            primary: &self.frame,
         };
-        let (plaintext, redundant_flag) = payload.encode();
+        let redundant_flag = payload.encode_into(&mut self.plaintext);
         let header = Header {
             flags: header.flags | redundant_flag,
             ..header
         };
-        out.push(self.key.seal(&header, &plaintext));
+        self.key.seal_into(&header, &self.plaintext, out.push());
         self.sequence += 1;
         self.stats.audio += 1;
 
         if end_of_spurt {
-            self.previous = None;
+            self.has_previous = false;
             self.announced_at = None;
         } else {
-            self.previous = Some(frame);
+            // This frame is the next packet's copy; its buffer takes the
+            // next frame.
+            std::mem::swap(&mut self.previous, &mut self.frame);
+            self.has_previous = true;
         }
         Ok(())
     }
@@ -232,7 +307,7 @@ impl Sender {
         ));
         self.sequence = 0;
         // The redundant copy must come from the same epoch.
-        self.previous = None;
+        self.has_previous = false;
         self.stats.epochs += 1;
     }
 }
@@ -275,7 +350,7 @@ mod tests {
 
     /// Types of the packets one frame produced.
     fn types(s: &mut Sender, pcm: &[f32]) -> Vec<(PacketType, u8)> {
-        let mut out = Vec::new();
+        let mut out = Packets::new();
         s.process(pcm, &mut out).unwrap();
         out.iter()
             .map(|p| {
@@ -317,8 +392,8 @@ mod tests {
     fn a_long_spurt_repeats_the_announcement_every_second() {
         let mut s = sender(false);
         let mut announces = 0;
+        let mut out = Packets::new();
         for _ in 0..(3 * 200) {
-            let mut out = Vec::new();
             s.process(&loud(), &mut out).unwrap();
             announces += out
                 .iter()
@@ -332,13 +407,14 @@ mod tests {
     #[test]
     fn redundancy_copies_the_previous_frame_of_the_same_spurt() {
         let mut s = sender(true);
-        let mut out = Vec::new();
+        let mut out = Packets::new();
         s.process(&loud(), &mut out).unwrap();
-        let first = parse(out.last().unwrap()).unwrap();
+        let first = parse(out.iter().last().unwrap()).unwrap();
         assert!(!first.is_redundant(), "no copy on the first packet");
-        out.clear();
         s.process(&loud(), &mut out).unwrap();
-        assert!(parse(&out[0]).unwrap().is_redundant());
+        let second: Vec<_> = out.iter().collect();
+        assert_eq!(second.len(), 1);
+        assert!(parse(second[0]).unwrap().is_redundant());
     }
 
     #[test]
@@ -349,7 +425,7 @@ mod tests {
         assert_eq!(salt, s.salt);
 
         s.sequence = EPOCH_SEQUENCE_LIMIT;
-        let mut out = Vec::new();
+        let mut out = Packets::new();
         s.process(&loud(), &mut out).unwrap();
         let headers: Vec<_> = out.iter().map(|p| parse(p).unwrap()).collect();
         // The new epoch is announced before its first audio packet.
@@ -357,6 +433,7 @@ mod tests {
         assert_eq!(headers[0].key_epoch, 1);
         let audio = headers.last().unwrap();
         assert_eq!((audio.key_epoch, audio.sequence), (1, 0));
-        assert_ne!(verify_announce(&public, &[2; 16], &out[0]).unwrap(), salt);
+        let first = out.iter().next().unwrap();
+        assert_ne!(verify_announce(&public, &[2; 16], first).unwrap(), salt);
     }
 }

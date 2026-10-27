@@ -145,15 +145,25 @@ impl Encoder {
     /// Encodes one frame of samples in `[-1, 1]` and returns the Opus
     /// packet. `pcm` must hold exactly one frame.
     pub fn encode(&mut self, pcm: &[f32]) -> Result<Vec<u8>, OpusError> {
+        let mut out = Vec::with_capacity(MAX_FRAME_BYTES);
+        self.encode_into(pcm, &mut out)?;
+        Ok(out)
+    }
+
+    /// Like [`Encoder::encode`], but writes the Opus packet into `out`,
+    /// replacing what it held. Nothing is allocated when `out` has a
+    /// capacity of at least [`MAX_FRAME_BYTES`].
+    pub fn encode_into(&mut self, pcm: &[f32], out: &mut Vec<u8>) -> Result<(), OpusError> {
         assert_eq!(
             pcm.len(),
             self.frame.samples(),
             "encode takes exactly one frame"
         );
-        let mut out = vec![0u8; MAX_FRAME_BYTES];
+        out.clear();
+        out.resize(MAX_FRAME_BYTES, 0);
         // SAFETY: `pcm` holds one frame of mono samples, as the frame size
         // argument says, and `out` is writable for the length passed.
-        let n = check(unsafe {
+        let result = check(unsafe {
             ffi::opus_encode_float(
                 self.raw.as_ptr(),
                 pcm.as_ptr(),
@@ -161,9 +171,9 @@ impl Encoder {
                 out.as_mut_ptr(),
                 out.len() as i32,
             )
-        })?;
-        out.truncate(n);
-        Ok(out)
+        });
+        out.truncate(*result.as_ref().unwrap_or(&0));
+        result.map(|_| ())
     }
 }
 

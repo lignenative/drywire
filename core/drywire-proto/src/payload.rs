@@ -19,16 +19,28 @@ impl AudioPayload<'_> {
     /// Without redundancy: `primary`. With it:
     /// `redundant length (2) ‖ redundant ‖ primary`.
     pub fn encode(&self) -> (Vec<u8>, u8) {
+        let mut b = Vec::new();
+        let flags = self.encode_into(&mut b);
+        (b, flags)
+    }
+
+    /// Like [`AudioPayload::encode`], but writes the plaintext into `out`,
+    /// which is cleared first, and returns the flag bits. Nothing is
+    /// allocated when `out` already has room.
+    pub fn encode_into(&self, out: &mut Vec<u8>) -> u8 {
+        out.clear();
         match self.redundant {
-            None => (self.primary.to_vec(), 0),
+            None => {
+                out.extend_from_slice(self.primary);
+                0
+            }
             Some(redundant) => {
                 let length =
                     u16::try_from(redundant.len()).expect("an Opus frame fits in 1200 bytes");
-                let mut b = Vec::with_capacity(2 + redundant.len() + self.primary.len());
-                b.extend_from_slice(&length.to_be_bytes());
-                b.extend_from_slice(redundant);
-                b.extend_from_slice(self.primary);
-                (b, FLAG_REDUNDANT)
+                out.extend_from_slice(&length.to_be_bytes());
+                out.extend_from_slice(redundant);
+                out.extend_from_slice(self.primary);
+                FLAG_REDUNDANT
             }
         }
     }

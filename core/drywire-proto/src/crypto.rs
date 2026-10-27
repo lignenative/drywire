@@ -5,7 +5,7 @@
 //! `space_key`, so only they can derive the keys that decrypt audio.
 
 use aes_gcm::Aes256Gcm;
-use aes_gcm::aead::{Aead, KeyInit, Payload};
+use aes_gcm::aead::{Aead, AeadInOut, KeyInit, Payload};
 use ed25519_dalek::{Signature, Signer, Verifier};
 /// The Ed25519 key types this module takes, re-exported so that users of the
 /// crate need no direct dependency on `ed25519-dalek`.
@@ -15,7 +15,7 @@ use sha2::Sha256;
 
 use crate::Error;
 use crate::control::{announce_fields, new_announce as announce_from_parts};
-use crate::header::{ANNOUNCE_SIZE, HEADER_SIZE, Header, SALT_SIZE, read_u32};
+use crate::header::{ANNOUNCE_SIZE, HEADER_SIZE, Header, SALT_SIZE, TAG_SIZE, read_u32};
 use crate::{PacketType, parse_as};
 
 /// Size of every key: space key, room key, sender key (section 8.1).
@@ -129,21 +129,29 @@ impl AudioKey {
     /// Builds a complete audio packet: the header, then the payload encrypted
     /// with the header as additional authenticated data (section 8.4).
     pub fn seal(&self, header: &Header, payload: &[u8]) -> Vec<u8> {
+        let mut packet = Vec::with_capacity(HEADER_SIZE + payload.len() + TAG_SIZE);
+        self.seal_into(header, payload, &mut packet);
+        packet
+    }
+
+    /// Like [`AudioKey::seal`], but writes the packet into `packet`, which is
+    /// cleared first. Nothing is allocated when `packet` already has room
+    /// for it, which the real-time capture path relies on.
+    pub fn seal_into(&self, header: &Header, payload: &[u8], packet: &mut Vec<u8>) {
         let aad = header.to_bytes();
-        let sealed = self
+        packet.clear();
+        packet.extend_from_slice(&aad);
+        packet.extend_from_slice(payload);
+        // Encrypted where it lies, then the tag after it.
+        let tag = self
             .cipher
-            .encrypt(
+            .encrypt_inout_detached(
                 &nonce(header.sequence).into(),
-                Payload {
-                    msg: payload,
-                    aad: &aad,
-                },
+                &aad,
+                (&mut packet[HEADER_SIZE..]).into(),
             )
             .expect("AES-GCM encrypts any payload under 64 GiB");
-        let mut packet = Vec::with_capacity(HEADER_SIZE + sealed.len());
-        packet.extend_from_slice(&aad);
-        packet.extend_from_slice(&sealed);
-        packet
+        packet.extend_from_slice(&tag);
     }
 
     /// Checks and decrypts an audio packet and returns its plaintext
@@ -176,6 +184,9 @@ mod tests {
             ..Header::new(PacketType::Audio, 1)
         };
         let packet = key.seal(&header, b"frame");
+        let mut reused = vec![0xee; 3];
+        key.seal_into(&header, b"frame", &mut reused);
+        assert_eq!(reused, packet, "the same bytes, whatever the buffer held");
         assert_eq!(packet.len(), HEADER_SIZE + 5 + TAG_SIZE);
         assert_eq!(key.open(&packet).as_deref(), Ok(&b"frame"[..]));
 
