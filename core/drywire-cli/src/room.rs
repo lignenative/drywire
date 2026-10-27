@@ -133,6 +133,14 @@ fn write_secret(path: &Path, contents: &str) -> Result<(), String> {
     let mut file = options
         .open(path)
         .map_err(|e| format!("{}: {e}", path.display()))?;
+    // `mode` only applies to a new file: an existing one is restricted
+    // before the new secrets go in.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+    }
     std::io::Write::write_all(&mut file, contents.as_bytes())
         .map_err(|e| format!("{}: {e}", path.display()))
 }

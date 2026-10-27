@@ -189,8 +189,18 @@ impl NewRoom {
                         .split(',')
                         .map(|n| n.trim().to_string())
                         .collect();
-                    if names.iter().any(String::is_empty) {
-                        return Err("--members: empty name".into());
+                    // Each name becomes a file name next to rooms.json.
+                    let valid = |n: &String| {
+                        !n.is_empty()
+                            && n != "rooms"
+                            && n.chars()
+                                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                    };
+                    if let Some(bad) = names.iter().find(|n| !valid(n)) {
+                        return Err(format!(
+                            "--members: {bad:?} is not a valid name: use letters, digits, - \
+                             and _, and not \"rooms\""
+                        ));
                     }
                     members = Some(names);
                 }
@@ -264,6 +274,14 @@ mod tests {
         ] {
             let err = Join::parse(&strings(args)).unwrap_err();
             assert!(err.contains(message), "{args:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn new_room_refuses_names_that_are_not_plain_file_names() {
+        for names in ["a,", "../x", "rooms", "a b"] {
+            let args = strings(&["--relay", "r:1", "--members", names, "--out", "d"]);
+            assert!(NewRoom::parse(&args).is_err(), "{names}");
         }
     }
 
