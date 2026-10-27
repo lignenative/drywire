@@ -19,9 +19,13 @@
 //!   the following frames play at the receiver's pace, one per tick. The
 //!   silence before the next spurt is where the buffer re-synchronises,
 //!   which also absorbs the clock drift between sender and receiver.
-//! - Within a spurt: a frame that is missing at its tick is **concealed**
-//!   (the decoder's PLC); if more than two frames above target pile up, one
-//!   is **dropped**. Both are counted.
+//! - Within a spurt, a frame missing at its tick is **concealed** (the
+//!   decoder's PLC), and the buffer keeps waiting for it. If it then
+//!   arrives, it plays one tick late: the spurt stretches by one frame,
+//!   which is how a slower sender clock or a delay spike is absorbed. If a
+//!   later frame arrives first, the missing one was lost: the buffer skips
+//!   it, and the timing is unchanged. If more than two frames above target
+//!   pile up, one is **dropped**. Everything is counted.
 //!
 //! The buffer knows nothing about Opus: frames are opaque bytes. It keeps no
 //! clock either; every call takes the current time in microseconds, so tests
@@ -112,7 +116,7 @@ pub struct JitterStats {
     pub concealed: u64,
     /// Frames thrown away because too many piled up.
     pub dropped: u64,
-    /// Packets that arrived after their tick had passed.
+    /// Packets that arrived after the buffer had played past them.
     pub late: u64,
     /// Packets whose frame was already buffered.
     pub duplicates: u64,
@@ -134,8 +138,9 @@ enum State {
     /// Between talk spurts. `start` caches the schedule of the next spurt
     /// once its first frame is known: (timestamp, time to start playing).
     Idle { start: Option<(i64, u64)> },
-    /// Playing a spurt; `next` is the timestamp due at the next tick.
-    Playing { next: i64, concealed_in_a_row: u32 },
+    /// Playing a spurt. `next` is the timestamp expected next; `waiting`
+    /// counts the ticks concealed while it has not arrived.
+    Playing { next: i64, waiting: i64 },
 }
 
 /// The jitter buffer of one sender.
@@ -148,8 +153,8 @@ pub struct JitterBuffer {
     /// The last raw timestamp seen and its unwrapped value, to turn 32-bit
     /// timestamps that wrap into ever-growing ones.
     unwrap_reference: Option<(u32, i64)>,
-    /// Timestamp of the last frame played or concealed; anything at or
-    /// before it is late.
+    /// Timestamp of the last frame played, dropped or given up on; anything
+    /// at or before it arrives too late to play.
     last_played: Option<i64>,
     state: State,
     stats: JitterStats,
@@ -275,62 +280,72 @@ impl JitterBuffer {
             self.stats.spurts += 1;
             self.state = State::Playing {
                 next: scheduled,
-                concealed_in_a_row: 0,
+                waiting: 0,
             };
         }
 
-        let State::Playing {
-            next,
-            concealed_in_a_row,
-        } = self.state
-        else {
+        let State::Playing { next, waiting } = self.state else {
             unreachable!("the buffer is playing at this point");
         };
-        let step = self.frame_samples();
-
-        // Too many frames waiting: skip the one due now, so the delay comes
-        // back towards the target. One per tick at most.
         let mut next = next;
-        if self.frames.len() > self.target_frames() + 2 && self.frames.remove(&next).is_some() {
+        let mut waiting = waiting;
+
+        // Too many frames waiting: drop the one due now, so the delay comes
+        // back towards the target. One per tick at most, and never the last
+        // frame of a spurt, since the silence after it resets the delay.
+        if self.frames.len() > self.target_frames() + 2
+            && let Some(due) = self.due(next, waiting)
+            && !self.frames[&due].end_of_spurt
+        {
+            self.frames.remove(&due);
             self.stats.dropped += 1;
-            self.last_played = Some(next);
-            next += step;
+            self.last_played = Some(due);
+            next = due + self.frame_samples();
+            waiting = 0;
         }
 
-        self.last_played = Some(next);
-        match self.frames.remove(&next) {
-            Some(buffered) => {
-                self.stats.played += 1;
-                self.stats.recovered += u64::from(buffered.recovered);
-                self.state = if buffered.end_of_spurt {
-                    State::Idle { start: None }
-                } else {
-                    State::Playing {
-                        next: next + step,
-                        concealed_in_a_row: 0,
-                    }
-                };
-                Playout::Frame {
-                    frame: buffered.bytes,
-                    waited_us: now_us.saturating_sub(buffered.arrival_us),
-                    recovered: buffered.recovered,
-                }
+        let Some(due) = self.due(next, waiting) else {
+            // Nothing to play: conceal, and keep waiting for `next`.
+            self.stats.concealed += 1;
+            waiting += 1;
+            let concealed_us = waiting as u64 * self.config.frame.micros();
+            self.state = if concealed_us >= self.config.max_conceal_us {
+                // The spurt is over; its end_of_spurt packet was probably
+                // lost. Give up on every slot already concealed.
+                self.last_played = Some(next + (waiting - 1) * self.frame_samples());
+                State::Idle { start: None }
+            } else {
+                State::Playing { next, waiting }
+            };
+            return Playout::Conceal;
+        };
+
+        let buffered = self.frames.remove(&due).expect("a due frame is buffered");
+        self.last_played = Some(due);
+        self.stats.played += 1;
+        self.stats.recovered += u64::from(buffered.recovered);
+        self.state = if buffered.end_of_spurt {
+            State::Idle { start: None }
+        } else {
+            State::Playing {
+                next: due + self.frame_samples(),
+                waiting: 0,
             }
-            None => {
-                self.stats.concealed += 1;
-                let concealed_in_a_row = concealed_in_a_row + 1;
-                let concealed_us = u64::from(concealed_in_a_row) * self.config.frame.micros();
-                self.state = if concealed_us >= self.config.max_conceal_us {
-                    State::Idle { start: None }
-                } else {
-                    State::Playing {
-                        next: next + step,
-                        concealed_in_a_row,
-                    }
-                };
-                Playout::Conceal
-            }
+        };
+        Playout::Frame {
+            frame: buffered.bytes,
+            waited_us: now_us.saturating_sub(buffered.arrival_us),
+            recovered: buffered.recovered,
         }
+    }
+
+    /// The frame to play now, if any: `next`, or after `waiting` concealed
+    /// ticks, the earliest frame whose slot has come. A frame found past
+    /// `next` means the ones before it were lost, and the concealment
+    /// already covered them.
+    fn due(&self, next: i64, waiting: i64) -> Option<i64> {
+        let last_due = next + waiting * self.frame_samples();
+        self.frames.range(..=last_due).next().map(|(&ts, _)| ts)
     }
 
     fn frame_samples(&self) -> i64 {
@@ -497,6 +512,24 @@ mod tests {
         assert_eq!(out[at + 1], Playout::Conceal);
         assert_eq!(played[at + 2], Some(8));
         assert_eq!(jb.stats().concealed, 1);
+    }
+
+    #[test]
+    fn a_late_frame_stretches_the_spurt_instead_of_being_lost() {
+        // From frame 3 on, every frame arrives 7 ms later than before, as
+        // after a delay spike that does not drain within the spurt.
+        let delay = |i: u32| if i >= 3 { 27_000 } else { 20_000 };
+        let (out, jb) = simulate(10, delay, 1_000, true);
+        let played: Vec<u8> = out.iter().filter_map(frame_of).collect();
+        assert_eq!(played, (0..10).collect::<Vec<u8>>(), "nothing is lost");
+
+        // Frame 3 misses its tick by 1 ms: one concealment, then the rest
+        // of the spurt plays one frame later than scheduled.
+        let s = jb.stats();
+        assert_eq!((s.concealed, s.late, s.dropped), (1, 0, 0), "{s:?}");
+        let at = out.iter().position(|p| frame_of(p) == Some(2)).unwrap();
+        assert_eq!(out[at + 1], Playout::Conceal);
+        assert_eq!(frame_of(&out[at + 2]), Some(3));
     }
 
     #[test]

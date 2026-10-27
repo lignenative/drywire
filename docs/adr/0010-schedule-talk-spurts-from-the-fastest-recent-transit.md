@@ -1,6 +1,6 @@
 # 0010. Schedule talk spurts from the fastest recent transit
 
-Status: Accepted · 2026-10-27
+Status: Accepted · 2026-10-27 · Underrun handling superseded by ADR 0011
 
 ## Context
 
