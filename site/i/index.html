@@ -1,0 +1,41 @@
+<!doctype html>
+<!--
+  The Drywire invitation page (docs/spec.md, section 8). Static: no server
+  code, no cookie, no analytics, and no network request at all once
+  loaded. The policy below forbids every connection, so the fragment of
+  the link (the invitation code and the space key) cannot leave the page.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'none'; form-action 'none'; base-uri 'none'">
+    <meta name="referrer" content="no-referrer">
+    <meta name="robots" content="noindex">
+    <title>Drywire invitation</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="module" src="page.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1 id="title">Drywire invitation</h1>
+      <p id="problem" hidden></p>
+      <section id="invitation" hidden>
+        <p id="lead"></p>
+        <p class="instance" id="instance"></p>
+        <p><a class="button" id="open" href="#"></a></p>
+        <p id="cli"></p>
+        <pre id="command"></pre>
+        <p><button id="copy" type="button"></button></p>
+      </section>
+      <p class="note" id="private"></p>
+      <p class="note" id="get"></p>
+      <noscript>
+        <p>This page reads the invitation in your browser, with JavaScript,
+        and sends nothing. Without it, paste the whole link into
+        <code>drywire-cli join --link '…'</code>.</p>
+      </noscript>
+    </main>
+  </body>
+</html>

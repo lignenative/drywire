@@ -52,3 +52,13 @@ if [ -f "$root/core/Cargo.toml" ]; then
 		echo "note: license check skipped; run: cargo install cargo-deny --locked"
 	fi
 fi
+
+if [ -f "$root/site/i/invite.test.js" ]; then
+	echo "==> site (Bun)"
+	cd "$root/site"
+	if command -v bun >/dev/null 2>&1 || [ -x "$HOME/.bun/bin/bun" ]; then
+		PATH="$PATH:$HOME/.bun/bin" bun test
+	else
+		echo "note: site tests skipped; install Bun (https://bun.sh)"
+	fi
+fi
