@@ -10,6 +10,7 @@
 //! | Backend | Where | What it opens |
 //! | --- | --- | --- |
 //! | [`coreaudio`] | macOS | The default devices through the HAL output unit, with the smallest I/O buffer they accept |
+//! | [`wasapi`] | Windows | Exclusive-mode capture when possible, shared-mode playback with the smallest `IAudioClient3` period |
 //! | [`file::FileIo`] | everywhere | No device: samples from memory, paced in real time, for tests and bots |
 //!
 //! The callbacks run on the backend's real-time threads. They must return
@@ -21,6 +22,8 @@ use std::fmt;
 #[cfg(target_os = "macos")]
 pub mod coreaudio;
 pub mod file;
+#[cfg(windows)]
+pub mod wasapi;
 
 pub use crate::opus::SAMPLE_RATE;
 
@@ -158,7 +161,11 @@ pub fn default_devices(options: AudioOptions) -> Result<Box<dyn AudioIo>, AudioE
     {
         Ok(Box::new(coreaudio::CoreAudio::new(options)))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        Ok(Box::new(wasapi::Wasapi::new(options)))
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = options;
         Err(AudioError(

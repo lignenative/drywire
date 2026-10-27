@@ -7,6 +7,11 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+default = ["bundled-opus"]
+# See drywire-core: off only to check the code for another target.
+bundled-opus = ["drywire-core/bundled-opus"]
+
 [dependencies]
 drywire-core.workspace = true
 drywire-proto.workspace = true

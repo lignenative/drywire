@@ -43,8 +43,8 @@ We cannot run the Windows backend on the development Mac, only compile it.
 - macOS builds need nothing beyond Rust, CMake (for libopus) and Xcode's
   command line tools.
 - The `windows` crate only compiles for Windows targets; macOS and Linux
-  builds do not download or build it. It brings `windows-core` and the
-  `windows-targets` import libraries, all MIT or Apache 2.0.
+  builds do not build it. It brings `windows-core`, `windows-link` and a
+  few small helpers of the same project, all MIT or Apache 2.0.
 - A mistake in the hand-written Core Audio declarations shows up as an
   error status or a crash on the first call, which `drywire-cli devices`
   exercises without opening the microphone.

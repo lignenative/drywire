@@ -27,6 +27,16 @@ Go relay (`testsupport/relay.rs` builds it with `go build`), so they need Go
 too, or `DRYWIRE_SERVER_BIN` set to a built `drywire-server`. Rust comes from `rustup`; on a Mac with Homebrew's keg-only `rustup`, put
 `/opt/homebrew/opt/rustup/bin` on your `PATH`.
 
+## Checking the Windows build from a Mac
+
+The WASAPI backend (`drywire-core/src/audio/wasapi.rs`) only compiles for
+Windows. `make test` checks it with clippy when the target is installed
+(`rustup target add x86_64-pc-windows-msvc`), without default features:
+the `bundled-opus` feature builds libopus with CMake, which needs a C
+toolchain for the target, and a check links nothing, so it needs no
+library. To build and run on a Windows PC, see
+[`drywire-cli/README.md`](drywire-cli/README.md).
+
 ## Where to start reading
 
 [`docs/protocol.md`](../docs/protocol.md) first: `drywire-proto` follows it

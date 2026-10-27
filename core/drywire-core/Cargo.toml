@@ -7,12 +7,22 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+default = ["bundled-opus"]
+# Build libopus from source with CMake (ADR 0009). Turned off only to check
+# the code for a target this machine cannot build C for, such as Windows
+# from a Mac: `cargo check` links nothing, so it needs no library.
+bundled-opus = ["opusic-sys/bundled"]
+
 [dependencies]
 drywire-proto.workspace = true
 getrandom.workspace = true
 opusic-sys.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
 
 [lints]
 workspace = true

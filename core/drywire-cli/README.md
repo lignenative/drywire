@@ -76,3 +76,32 @@ drywire-cli new-room --relay relay.example.com:10050 --members alex,sam,kim --ou
 This writes `team/rooms.json` for the relay (`DRYWIRE_ROOMS`) and one file
 per member. They hold secrets: give each person only their own file,
 privately.
+
+## Build and run on Windows
+
+The Windows backend uses WASAPI: exclusive-mode capture when the
+microphone is not used by another app, shared-mode playback with the
+smallest period `IAudioClient3` offers, so game sound keeps playing on the
+same headset.
+
+1. Install Rust with `rustup` (the MSVC toolchain, the default), the
+   "Desktop development with C++" workload of Visual Studio Build Tools,
+   and CMake (`winget install Kitware.CMake`). Building libopus needs the
+   last two.
+2. In a "Developer PowerShell for VS":
+
+   ```powershell
+   cd core
+   cargo build --release -p drywire-cli
+   .\target\release\drywire-cli.exe devices
+   .\target\release\drywire-cli.exe join --config team\alex.json
+   ```
+
+3. Windows may ask to allow the program through the firewall: it only
+   needs outgoing UDP to the relay.
+
+`devices` shows the buffers and latencies Windows gives, without starting
+a stream. To use the microphone in exclusive mode, allow it in the sound
+settings of the device ("Allow applications to take exclusive control");
+if another app holds the microphone, the CLI falls back to shared mode and
+says so on start.

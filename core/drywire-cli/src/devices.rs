@@ -22,7 +22,20 @@ pub fn run(args: Devices) -> Result<(), String> {
         }
         Ok(())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        if args.play_silence {
+            return Err("--play-silence is only available on macOS for now".into());
+        }
+        for info in drywire_core::audio::wasapi::probe(options) {
+            match info {
+                Ok(info) => println!("{info}"),
+                Err(e) => println!("{e}"),
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = (options, args.play_silence);
         Err("no audio backend for this operating system yet".into())
