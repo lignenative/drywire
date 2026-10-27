@@ -189,22 +189,35 @@ fn two_clients_talk_through_the_relay_with_wav_files() {
     let sam_summary = summary(sam);
     let (_, _) = (alex_log.join(), sam_log.join());
 
-    // Nothing lost or dropped anywhere.
+    // The network path is exact: over loopback nothing is lost, and every
+    // packet decrypts.
     let sent = alex_summary["sent_audio"];
     assert!(sent > 0, "{alex_summary:?}");
     assert_eq!(alex_summary["spurts"], 3, "one spurt per burst");
     assert_eq!(sam_summary["received_audio"], sent, "{sam_summary:?}");
-    assert_eq!(sam_summary["played"], sent, "{sam_summary:?}");
-    for key in [
-        "no_key",
-        "bad_tag",
-        "bad_signature",
-        "duplicate",
-        "late",
-        "dropped",
-    ] {
+    for key in ["no_key", "bad_tag", "bad_signature", "duplicate"] {
         assert_eq!(sam_summary[key], 0, "{key}: {sam_summary:?}");
     }
+
+    // Playback depends on timing, so it is checked by accounting and
+    // bounds, not exact counts. Both clients pace their audio with real
+    // sleeps; on a loaded machine (a CI runner) a stalled sender thread
+    // catches up by sending a few frames at once, and the jitter buffer
+    // rightly drops what piles up above its target, or conceals a frame
+    // that comes too late. Every frame received must be accounted for
+    // (played, dropped or too late; a frame played from a redundant copy
+    // and then received late counts twice, hence >=), and timing losses
+    // must stay rare: a real bug in the path loses far more than 2%. The
+    // audio checks below then show that what played is the input.
+    let s = |key: &str| sam_summary[key];
+    assert!(
+        s("played") + s("dropped") + s("late") >= s("received_audio"),
+        "frames unaccounted for: {sam_summary:?}"
+    );
+    assert!(
+        (s("dropped") + s("late") + s("concealed")) * 50 <= sent,
+        "more than 2% of frames lost to timing: {sam_summary:?}"
+    );
     assert_eq!(alex_summary["uplink_lost"], 0, "{alex_summary:?}");
     assert!(alex_summary["pongs"] > 0, "{alex_summary:?}");
 
