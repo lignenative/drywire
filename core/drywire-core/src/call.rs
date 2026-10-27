@@ -291,8 +291,14 @@ fn network_loop(
             .next_deadline_us(other_sent)
             .saturating_sub(now)
             .clamp(1_000, 50_000);
-        let readable =
-            socket::wait_readable(socket, Duration::from_micros(wait_us)).unwrap_or(false);
+        let readable = match socket::wait_readable(socket, Duration::from_micros(wait_us)) {
+            Ok(readable) => readable,
+            // Not expected on a valid socket; never let it spin a core.
+            Err(_) => {
+                std::thread::sleep(Duration::from_millis(1));
+                false
+            }
+        };
         // Everything that arrived, then wait again. An error (an ICMP
         // "port unreachable" while the relay restarts, say) ends the batch;
         // the link notices a relay that stays silent.
@@ -360,7 +366,7 @@ impl Capture {
                     Ok(_) => {}
                     // Waiting for room would delay this frame and every
                     // frame after it; a lost packet is concealed instead.
-                    Err(e) if e.kind() == ErrorKind::WouldBlock => self.send_dropped += 1,
+                    Err(e) if is_full(&e) => self.send_dropped += 1,
                     Err(_) => self.send_errors += 1,
                 }
             }
@@ -389,6 +395,17 @@ impl Drop for Capture {
             stats.talking = false;
         }
     }
+}
+
+/// Whether a send failed because the OS had no room for the packet: a full
+/// send buffer (`WouldBlock`), or, on macOS and the BSDs, a full interface
+/// queue (`ENOBUFS`), which they report for UDP instead.
+fn is_full(e: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    if e.raw_os_error() == Some(libc::ENOBUFS) {
+        return true;
+    }
+    e.kind() == ErrorKind::WouldBlock
 }
 
 fn capture_callback(socket: Arc<UdpSocket>, shared: Arc<Shared>, sender: Sender) -> InputCallback {

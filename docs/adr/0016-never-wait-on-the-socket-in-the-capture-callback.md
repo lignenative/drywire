@@ -31,9 +31,11 @@ thread).
 ## Decision
 
 - The call's socket is **non-blocking** once the session is bound.
-- The capture callback sends at once; on `WouldBlock` it **drops the packet
-  and counts it** (`send_dropped`, shown by `drywire-cli`). Other errors
-  are counted apart (`send_errors`).
+- The capture callback sends at once; when the OS has no room, it **drops
+  the packet and counts it** (`send_dropped`, shown by `drywire-cli`). No
+  room is `WouldBlock`, or `ENOBUFS` on macOS and the BSDs, which report a
+  full interface queue that way for UDP. Other errors are counted apart
+  (`send_errors`).
 - The network thread waits for a datagram with the OS's own wait, `poll`
   on macOS and Linux and `WSAPoll` on Windows (`drywire-core/src/socket.rs`),
   then reads everything that arrived before waiting again. It wakes up as
