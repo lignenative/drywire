@@ -40,6 +40,18 @@ pub fn parse(packet: &[u8]) -> Result<Header, Error> {
     })
 }
 
+/// Like [`parse`], and also checks that the packet is one of `expected`.
+/// Functions that read past the header use it, so that handing them a valid
+/// packet of another type is an error, never a panic: a packet of another
+/// type gives [`Error::UnknownType`], unknown to that function.
+pub(crate) fn parse_as(packet: &[u8], expected: &[PacketType]) -> Result<Header, Error> {
+    let header = parse(packet)?;
+    if !expected.contains(&header.packet_type) {
+        return Err(Error::UnknownType);
+    }
+    Ok(header)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

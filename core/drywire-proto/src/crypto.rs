@@ -13,7 +13,7 @@ use sha2::Sha256;
 use crate::Error;
 use crate::control::{announce_fields, new_announce as announce_from_parts};
 use crate::header::{ANNOUNCE_SIZE, HEADER_SIZE, Header, SALT_SIZE, read_u32};
-use crate::parse;
+use crate::{PacketType, parse_as};
 
 /// Size of every key: space key, room key, sender key (section 8.1).
 pub const KEY_SIZE: usize = 32;
@@ -83,14 +83,14 @@ pub fn new_announce(
     announce_from_parts(session, epoch, sender_salt, &signature)
 }
 
-/// Checks the signature of an `announce` that [`parse`] accepted, with the
-/// public key the receiver knows for its session, and returns the salt.
+/// Checks an `announce` and its signature, with the public key the receiver
+/// knows for its session, and returns the salt.
 pub fn verify_announce(
     sender_public_key: &VerifyingKey,
     room_id: &[u8; ROOM_ID_SIZE],
     packet: &[u8],
 ) -> Result<[u8; SALT_SIZE], Error> {
-    let header = parse(packet)?;
+    let header = parse_as(packet, &[PacketType::Announce])?;
     let (salt, signature) = announce_fields(packet);
     let message = announcement_message(room_id, header.session, header.key_epoch, &salt);
     sender_public_key
@@ -143,9 +143,10 @@ impl AudioKey {
         packet
     }
 
-    /// Decrypts an audio packet that [`parse`] accepted and returns its
-    /// plaintext payload, or [`Error::BadTag`] if anything was changed.
+    /// Checks and decrypts an audio packet and returns its plaintext
+    /// payload, or [`Error::BadTag`] if anything was changed.
     pub fn open(&self, packet: &[u8]) -> Result<Vec<u8>, Error> {
+        parse_as(packet, &[PacketType::Audio])?;
         let (aad, sealed) = packet.split_at(HEADER_SIZE);
         let sequence = read_u32(aad, 8);
         self.cipher
@@ -157,7 +158,7 @@ impl AudioKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::header::{PacketType, TAG_SIZE};
+    use crate::header::TAG_SIZE;
 
     #[test]
     fn nonce_is_the_sequence_padded_on_the_left() {
@@ -180,6 +181,26 @@ mod tests {
             tampered[i] ^= 1;
             assert_eq!(key.open(&tampered), Err(Error::BadTag), "byte {i}");
         }
+    }
+
+    #[test]
+    fn readers_reject_packets_of_another_type_without_panicking() {
+        let public = SigningKey::from_bytes(&[1u8; 32]).verifying_key();
+        let key = AudioKey::new(&[9u8; KEY_SIZE]);
+        let audio = key.seal(&Header::new(PacketType::Audio, 1), &[0; 34]); // 66 bytes
+        let keepalive = crate::control::new_keepalive(1);
+        let room = [0u8; ROOM_ID_SIZE];
+
+        assert_eq!(
+            verify_announce(&public, &room, &audio),
+            Err(Error::UnknownType)
+        );
+        assert_eq!(key.open(&keepalive), Err(Error::UnknownType));
+        assert_eq!(key.open(&[1, 1]), Err(Error::TooShort));
+        assert_eq!(
+            crate::control::verify_handshake(&audio, &[0; 32]),
+            Err(Error::UnknownType)
+        );
     }
 
     #[test]

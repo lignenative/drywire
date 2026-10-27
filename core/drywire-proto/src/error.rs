@@ -13,7 +13,8 @@ pub enum Error {
     TooLarge,
     /// Version byte not supported by this implementation.
     UnsupportedVersion,
-    /// Type not defined in this version.
+    /// Type not defined in this version, or, from a function that reads one
+    /// type of packet, a packet of another type.
     UnknownType,
     /// Control packet of the wrong size, or audio packet under 33 bytes.
     BadLength,

@@ -100,7 +100,7 @@ func DecodePong(packet []byte) Pong {
 
 // NewAnnounce builds the packet that publishes the salt of a key epoch
 // (section 6.7). The signature is made by the sender's identity key, which
-// the relay never sees; see clientref.SignAnnouncement.
+// the relay never sees; see clientref.NewAnnounce.
 func NewAnnounce(session uint32, epoch uint8, salt, signature []byte) []byte {
 	b := make([]byte, 0, AnnounceSize)
 	b = Header{Version: Version, Type: TypeAnnounce, KeyEpoch: epoch, Session: session}.AppendTo(b)

@@ -33,3 +33,4 @@ pub mod replay;
 pub use error::Error;
 pub use header::{Header, PacketType};
 pub use parse::parse;
+pub(crate) use parse::parse_as;

@@ -1,8 +1,10 @@
 //! Control packets (section 6): everything except audio.
 //!
 //! Builders return fixed-size arrays, because every control packet has one
-//! exact size. Readers take a packet that [`parse`](crate::parse) accepted
-//! with the matching type; they do not check the length again.
+//! exact size. [`verify_handshake`] checks its packet itself. The plain
+//! readers (`ping_client_time`, `decode_pong`, `announce_fields`) take a
+//! packet that [`parse`](crate::parse) accepted with the matching type, and
+//! panic on anything shorter.
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
@@ -57,6 +59,7 @@ fn handshake_mac(secret: &[u8; SECRET_SIZE], header_and_counter: &[u8]) -> Hmac<
 /// its counter. A client uses it on the `hello_ack` it receives, and also
 /// checks that the counter is the one of its last `hello`.
 pub fn verify_handshake(packet: &[u8], secret: &[u8; SECRET_SIZE]) -> Result<u64, Error> {
+    crate::parse_as(packet, &[PacketType::Hello, PacketType::HelloAck])?;
     let signed = &packet[..HEADER_SIZE + 8];
     handshake_mac(secret, signed)
         .verify_slice(&packet[HEADER_SIZE + 8..])

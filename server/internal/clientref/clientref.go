@@ -68,11 +68,17 @@ func NewAnnounce(private ed25519.PrivateKey, roomID []byte, session uint32, epoc
 	return wire.NewAnnounce(session, epoch, senderSalt, signature)
 }
 
-// VerifyAnnounce checks the signature of an announce that wire.Parse
-// accepted, with the public key the receiver knows for its session, and
-// returns the announced salt.
+// VerifyAnnounce checks an announce and its signature, with the public key
+// the receiver knows for its session, and returns the announced salt. A
+// valid packet of another type gives wire.ErrUnknownType.
 func VerifyAnnounce(public ed25519.PublicKey, roomID []byte, packet []byte) ([]byte, error) {
-	h, _ := wire.Parse(packet)
+	h, err := wire.Parse(packet)
+	if err != nil {
+		return nil, err
+	}
+	if h.Type != wire.TypeAnnounce {
+		return nil, wire.ErrUnknownType
+	}
 	salt, signature := wire.AnnounceFields(packet)
 	if !ed25519.Verify(public, AnnouncementMessage(roomID, h.Session, h.KeyEpoch, salt), signature) {
 		return nil, wire.ErrBadSignature
