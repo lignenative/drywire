@@ -281,6 +281,10 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         let track = mixer.stats()[0];
         assert_eq!(track.jitter.played, sent, "{frame}: {track:?}");
         assert_eq!(track.jitter.spurts, 1, "{frame}: {track:?}");
+        // With ideal arrivals the buffer aims at its floor: one frame, or
+        // two for a redundant sender, from its very first spurt.
+        let floor = if redundancy { 2 } else { 1 } * frame.micros();
+        assert_eq!(track.jitter.target_us, floor, "{frame}: {track:?}");
 
         // The output is the input, delayed by the codec and the buffer.
         // Compare the tones, minus 20 ms at each edge where the gate and

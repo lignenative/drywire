@@ -97,7 +97,8 @@ pub struct JitterConfig {
     pub margin_us: u64,
     /// The smallest target delay. The spec's floor is one frame. While the
     /// sender uses redundancy, the floor is at least two frames, since the
-    /// copy of a frame arrives one frame after it (spec section 7).
+    /// copy of a frame arrives one frame after it (spec section 7); so it
+    /// is until the sender's packets say whether it does.
     pub min_target_us: u64,
     /// How many recent packets the jitter statistics cover.
     pub history: usize,
@@ -288,8 +289,12 @@ pub struct JitterBuffer {
     /// The last raw timestamp seen and its unwrapped value, to turn 32-bit
     /// timestamps that wrap into ever-growing ones.
     unwrap_reference: Option<(u32, i64)>,
-    /// Whether the sender currently adds a redundant copy to its packets.
-    redundancy: bool,
+    /// Whether the sender currently adds a redundant copy to its packets,
+    /// once a packet has said so. Until then the buffer assumes it does:
+    /// the first packet of a spurt never has a copy, so a sender's first
+    /// spurt would otherwise start with a one-frame target, too shallow
+    /// for its copies (see `note_redundancy`).
+    redundancy: Option<bool>,
     /// Arrival time and unwrapped timestamp of the last packet.
     last_arrival: Option<(u64, i64)>,
     /// Timestamp of the last frame played, dropped or given up on; anything
@@ -310,7 +315,7 @@ impl JitterBuffer {
             transits: VecDeque::with_capacity(config.history),
             scratch: Vec::with_capacity(config.history),
             unwrap_reference: None,
-            redundancy: false,
+            redundancy: None,
             last_arrival: None,
             last_played: None,
             state: State::Idle { start: None },
@@ -344,7 +349,7 @@ impl JitterBuffer {
         self.frames.clear();
         self.transits.clear();
         self.unwrap_reference = None;
-        self.redundancy = false;
+        self.redundancy = None;
         self.last_arrival = None;
         self.last_played = None;
         self.state = State::Idle { start: None };
@@ -546,6 +551,13 @@ impl JitterBuffer {
     /// Tracks whether the sender uses redundancy. A packet with a copy says
     /// yes. A packet without one says no only if its predecessor belongs to
     /// the same spurt, since the first packet of a spurt never has a copy.
+    ///
+    /// When the answer changes before a spurt starts playing, its schedule
+    /// is made again with the right floor. This is how a sender's first
+    /// spurt gets it right: scheduled with two frames while unknown, it
+    /// stays at two frames when the second packet brings a copy, and comes
+    /// back to one frame, about when the second packet arrives, when it
+    /// does not.
     fn note_redundancy(&mut self, timestamp: i64, has_copy: bool) {
         let previous = timestamp - self.frame_samples();
         let same_spurt = match self.frames.get(previous) {
@@ -555,10 +567,14 @@ impl JitterBuffer {
                 self.last_played == Some(previous) && matches!(self.state, State::Playing { .. })
             }
         };
+        let before = self.redundancy;
         if has_copy {
-            self.redundancy = true;
+            self.redundancy = Some(true);
         } else if same_spurt {
-            self.redundancy = false;
+            self.redundancy = Some(false);
+        }
+        if self.redundancy != before && matches!(self.state, State::Idle { .. }) {
+            self.state = State::Idle { start: None };
         }
     }
 
@@ -594,7 +610,7 @@ impl JitterBuffer {
             .extend(self.transits.iter().map(|t| (t - base) as u64));
         self.scratch.sort_unstable();
         let p95 = percentile(&self.scratch, 95);
-        let floor = if self.redundancy {
+        let floor = if self.redundancy != Some(false) {
             self.config
                 .min_target_us
                 .max(2 * self.config.frame.micros())
@@ -789,6 +805,35 @@ mod tests {
     }
 
     #[test]
+    fn a_senders_first_spurt_gets_the_floor_its_redundancy_needs() {
+        // Packets every 5 ms, ticks 1 ms after each. Returns the index of
+        // the tick that played the first frame, and the target.
+        let first_spurt = |redundancy: bool| {
+            let mut jb = JitterBuffer::new(JitterConfig::new(FRAME));
+            let mut first_played = None;
+            for i in 0..10u32 {
+                let t = u64::from(i) * F_US;
+                jb.push(
+                    t,
+                    Arrival {
+                        redundant: (redundancy && i > 0).then(|| bytes(&[(i - 1) as u8])),
+                        ..arrival(i)
+                    },
+                );
+                if frame_of(&jb.pop(t + 1_000)).is_some() {
+                    first_played.get_or_insert(i);
+                }
+            }
+            (first_played.unwrap(), jb.stats().target_us)
+        };
+        // Two frames from the start for a redundant sender: the copy of a
+        // lost frame arrives one frame after it.
+        assert_eq!(first_spurt(true), (2, 2 * F_US));
+        // One frame for the others, known from their second packet.
+        assert_eq!(first_spurt(false), (1, F_US));
+    }
+
+    #[test]
     fn a_frame_after_its_redundant_copy_is_not_a_duplicate() {
         let mut jb = JitterBuffer::new(JitterConfig::new(FRAME));
         jb.push(0, arrival(0));
@@ -872,6 +917,9 @@ mod tests {
     #[test]
     fn a_pile_up_drops_frames_back_to_target() {
         let mut jb = JitterBuffer::new(JitterConfig::new(FRAME));
+        // A sender already known to send no copies, so the spurt starts
+        // one frame after its first packet.
+        jb.redundancy = Some(false);
         // Start a spurt on time, then a burst of 10 frames arrives at once.
         jb.push(0, arrival(0));
         assert_eq!(frame_of(&jb.pop(F_US)), Some(0));
@@ -897,8 +945,9 @@ mod tests {
         jb.push(0, arrival(0));
         jb.push(1, arrival(0));
         assert_eq!(jb.stats().duplicates, 1);
-        assert_eq!(frame_of(&jb.pop(F_US)), Some(0));
-        jb.push(F_US + 1, arrival(0));
+        // Two frames: nothing has said yet that the sender sends no copies.
+        assert_eq!(frame_of(&jb.pop(2 * F_US)), Some(0));
+        jb.push(2 * F_US + 1, arrival(0));
         assert_eq!(jb.stats().late, 1);
         assert!(jb.is_empty());
     }
@@ -994,7 +1043,11 @@ mod tests {
             );
             jb.pop(u64::from(i) * F_US + 1_000);
         }
-        assert!(jb.redundancy, "the first packet of a spurt says nothing");
+        assert_eq!(
+            jb.redundancy,
+            Some(true),
+            "the first packet of a spurt says nothing"
+        );
     }
 
     #[test]
