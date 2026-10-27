@@ -27,4 +27,5 @@ pub mod link;
 pub mod mixer;
 pub mod opus;
 pub mod sender;
+mod socket;
 pub mod wav;

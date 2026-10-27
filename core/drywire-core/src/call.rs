@@ -6,7 +6,8 @@
 //! - **Capture** (the audio input callback): frames the microphone's
 //!   samples, runs the [`Sender`], and sends its packets on the socket at
 //!   once. Sending from here saves a thread hop on the path every word
-//!   takes.
+//!   takes. The socket is non-blocking: a packet the OS cannot take at
+//!   once is dropped and counted, never waited for (ADR 0016).
 //! - **Network** (a thread of its own): receives, checks and decrypts with
 //!   [`Inbound`], drives the [`Link`] (pings, keepalives, new hellos), and
 //!   passes decrypted frames to playback through a channel.
@@ -16,6 +17,7 @@
 //! The audio callbacks never wait for a lock: they update the shared
 //! statistics only when the lock is free.
 
+use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender as ChannelSender, channel};
@@ -32,6 +34,7 @@ use crate::link::{Link, LinkConfig, LinkStats};
 use crate::mixer::{Mixer, TrackStats};
 use crate::opus::OpusError;
 use crate::sender::{Sender, SenderConfig, SenderStats};
+use crate::socket;
 
 /// How a call is set up.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,7 +62,10 @@ pub struct CallStats {
     pub sender: SenderStats,
     /// Whether the voice gate is open.
     pub talking: bool,
-    /// Packets the socket refused to send.
+    /// Packets dropped because the socket's send buffer was full: the
+    /// capture callback never waits for room (ADR 0016).
+    pub send_dropped: u64,
+    /// Packets the socket refused to send for any other reason.
     pub send_errors: u64,
     /// What was received and dropped before playback.
     pub inbound: InboundStats,
@@ -148,6 +154,10 @@ impl Call {
         });
         let mut link = Link::new(config.session, config.session_secret, options.link);
         bind(&socket, &shared, &mut link, options.join_timeout)?;
+        // From here on nothing waits on the socket itself: the network
+        // thread waits with `socket::wait_readable`, and the capture
+        // callback drops what the OS cannot take at once.
+        socket.set_nonblocking(true)?;
 
         let mut sender = Sender::new(
             config.identity.clone(),
@@ -264,8 +274,12 @@ fn network_loop(
             .next_deadline_us(other_sent)
             .saturating_sub(now)
             .clamp(1_000, 50_000);
-        let _ = socket.set_read_timeout(Some(Duration::from_micros(wait_us)));
-        if let Ok(n) = socket.recv(&mut buf) {
+        let readable =
+            socket::wait_readable(socket, Duration::from_micros(wait_us)).unwrap_or(false);
+        // Everything that arrived, then wait again. An error (an ICMP
+        // "port unreachable" while the relay restarts, say) ends the batch;
+        // the link notices a relay that stays silent.
+        while readable && let Ok(n) = socket.recv(&mut buf) {
             let at = shared.now_us();
             let packet = &buf[..n];
             match link.handle(at, packet) {
@@ -302,6 +316,7 @@ struct Capture {
     sender: Sender,
     pending: Vec<f32>,
     packets: Vec<Vec<u8>>,
+    send_dropped: u64,
     send_errors: u64,
 }
 
@@ -321,8 +336,12 @@ impl Capture {
             let _ = self.sender.process(&self.pending, &mut self.packets);
             self.pending.clear();
             for packet in &self.packets {
-                if self.socket.send(packet).is_err() {
-                    self.send_errors += 1;
+                match self.socket.send(packet) {
+                    Ok(_) => {}
+                    // Waiting for room would delay this frame and every
+                    // frame after it; a lost packet is concealed instead.
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => self.send_dropped += 1,
+                    Err(_) => self.send_errors += 1,
                 }
             }
             if !self.packets.is_empty() {
@@ -338,6 +357,7 @@ impl Capture {
     fn publish(&self, stats: &mut CallStats) {
         stats.sender = self.sender.stats();
         stats.talking = self.sender.is_talking();
+        stats.send_dropped = self.send_dropped;
         stats.send_errors = self.send_errors;
     }
 }
@@ -359,6 +379,7 @@ fn capture_callback(socket: Arc<UdpSocket>, shared: Arc<Shared>, sender: Sender)
         sender,
         pending: Vec::with_capacity(frame),
         packets: Vec::with_capacity(4),
+        send_dropped: 0,
         send_errors: 0,
     };
     Box::new(move |samples: &[f32]| capture.process(samples))

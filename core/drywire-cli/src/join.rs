@@ -146,6 +146,12 @@ fn status_line(config: &ClientConfig, stats: &CallStats) -> String {
         link.uplink_lost,
         if stats.talking { ", talking" } else { "" }
     );
+    if stats.send_dropped + stats.send_errors > 0 {
+        line += &format!(
+            ", not sent: {} socket full, {} errors",
+            stats.send_dropped, stats.send_errors
+        );
+    }
     for track in &stats.tracks {
         let name = config
             .member(track.session)
@@ -183,12 +189,13 @@ fn summary(stats: &CallStats) -> String {
     };
     let i = &stats.inbound;
     format!(
-        "summary sent_audio={} announces={} spurts={} send_errors={} \
+        "summary sent_audio={} announces={} spurts={} send_dropped={} send_errors={} \
          received_audio={} no_key={} bad_tag={} bad_signature={} duplicate={} \
          played={} concealed={} late={} dropped={} pongs={} uplink_received={} uplink_lost={}",
         stats.sender.audio,
         stats.sender.announces,
         stats.sender.spurts,
+        stats.send_dropped,
         stats.send_errors,
         i.audio,
         i.no_key,
