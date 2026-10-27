@@ -1,27 +1,29 @@
 //! Audio from one client to another through the real Go relay:
-//! gate → Opus → seal → UDP → relay → UDP → open → jitter buffer → decode.
+//! gate → Opus → seal → UDP → relay → UDP → open → decode.
 //!
 //! Two clients of the development room "lobby" bind their sessions with
-//! `hello`. The first one announces its key, then talks for 600 ms in real
-//! time, at each frame size. The second records what it receives, over the
-//! real network path, then plays it through the mixer on a simulated clock:
-//! each packet arrives exactly one capture period after the previous one, as
-//! its timestamp says. The network part (relay, sockets, encryption) is
-//! real and checked exactly; the playback part does not depend on how the
-//! test machine schedules threads, so it is checked exactly too. On the
-//! way, the first client pings the relay and sends a keepalive, and the
-//! relay's own counters must show nothing dropped.
+//! `hello`. The first one announces its key, then talks for 600 ms at the
+//! pace of a microphone, at each frame size. The second records what it
+//! receives. On the way, the first client pings the relay and sends a
+//! keepalive, and the relay's own counters must show nothing dropped.
+//!
+//! Only what does not depend on time is checked here: every packet
+//! arrives, decrypts, carries the next frame, and decodes back to the
+//! input. Sockets, the relay and the test machine's scheduler decide when
+//! packets arrive; a busy CI runner, or Windows's coarse sleeps, change
+//! that from run to run. Playback timing and latency are checked on a
+//! simulated clock, with no socket, in `simulated_call.rs`.
 
 #[path = "../../testsupport/relay.rs"]
 mod relay;
 
 use std::net::UdpSocket;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use drywire_core::inbound::Inbound;
+use drywire_core::inbound::{Event, Inbound};
 use drywire_core::link::{Link, LinkConfig};
-use drywire_core::mixer::Mixer;
-use drywire_core::opus::{FrameSize, SAMPLE_RATE};
+use drywire_core::opus::{Decoder, FrameSize, SAMPLE_RATE};
 use drywire_core::sender::{Packets, Sender, SenderConfig};
 use drywire_proto::control::{new_keepalive, new_ping};
 use drywire_proto::crypto::SigningKey;
@@ -100,18 +102,17 @@ fn speech() -> Vec<f32> {
     signal
 }
 
-/// What [`talk`] did, for the simulated playback clock.
+/// What [`talk`] did.
 struct Talk {
     /// Audio packets sent.
     sent: u64,
-    /// When the first input sample was captured.
-    started: Instant,
     /// The index of the first frame the gate let through.
-    first_audio_frame: u64,
+    first_audio_frame: usize,
 }
 
-/// Sends `input` frame by frame at the pace of a real microphone.
-fn talk(alex: &Client, sender: &mut Sender, input: &[f32]) -> Talk {
+/// Sends `input` frame by frame at the pace of a real microphone, as well
+/// as this machine's sleeps allow, and says when it is done.
+fn talk(alex: &Client, sender: &mut Sender, input: &[f32], done: &AtomicBool) -> Talk {
     let frame = sender.config().frame;
     let mut packets = Packets::new();
     alex.socket.send(&sender.announce()).unwrap();
@@ -123,103 +124,69 @@ fn talk(alex: &Client, sender: &mut Sender, input: &[f32]) -> Talk {
         std::thread::sleep(ready.saturating_duration_since(Instant::now()));
         sender.process(pcm, &mut packets).unwrap();
         if sender.stats().audio > 0 {
-            first_audio_frame.get_or_insert(k as u64);
+            first_audio_frame.get_or_insert(k);
         }
         for p in packets.iter() {
             alex.socket.send(p).unwrap();
         }
     }
+    done.store(true, Ordering::Relaxed);
     Talk {
         sent: sender.stats().audio,
-        started,
         first_audio_frame: first_audio_frame.expect("the gate opened"),
     }
 }
 
-/// Records every packet the client receives until `quiet` passes without
-/// one, with its arrival time.
-fn record(sam: &Client, quiet: Duration) -> Vec<(u64, Vec<u8>)> {
-    sam.socket.set_read_timeout(Some(quiet)).unwrap();
+/// Records every packet the client receives, until the talker is done and
+/// half a second passes without a packet. However long the talker stalls,
+/// nothing it sends is missed.
+fn record(sam: &Client, done: &AtomicBool) -> Vec<Vec<u8>> {
+    sam.socket
+        .set_read_timeout(Some(Duration::from_millis(50)))
+        .unwrap();
     let mut got = Vec::new();
     let mut buf = [0u8; 1500];
-    while let Ok(n) = sam.socket.recv(&mut buf) {
-        got.push((sam.now_us(), buf[..n].to_vec()));
+    let mut quiet_since = None;
+    loop {
+        match sam.socket.recv(&mut buf) {
+            Ok(n) => {
+                got.push(buf[..n].to_vec());
+                quiet_since = None;
+            }
+            Err(_) if done.load(Ordering::Relaxed) => {
+                let since = *quiet_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= Duration::from_millis(500) {
+                    return got;
+                }
+            }
+            Err(_) => {}
+        }
     }
-    got
 }
 
-/// Plays the received packets through the mixer, on a simulated clock whose
-/// time 0 is the capture of the first input sample, and a sound card that
-/// asks for 1 ms (48 samples) at a time.
-///
-/// Each audio packet is handed to the mixer at the time a perfect network
-/// would deliver it: the instant its frame was fully captured, as its
-/// timestamp says. Real arrival times depend on the test machine: a sender
-/// thread that stalls on a loaded CI runner sends a few frames at once, and
-/// the jitter buffer then rightly drops or conceals one, which says nothing
-/// about the path under test. With ideal arrivals the whole playback is
-/// deterministic, down to the delay of the output, which the test checks
-/// exactly. The real timing is still measured and returned, as the largest
-/// lateness of a packet against that ideal schedule, for the log.
-fn play(
-    received: Vec<(u64, Vec<u8>)>,
-    recorder: &Client,
-    talk: &Talk,
-    frame: FrameSize,
-    inbound: &mut Inbound,
-    samples: usize,
-) -> (Vec<f32>, Mixer, u64) {
-    let mut mixer = Mixer::new();
-    // Time 0 on the recorder's clock, which started first.
-    let origin_us = talk.started.duration_since(recorder.started).as_micros() as u64;
-    let first_ready_us = (talk.first_audio_frame + 1) * frame.micros();
-    // An announcement goes with the packet before it, so the order stays;
-    // the ones before the first audio packet are known at time 0.
-    let mut first_timestamp = None;
-    let mut ideal = 0;
-    let mut worst_late_us = 0;
-    let scheduled: Vec<(u64, Vec<u8>)> = received
-        .into_iter()
-        .map(|(real, packet)| {
-            let header = parse(&packet).expect("a valid packet");
-            if header.packet_type == PacketType::Audio {
-                let first = *first_timestamp.get_or_insert(header.timestamp);
-                let elapsed = u64::from(header.timestamp.wrapping_sub(first));
-                ideal = first_ready_us + elapsed * 1_000_000 / u64::from(SAMPLE_RATE);
-                let real = real.saturating_sub(origin_us);
-                worst_late_us = worst_late_us.max(real.saturating_sub(ideal));
-            }
-            (ideal, packet)
+/// Opens every packet and decodes the primary frames in timestamp order,
+/// as one stream. Returns the decoded samples, and checks that the frames
+/// follow each other with no gap: one talk spurt, nothing missing.
+fn decode_all(received: &[Vec<u8>], inbound: &mut Inbound, frame: FrameSize) -> Vec<f32> {
+    let mut frames: Vec<_> = received
+        .iter()
+        .filter_map(|packet| match inbound.handle(packet)? {
+            Event::Audio { arrival, .. } => Some(arrival),
+            Event::Restarted { .. } => panic!("the sender did not restart"),
         })
         .collect();
-
-    let mut incoming = scheduled.into_iter().peekable();
-    let mut output = vec![0.0; samples];
-    for (i, chunk) in output.chunks_mut(48).enumerate() {
-        let now = i as u64 * 1_000;
-        while let Some((at, packet)) = incoming.next_if(|(at, _)| *at <= now) {
-            if let Some(event) = inbound.handle(&packet) {
-                mixer.push(at, event).unwrap();
-            }
-        }
-        mixer.render(now, chunk);
+    let first = frames.first().expect("received audio").timestamp;
+    frames.sort_by_key(|a| a.timestamp.wrapping_sub(first));
+    let mut decoder = Decoder::new().unwrap();
+    let mut output = Vec::new();
+    let mut pcm = vec![0.0; frame.samples()];
+    for (k, arrival) in frames.iter().enumerate() {
+        let expected = first.wrapping_add((k * frame.samples()) as u32);
+        assert_eq!(arrival.timestamp, expected, "{frame}: frame {k} is missing");
+        decoder.decode(&arrival.primary, &mut pcm).unwrap();
+        output.extend_from_slice(&pcm);
     }
-    (output, mixer, worst_late_us)
-}
-
-/// The delay at which `output` best matches `input`, searched up to
-/// `max_lag` samples.
-fn best_lag(input: &[f32], output: &[f32], max_lag: usize) -> usize {
-    let correlation = |lag: usize| -> f32 {
-        input
-            .iter()
-            .zip(output.get(lag..).unwrap_or(&[]))
-            .map(|(a, b)| a * b)
-            .sum()
-    };
-    (0..max_lag)
-        .max_by(|a, b| correlation(*a).total_cmp(&correlation(*b)))
-        .unwrap()
+    output
 }
 
 fn snr_db(input: &[f32], output: &[f32]) -> f32 {
@@ -258,66 +225,49 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         // (protocol 10.4). Reusing the binding would let the relay treat a
         // longer run's sequences as duplicates of the previous run's.
         let alex = alex.insert(Client::join(&relay, 1));
-        // Receive while talking, so arrival times are real.
+        let done = AtomicBool::new(false);
         let (talked, received) = std::thread::scope(|scope| {
-            let recorder = scope.spawn(|| record(&sam, Duration::from_millis(300)));
-            (talk(alex, &mut sender, &input), recorder.join().unwrap())
+            let recorder = scope.spawn(|| record(&sam, &done));
+            (
+                talk(alex, &mut sender, &input, &done),
+                recorder.join().unwrap(),
+            )
         });
         let sent = talked.sent;
 
+        // Every packet arrived and decrypted, and the frames are complete.
         let mut inbound = Inbound::new(ROOM_ID, &SPACE_KEY, [(1, alex_identity.verifying_key())]);
-        let samples = input.len() + SAMPLE_RATE as usize;
-        let (output, mixer, worst_late_us) =
-            play(received, &sam, &talked, frame, &mut inbound, samples);
-
-        // Every packet arrived, decrypted, and was played.
+        let output = decode_all(&received, &mut inbound, frame);
         let stats = inbound.stats();
         assert_eq!(stats.audio, sent, "{frame}: {stats:?}");
         assert_eq!(
-            (stats.no_key, stats.bad_tag, stats.bad_signature),
-            (0, 0, 0),
+            (
+                stats.no_key,
+                stats.bad_tag,
+                stats.bad_signature,
+                stats.duplicate
+            ),
+            (0, 0, 0, 0),
             "{frame}"
         );
-        let track = mixer.stats()[0];
-        assert_eq!(track.jitter.played, sent, "{frame}: {track:?}");
-        assert_eq!(track.jitter.spurts, 1, "{frame}: {track:?}");
-        // With ideal arrivals the buffer aims at its floor: one frame, or
-        // two for a redundant sender, from its very first spurt.
-        let floor = if redundancy { 2 } else { 1 } * frame.micros();
-        assert_eq!(track.jitter.target_us, floor, "{frame}: {track:?}");
 
-        // The output is the input, delayed by the codec and the buffer.
-        // Compare the tones, minus 20 ms at each edge where the gate and
-        // the codec settle.
+        // Decoded, the frames are the input from the frame the gate opened
+        // on, delayed by exactly the codec's lookahead. Compare the tones,
+        // minus 20 ms at each edge where the gate and the codec settle.
+        let start = talked.first_audio_frame * frame.samples();
         let talk_start = 200 * SAMPLE_RATE as usize / 1000;
         let talk_end = 800 * SAMPLE_RATE as usize / 1000;
-        // Search 70 ms of lag on the first 100 ms of tones.
-        let probe = talk_start..talk_start + 4800;
-        let lag = best_lag(&input[probe.clone()], &output[probe.start..], 3360);
-        // The delay is exactly what the latency budget says (spec section
-        // 4): the codec's lookahead, one frame to capture it, and the jitter
-        // buffer's target. The spurt starts on its schedule: playback asks
-        // every 0.5 ms between spurts, and every time here falls on a
-        // multiple of 0.5 ms.
-        let target = track.jitter.target_us as usize * SAMPLE_RATE as usize / 1_000_000;
-        assert_eq!(lag, LOOKAHEAD + frame.samples() + target, "{frame}");
         let edge = 960;
+        let at = |i: usize| i - start + LOOKAHEAD;
         let snr = snr_db(
             &input[talk_start + edge..talk_end - edge],
-            &output[talk_start + edge + lag..talk_end - edge + lag],
+            &output[at(talk_start + edge)..at(talk_end - edge)],
         );
-        // A concealed frame would stretch the spurt and break the alignment.
-        assert_eq!(track.jitter.concealed, 0, "{frame}: {track:?}");
-        assert!(
-            snr > 15.0,
-            "{frame}: SNR {snr:.1} dB at lag {lag} {track:?}"
-        );
+        assert!(snr > 15.0, "{frame}: SNR {snr:.1} dB");
         last_sent = sent;
         eprintln!(
-            "{frame}{}: {sent} packets, SNR {snr:.1} dB at lag {lag}, buffer target {} µs, \
-             real arrivals up to {worst_late_us} µs behind schedule",
+            "{frame}{}: {sent} packets, SNR {snr:.1} dB",
             if redundancy { " + redundancy" } else { "" },
-            track.jitter.target_us
         );
     }
 

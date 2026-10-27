@@ -191,7 +191,8 @@ fn summary(stats: &CallStats) -> String {
     format!(
         "summary sent_audio={} announces={} spurts={} send_dropped={} send_errors={} \
          received_audio={} no_key={} bad_tag={} bad_signature={} duplicate={} \
-         played={} concealed={} late={} dropped={} pongs={} uplink_received={} uplink_lost={}",
+         played={} concealed={} late={} dropped={} playback_queue_full={} pongs={} \
+         uplink_received={} uplink_lost={}",
         stats.sender.audio,
         stats.sender.announces,
         stats.sender.spurts,
@@ -206,6 +207,7 @@ fn summary(stats: &CallStats) -> String {
         sum(|t| t.jitter.concealed),
         sum(|t| t.jitter.late),
         sum(|t| t.jitter.dropped),
+        stats.playback_queue_full,
         stats.link.pongs,
         stats.link.uplink_received,
         stats.link.uplink_lost,

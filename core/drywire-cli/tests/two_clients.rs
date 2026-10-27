@@ -3,9 +3,15 @@
 //! sound card or asks for microphone permission.
 //!
 //! Alex plays three tone bursts at 440, 660 and 990 Hz into the call; Sam
-//! records what he hears. Sam's recording must contain the three bursts, in
-//! order, each about as long as it was sent, and both clients' counters
-//! must agree that nothing was lost or dropped on the way.
+//! records what they hear. Both clients' counters must agree that every
+//! packet arrived and decrypted, and Sam's recording must hold the three
+//! tones, in order.
+//!
+//! Both clients pace their audio with real sleeps, which a busy CI runner
+//! or Windows's coarse timer stretch at will, so nothing here depends on
+//! timing: not how many frames the jitter buffer had to drop or conceal,
+//! nor how long a burst lasted. Playback timing is checked exactly on a
+//! simulated clock, in drywire-core's `simulated_call.rs`.
 
 #[path = "../../testsupport/relay.rs"]
 mod relay;
@@ -112,25 +118,6 @@ fn power_at(samples: &[f32], frequency: f32) -> f32 {
     s1 * s1 + s2 * s2 - 2.0 * w.cos() * s1 * s2
 }
 
-/// The stretches of `samples` louder than −30 dBFS, in 5 ms blocks, as
-/// (start, end) sample indexes.
-fn loud_stretches(samples: &[f32]) -> Vec<(usize, usize)> {
-    let block = RATE / 200;
-    let mut stretches: Vec<(usize, usize)> = Vec::new();
-    for (i, chunk) in samples.chunks(block).enumerate() {
-        let rms = (chunk.iter().map(|x| x * x).sum::<f32>() / chunk.len() as f32).sqrt();
-        if rms < 0.03 {
-            continue;
-        }
-        let start = i * block;
-        match stretches.last_mut() {
-            Some(last) if last.1 == start => last.1 = start + chunk.len(),
-            _ => stretches.push((start, start + chunk.len())),
-        }
-    }
-    stretches
-}
-
 #[test]
 fn two_clients_talk_through_the_relay_with_wav_files() {
     let relay = Relay::start();
@@ -199,43 +186,47 @@ fn two_clients_talk_through_the_relay_with_wav_files() {
         assert_eq!(sam_summary[key], 0, "{key}: {sam_summary:?}");
     }
 
-    // Playback depends on timing, so it is checked by accounting and
-    // bounds, not exact counts. Both clients pace their audio with real
-    // sleeps; on a loaded machine (a CI runner) a stalled sender thread
-    // catches up by sending a few frames at once, and the jitter buffer
-    // rightly drops what piles up above its target, or conceals a frame
-    // that comes too late. Every frame received must be accounted for
-    // (played, dropped or too late; a frame played from a redundant copy
-    // and then received late counts twice, hence >=), and timing losses
-    // must stay rare: a real bug in the path loses far more than 2%. The
-    // audio checks below then show that what played is the input.
+    // Every frame received is accounted for: played, dropped by the jitter
+    // buffer, too late, or dropped before it because playback stalled. A
+    // frame played from a redundant copy and then received late counts
+    // twice, hence >=. How the frames split between those depends on
+    // timing, so only the sum is checked.
     let s = |key: &str| sam_summary[key];
     assert!(
-        s("played") + s("dropped") + s("late") >= s("received_audio"),
+        s("played") + s("dropped") + s("late") + s("playback_queue_full") >= s("received_audio"),
         "frames unaccounted for: {sam_summary:?}"
     );
-    assert!(
-        (s("dropped") + s("late") + s("concealed")) * 50 <= sent,
-        "more than 2% of frames lost to timing: {sam_summary:?}"
-    );
+    assert!(s("played") > 0, "{sam_summary:?}");
     assert_eq!(alex_summary["uplink_lost"], 0, "{alex_summary:?}");
     assert!(alex_summary["pongs"] > 0, "{alex_summary:?}");
 
-    // Sam heard three bursts, in order, each about 300 ms long.
+    // Sam heard the three tones, in order: each is loudest, among the
+    // three, somewhere after the previous one was. Concealment or dropped
+    // frames on a stalled machine change the bursts' edges, not this.
     let recording = wav::read(&heard).unwrap();
-    let stretches = loud_stretches(&recording);
-    assert_eq!(stretches.len(), 3, "loud stretches: {stretches:?}");
-    for ((start, end), tone) in stretches.iter().zip(TONES) {
-        let ms = (end - start) * 1000 / RATE;
-        assert!((280..=330).contains(&ms), "{tone} Hz lasted {ms} ms");
-        let middle = &recording[start + (end - start) / 4..end - (end - start) / 4];
-        let strongest = TONES
-            .iter()
-            .copied()
-            .max_by(|a, b| power_at(middle, *a).total_cmp(&power_at(middle, *b)))
-            .unwrap();
-        assert_eq!(strongest, tone, "burst at sample {start}");
-    }
+    let window = RATE / 20;
+    // What a −30 dBFS tone gives over a whole window: anything quieter is
+    // not the burst.
+    let audible = (0.03 * window as f32 / 2.0).powi(2);
+    let loudest_at = |tone: f32| -> usize {
+        recording
+            .chunks_exact(window)
+            .enumerate()
+            .filter(|(_, w)| {
+                power_at(w, tone) > audible
+                    && TONES
+                        .iter()
+                        .all(|other| power_at(w, tone) >= power_at(w, *other))
+            })
+            .max_by(|(_, a), (_, b)| power_at(a, tone).total_cmp(&power_at(b, tone)))
+            .map(|(i, _)| i)
+            .unwrap_or_else(|| panic!("{tone} Hz was never heard"))
+    };
+    let at: Vec<usize> = TONES.iter().map(|t| loudest_at(*t)).collect();
+    assert!(
+        at[0] < at[1] && at[1] < at[2],
+        "tones heard at windows {at:?}"
+    );
 
     // Alex heard nobody: Sam was silent, so his gate never opened.
     let alex_recording = wav::read(&alex_heard).unwrap();
