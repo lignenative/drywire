@@ -57,6 +57,11 @@ pub struct JitterConfig {
     /// The most frames held at once; beyond it the oldest is dropped. Bounds
     /// memory against a sender that floods.
     pub capacity: usize,
+    /// If a sender's timestamps move this much more, or less, than the time
+    /// between two of its packets, its timeline was broken (a restart, or a
+    /// silence longer than the 32-bit timestamp can tell), and the buffer
+    /// starts over.
+    pub max_jump_us: u64,
 }
 
 impl JitterConfig {
@@ -69,6 +74,7 @@ impl JitterConfig {
             history: 500,
             max_conceal_us: 60_000,
             capacity: 200,
+            max_jump_us: 10_000_000,
         }
     }
 }
@@ -126,6 +132,8 @@ pub struct JitterStats {
     pub spurts: u64,
     /// The target delay chosen for the current or last spurt.
     pub target_us: u64,
+    /// Times the sender's timeline jumped and the buffer started over.
+    pub discontinuities: u64,
 }
 
 /// A buffered frame.
@@ -157,6 +165,8 @@ pub struct JitterBuffer {
     unwrap_reference: Option<(u32, i64)>,
     /// Whether the sender currently adds a redundant copy to its packets.
     redundancy: bool,
+    /// Arrival time and unwrapped timestamp of the last packet.
+    last_arrival: Option<(u64, i64)>,
     /// Timestamp of the last frame played, dropped or given up on; anything
     /// at or before it arrives too late to play.
     last_played: Option<i64>,
@@ -173,6 +183,7 @@ impl JitterBuffer {
             transits: VecDeque::with_capacity(config.history),
             unwrap_reference: None,
             redundancy: false,
+            last_arrival: None,
             last_played: None,
             state: State::Idle { start: None },
             stats: JitterStats {
@@ -197,9 +208,10 @@ impl JitterBuffer {
         self.frames.is_empty()
     }
 
-    /// Forgets every frame and every timing, but keeps the counters. Call it
-    /// when the sender restarted (a new announcement replaced its key), since
-    /// its timestamps start over from a new random value.
+    /// Forgets every frame and every timing, but keeps the counters. A
+    /// receiver calls it when a new announcement shows the sender restarted;
+    /// the buffer also does it by itself when the timestamps jump (see
+    /// [`JitterConfig::max_jump_us`]).
     pub fn reset(&mut self) {
         *self = JitterBuffer {
             stats: self.stats,
@@ -210,7 +222,13 @@ impl JitterBuffer {
     /// Records a packet that arrived at `now_us`.
     pub fn push(&mut self, now_us: u64, arrival: Arrival) {
         self.stats.received += 1;
-        let timestamp = self.unwrap(arrival.timestamp);
+        let mut timestamp = self.unwrap(arrival.timestamp);
+        if self.is_discontinuity(now_us, timestamp) {
+            self.stats.discontinuities += 1;
+            self.reset();
+            timestamp = self.unwrap(arrival.timestamp);
+        }
+        self.last_arrival = Some((now_us, timestamp));
         self.note_redundancy(timestamp, arrival.redundant.is_some());
         self.record_transit(now_us, timestamp);
 
@@ -366,14 +384,33 @@ impl JitterBuffer {
         self.last_played.is_some_and(|last| timestamp <= last)
     }
 
+    /// Whether the timestamp moved much more, or less, than the time since
+    /// the previous packet. Jitter and clock drift move them apart by
+    /// milliseconds; only a broken timeline moves them apart by seconds.
+    fn is_discontinuity(&self, now_us: u64, timestamp: i64) -> bool {
+        let Some((at_us, previous)) = self.last_arrival else {
+            return false;
+        };
+        let media_gap = media_us(timestamp - previous);
+        let real_gap = now_us as i64 - at_us as i64;
+        (media_gap - real_gap).unsigned_abs() > self.config.max_jump_us
+    }
+
     /// Tracks whether the sender uses redundancy. A packet with a copy says
-    /// yes. A packet without one says no only if its predecessor exists,
-    /// since the first packet of a spurt never carries a copy.
+    /// yes. A packet without one says no only if its predecessor belongs to
+    /// the same spurt, since the first packet of a spurt never has a copy.
     fn note_redundancy(&mut self, timestamp: i64, has_copy: bool) {
         let previous = timestamp - self.frame_samples();
+        let same_spurt = match self.frames.get(&previous) {
+            Some(frame) => !frame.end_of_spurt,
+            // Played already: the spurt still goes on only while playing.
+            None => {
+                self.last_played == Some(previous) && matches!(self.state, State::Playing { .. })
+            }
+        };
         if has_copy {
             self.redundancy = true;
-        } else if self.frames.contains_key(&previous) || self.last_played == Some(previous) {
+        } else if same_spurt {
             self.redundancy = false;
         }
     }
@@ -740,6 +777,71 @@ mod tests {
         }
         let played: Vec<u8> = (1..5).filter_map(|k| frame_of(&jb.pop(k * F_US))).collect();
         assert_eq!(played, vec![0, 1, 2]);
+    }
+
+    /// Plays a short spurt of `n` frames starting at `timestamp`, sent from
+    /// `start_us` on a perfect 20 ms path, and returns what was played.
+    fn spurt(jb: &mut JitterBuffer, start_us: u64, timestamp: u32, n: u32) -> Vec<u8> {
+        let mut played = Vec::new();
+        for k in 0..n + 10 {
+            let t = start_us + u64::from(k) * F_US;
+            if k < n {
+                jb.push(
+                    t + 20_000,
+                    Arrival {
+                        timestamp: timestamp.wrapping_add(k * F_TS),
+                        end_of_spurt: k == n - 1,
+                        primary: vec![k as u8],
+                        redundant: None,
+                    },
+                );
+            }
+            played.extend(frame_of(&jb.pop(t + 21_000)));
+        }
+        played
+    }
+
+    #[test]
+    fn a_silence_longer_than_the_timestamp_range_is_not_mistaken_for_lateness() {
+        let mut jb = JitterBuffer::new(JitterConfig::new(FRAME));
+        assert_eq!(spurt(&mut jb, 0, 1_000, 5), vec![0, 1, 2, 3, 4]);
+        // 13 hours later, the timestamps went round more than half of 2³².
+        let later = 13 * 3600 * 1_000_000;
+        let timestamp = 1_000u32.wrapping_add((13u64 * 3600 * 48_000) as u32);
+        assert_eq!(spurt(&mut jb, later, timestamp, 5), vec![0, 1, 2, 3, 4]);
+        assert_eq!(jb.stats().late, 0);
+    }
+
+    #[test]
+    fn a_sender_restart_is_detected_without_a_reset() {
+        for jump in [-40_000_000i64, 40_000_000] {
+            let mut jb = JitterBuffer::new(JitterConfig::new(FRAME));
+            assert_eq!(spurt(&mut jb, 0, 1_000_000_000, 5), vec![0, 1, 2, 3, 4]);
+            // One second later, timestamps restart from a random value.
+            let restarted = (1_000_000_000 + jump) as u32;
+            let played = spurt(&mut jb, 1_000_000, restarted, 5);
+            assert_eq!(played, vec![0, 1, 2, 3, 4], "jump {jump}");
+            assert_eq!(jb.stats().discontinuities, 1, "jump {jump}");
+        }
+    }
+
+    #[test]
+    fn a_spurt_right_after_another_keeps_the_redundancy_floor() {
+        let mut jb = JitterBuffer::new(JitterConfig::new(FRAME));
+        // Spurt 1 has copies; spurt 2 starts on the very next frame, as when
+        // the gate reopens at once, so its first packet has no copy.
+        for i in 0..6u32 {
+            jb.push(
+                u64::from(i) * F_US,
+                Arrival {
+                    end_of_spurt: i == 2,
+                    redundant: (i != 0 && i != 3).then(|| vec![(i - 1) as u8]),
+                    ..arrival(i)
+                },
+            );
+            jb.pop(u64::from(i) * F_US + 1_000);
+        }
+        assert!(jb.redundancy, "the first packet of a spurt says nothing");
     }
 
     #[test]

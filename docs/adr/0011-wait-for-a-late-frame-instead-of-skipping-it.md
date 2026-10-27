@@ -36,8 +36,9 @@ before the end of the spurt.
 
 - Same scenario after the change: 0.09 % concealed, which is the network's
   own loss rate, and no late frame.
-- Lossless runs conceal nothing. A frame is only ever concealed if it was
-  lost, or arrived after a full 60 ms.
+- Lossless runs conceal nothing in the bench. A frame that merely misses its
+  tick is still concealed once, then plays a tick late; only a lost frame,
+  or one more than 60 ms late, is never played.
 - The latency added by a stretch lasts until the next silence or until a
   pile-up is trimmed. On the simulated Wi-Fi path, with 30 ms delay spikes,
   this trades concealment for a few dropped frames after each spike.

@@ -56,6 +56,7 @@ fn every_scenario_plays_in_order_and_accounts_for_every_frame() {
             let r = run(&scenario);
             let name = format!("{} at {frame}", scenario.name);
             assert_eq!(r.out_of_order, 0, "{name}");
+            assert_eq!(r.buffer.discontinuities, 0, "{name}: no timeline jump here");
             assert_eq!(r.buffer.received, r.sent - r.lost, "{name}");
             // Every packet received is played, dropped, or discarded as late
             // or as a duplicate; recovered frames come on top, from copies.
