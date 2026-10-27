@@ -13,6 +13,7 @@ publish = false
 # Every dependency is checked against the allowed licenses in CLAUDE.md
 # before it is added here. Versions are pinned to a minor release.
 [workspace.dependencies]
+drywire-proto = { path = "drywire-proto" }
 opusic-sys = "0.7"
 aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
 ed25519-dalek = "3.0"

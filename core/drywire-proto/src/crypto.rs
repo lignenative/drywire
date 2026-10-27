@@ -6,7 +6,10 @@
 
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit, Payload};
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, Verifier};
+/// The Ed25519 key types this module takes, re-exported so that users of the
+/// crate need no direct dependency on `ed25519-dalek`.
+pub use ed25519_dalek::{SigningKey, VerifyingKey};
 use hkdf::Hkdf;
 use sha2::Sha256;
 

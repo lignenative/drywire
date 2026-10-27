@@ -186,7 +186,10 @@ dependencies = [
 name = "drywire-core"
 version = "0.1.0"
 dependencies = [
+ "drywire-proto",
  "opusic-sys",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
