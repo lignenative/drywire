@@ -9,6 +9,7 @@
 //!
 //! | Backend | Where | What it opens |
 //! | --- | --- | --- |
+//! | [`coreaudio`] | macOS | The default devices through the HAL output unit, with the smallest I/O buffer they accept |
 //! | [`file::FileIo`] | everywhere | No device: samples from memory, paced in real time, for tests and bots |
 //!
 //! The callbacks run on the backend's real-time threads. They must return
@@ -17,6 +18,8 @@
 
 use std::fmt;
 
+#[cfg(target_os = "macos")]
+pub mod coreaudio;
 pub mod file;
 
 pub use crate::opus::SAMPLE_RATE;
@@ -151,8 +154,15 @@ pub trait AudioIo {
 
 /// The backend for this operating system's default devices.
 pub fn default_devices(options: AudioOptions) -> Result<Box<dyn AudioIo>, AudioError> {
-    let _ = options;
-    Err(AudioError(
-        "no audio backend for this operating system yet; use files".into(),
-    ))
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(coreaudio::CoreAudio::new(options)))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = options;
+        Err(AudioError(
+            "no audio backend for this operating system yet; use files".into(),
+        ))
+    }
 }
