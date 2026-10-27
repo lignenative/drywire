@@ -605,11 +605,17 @@ fn capture_loop(
     let event = Event::new()?;
     let layout = stream.layout;
     let frame_bytes = layout.channels * layout.width;
-    let mut mono = vec![0.0f32; 4096];
     // SAFETY: plain COM calls on this thread's initialized client; the
     // buffer WASAPI lends is read for exactly the frames it says, then
     // released.
     unsafe {
+        // A packet never holds more than the stream's buffer, so this is
+        // all the room the loop needs, made before it starts.
+        let buffer = stream
+            .client
+            .GetBufferSize()
+            .map_err(|e| error("reading the buffer size", e))?;
+        let mut mono = vec![0.0f32; buffer as usize];
         stream
             .client
             .SetEventHandle(event.0)
@@ -639,10 +645,9 @@ fn capture_loop(
                 capture
                     .GetBuffer(&mut data, &mut frames, &mut flags, None, None)
                     .map_err(|e| error("reading captured audio", e))?;
-                let n = frames as usize;
-                if mono.len() < n {
-                    mono.resize(n, 0.0);
-                }
+                // Should a packet ever be larger, the rest is dropped rather
+                // than the buffer grown on the real-time thread.
+                let n = (frames as usize).min(mono.len());
                 if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 || data.is_null() {
                     mono[..n].fill(0.0);
                 } else {

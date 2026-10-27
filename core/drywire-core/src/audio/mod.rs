@@ -14,8 +14,9 @@
 //! | [`file::FileIo`] | everywhere | No device: samples from memory, paced in real time, for tests and bots |
 //!
 //! The callbacks run on the backend's real-time threads. They must return
-//! quickly and should neither block nor wait on a lock another thread holds
-//! for long.
+//! quickly, and neither block, wait on a lock, nor allocate (ADR 0017); the
+//! backends keep to the same rules around them: their buffers are made
+//! before the streams start.
 
 use std::fmt;
 

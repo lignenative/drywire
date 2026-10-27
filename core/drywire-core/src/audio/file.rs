@@ -76,6 +76,15 @@ impl AudioIo for FileIo {
             .duration
             .map(|d| (d.as_secs_f64() * f64::from(SAMPLE_RATE)) as usize);
         let recorded = Arc::clone(&self.recorded);
+        // The device thread stands in for a sound card's, so it should not
+        // allocate either while it runs: room for the whole recording when
+        // its length is known. Without a duration (the echo bot), the
+        // recording grows; nobody plays from it.
+        if let Some(total) = total {
+            let mut recorded = recorded.lock().expect("not poisoned");
+            let more = (total + period).saturating_sub(recorded.len());
+            recorded.reserve(more);
+        }
         let stop = Arc::clone(&self.stop);
         let mut captured = vec![0.0f32; period];
         let mut played = vec![0.0f32; period];

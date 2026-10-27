@@ -146,6 +146,8 @@ mod ffi {
     pub const kAudioOutputUnitProperty_CurrentDevice: u32 = 2000;
     pub const kAudioOutputUnitProperty_EnableIO: u32 = 2003;
     pub const kAudioOutputUnitProperty_SetInputCallback: u32 = 2005;
+    /// AUComponent.h: a render asked for more than MaximumFramesPerSlice.
+    pub const kAudioUnitErr_TooManyFramesToProcess: OSStatus = -10874;
 
     pub const kAudioFormatLinearPCM: u32 = fourcc(b"lpcm");
     pub const kAudioFormatFlagIsFloat: u32 = 1 << 0;
@@ -561,8 +563,10 @@ extern "C" fn input_proc(
     // outlives the unit, and only this callback touches it.
     let state = unsafe { &mut *refcon.cast::<InputState>() };
     let frames = frames as usize;
-    if state.buffer.len() < frames {
-        state.buffer.resize(frames, 0.0);
+    // MaximumFramesPerSlice caps a callback at the buffer's size; growing
+    // it here would allocate on the real-time thread.
+    if frames > state.buffer.len() {
+        return kAudioUnitErr_TooManyFramesToProcess;
     }
     let mut list = AudioBufferList {
         mNumberBuffers: 1,
@@ -593,21 +597,23 @@ extern "C" fn output_proc(
 ) -> OSStatus {
     // SAFETY: as for input_proc, with the OutputState.
     let state = unsafe { &mut *refcon.cast::<OutputState>() };
-    let frames = frames as usize;
-    if state.mono.len() < frames {
-        state.mono.resize(frames, 0.0);
-    }
-    (state.callback)(&mut state.mono[..frames]);
     // SAFETY: Core Audio passes a buffer list in the stream format we set:
     // one interleaved buffer of `frames` stereo floats.
     let out = unsafe {
         let buffer = &mut (*data).mBuffers[0];
-        let len = (buffer.mDataByteSize as usize / 4).min(frames * OUTPUT_CHANNELS);
+        let len = (buffer.mDataByteSize as usize / 4).min(frames as usize * OUTPUT_CHANNELS);
         std::slice::from_raw_parts_mut(buffer.mData.cast::<f32>(), len)
     };
     let (frames_out, _) = out.as_chunks_mut::<OUTPUT_CHANNELS>();
-    for (pair, sample) in frames_out.iter_mut().zip(&state.mono) {
-        pair.fill(*sample);
+    // MaximumFramesPerSlice keeps a callback within one buffer of `mono`;
+    // should it not, the rest is rendered in more passes rather than by
+    // growing the buffer, which would allocate on the real-time thread.
+    for pairs in frames_out.chunks_mut(state.mono.len()) {
+        let mono = &mut state.mono[..pairs.len()];
+        (state.callback)(mono);
+        for (pair, sample) in pairs.iter_mut().zip(mono.iter()) {
+            pair.fill(*sample);
+        }
     }
     0
 }
