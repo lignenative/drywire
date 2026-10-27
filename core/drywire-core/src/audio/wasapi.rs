@@ -303,6 +303,10 @@ struct Stream {
     /// The audio engine's period, in frames of `layout`: how much it takes
     /// from, or gives to, the stream at each pass.
     period_frames: u32,
+    /// How many periods playback keeps queued (ADR 0015): one, or two when
+    /// Windows resamples, since its resampler need not take exactly one
+    /// period's worth of our frames at each pass.
+    queued_periods: u32,
     info: StreamInfo,
 }
 
@@ -327,7 +331,8 @@ fn open_shared(
         let mix_format = MixFormat::of(&base)?;
         let mix = mix_format.layout;
         let flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
-        let (layout, period, min_period, mode) = if mix.rate == SAMPLE_RATE {
+        let resampled = mix.rate != SAMPLE_RATE;
+        let (layout, period, min_period, mode) = if !resampled {
             let format = mix_format.format as *const WAVEFORMATEX;
             let (mut default, mut fundamental, mut min, mut max) = (0, 0, 0, 0);
             client
@@ -392,6 +397,7 @@ fn open_shared(
             client: base,
             layout,
             period_frames: period,
+            queued_periods: if resampled { 2 } else { 1 },
             info,
         })
     }
@@ -493,6 +499,7 @@ fn open_exclusive(device: &IMMDevice, options: AudioOptions) -> Result<Stream, A
             client,
             layout,
             period_frames: frames_of(period, SAMPLE_RATE),
+            queued_periods: 1,
             info,
         })
     }
@@ -689,7 +696,8 @@ fn run_render(
     finish("playback", result, &report);
 }
 
-/// Plays until `stop`, keeping at most one engine period queued.
+/// Plays until `stop`, keeping at most one engine period queued (two when
+/// Windows resamples).
 ///
 /// Why one period, and not the whole buffer (ADR 0015): the buffer WASAPI
 /// gives a shared stream is several periods long, and every frame queued in
@@ -726,9 +734,9 @@ fn render_loop(
             .client
             .GetBufferSize()
             .map_err(|e| error("reading the buffer size", e))?;
-        let target = stream.period_frames.clamp(1, buffer);
+        let target = (stream.period_frames * stream.queued_periods).clamp(1, buffer);
         let mut mono = vec![0.0f32; target as usize];
-        // One period of silence before starting, so the engine's first pass
+        // A queue of silence before starting, so the engine's first pass
         // finds something to play (Microsoft's own samples prefill too).
         render
             .GetBuffer(target)

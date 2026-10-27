@@ -25,7 +25,9 @@ callback.
   engine's first pass finds something to play.
 - The period is the one the stream was opened with: the smallest
   `IAudioClient3` period at 48 kHz, or the engine's default period when
-  Windows resamples.
+  Windows resamples. When it resamples, two periods stay queued: its
+  resampler need not take exactly one period of our 48 kHz frames at
+  each pass, and one period would leave no margin.
 - Capture is unchanged: exclusive mode where possible, where the buffer is
   one period by construction, and every packet is handed on as soon as the
   engine signals it.
@@ -36,6 +38,8 @@ callback.
   smallest `IAudioClient3` period (often 128 to 144 frames, 2.7 to 3 ms)
   instead of several times that. Not measured yet on a Windows PC; the
   physical method of the spec will say.
+- Underruns are not counted yet: a click heard in a physical test cannot
+  be told apart from a network loss by the numbers alone.
 - A wake-up later than one period lets the engine find the queue empty: it
   plays silence for that pass, and the queue starts again from one period.
   A late thread costs a click, never lasting latency. The thread runs in
