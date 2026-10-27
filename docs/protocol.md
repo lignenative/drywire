@@ -433,7 +433,7 @@ well below them.
 | Packets per session | 600 per second, bursts of 200 | 400 packets per second at 2.5 ms frames, plus pings |
 | Bytes per session | 128 KiB per second, bursts of 32 KiB | High-bitrate audio with redundancy fits several times over |
 | Packets per source IP | 3000 per second, bursts of 600 | A few clients behind the same NAT |
-| Session timeout | 30 seconds without a packet | Three missed keepalives; the binding is then forgotten |
+| Session timeout | 30 seconds without a packet | Three missed keepalives; the session is then removed (section 13.6), and its client joins the room again |
 
 ### 10.4 Uplink loss counting
 
@@ -617,6 +617,37 @@ space the caller is not a member of answers `404`, as if it did not exist.
   new, and makes it a member. A member who redeems again gets the space
   without using up the code. An unknown, expired or used-up code all
   answer the same `404`; a banned key gets `403`; a full space `409`.
+
+### 13.6 Sessions and presence
+
+| Request | Who | Body → answer |
+| --- | --- | --- |
+| `POST /v1/rooms/{room}/join` | member | → `{session, session_secret, relay, room, sessions}` |
+| `POST /v1/leave` | anyone logged in | → `204`, ends the caller's session |
+| `GET /v1/spaces/{space}/events` | member | → `text/event-stream` |
+
+- Joining a room hands out a new UDP session: a random non-zero 32-bit
+  `session` and a random 32-byte `session_secret` (section 6.1), and the
+  relay's UDP address as `host:port`. `sessions` lists everyone in the
+  room, the caller included, as `{session, room_id, public_key, name}`: the
+  public keys verify their announcements (section 8.3).
+- An identity holds **one session** on the instance. Joining a room ends
+  the session it had, in this room or another.
+- A session ends when its client leaves, when its member is removed or
+  banned, when its room or space is deleted, and when the relay has not
+  heard from it for the session timeout (section 10.3), whether it said
+  `hello` or not. The client then joins again to get a new session.
+- The **event stream** is Server-Sent Events. It starts with a `snapshot`
+  event, `{"sessions": [...]}`, of everyone in the space's rooms, then
+  carries one event per change: `join` (`{room_id, session, public_key,
+  name}`), `leave` (`{room_id, session, public_key}`: left, removed, moved
+  to another room) and `disconnect` (same fields: the relay stopped hearing
+  from them). A comment line every 15 seconds keeps idle connections open.
+- The stream ends when the subscriber is no longer a member, when the
+  space is deleted, or when the subscriber falls 256 events behind; the
+  client reconnects and gets a fresh snapshot. An identity may hold 8
+  streams at a time.
+- Presence is kept in memory only, never stored.
 
 ## 14. Invitation links
 

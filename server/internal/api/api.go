@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/lignenative/drywire/server/internal/auth"
+	"github.com/lignenative/drywire/server/internal/presence"
 	"github.com/lignenative/drywire/server/internal/ratelimit"
 	"github.com/lignenative/drywire/server/internal/relay"
 	"github.com/lignenative/drywire/server/internal/store"
@@ -64,14 +65,15 @@ type Config struct {
 
 // Server is the HTTP API. Create it with New.
 type Server struct {
-	cfg     Config
-	store   *store.Store
-	auth    *auth.Auth
-	relay   *relay.Relay
-	log     *slog.Logger // application log: no address, token or content
-	access  *slog.Logger // access log: route, status, client address
-	now     func() time.Time
-	started time.Time
+	cfg      Config
+	store    *store.Store
+	auth     *auth.Auth
+	relay    *relay.Relay
+	presence *presence.Hub
+	log      *slog.Logger // application log: no address, token or content
+	access   *slog.Logger // access log: route, status, client address
+	now      func() time.Time
+	started  time.Time
 
 	limitMu  sync.Mutex
 	ips      map[netip.Addr]*ratelimit.Bucket
@@ -86,6 +88,7 @@ func New(cfg Config, st *store.Store, a *auth.Auth, r *relay.Relay, log, access 
 		store:    st,
 		auth:     a,
 		relay:    r,
+		presence: presence.NewHub(),
 		log:      log,
 		access:   access,
 		now:      now,
@@ -156,6 +159,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/spaces/{space}/invitations", s.authed(s.createInvitation))
 	mux.HandleFunc("DELETE /v1/spaces/{space}/invitations/{id}", s.authed(s.revokeInvitation))
 	mux.HandleFunc("POST /v1/invitations/redeem", s.authed(s.redeem))
+
+	mux.HandleFunc("POST /v1/rooms/{room}/join", s.authed(s.joinRoom))
+	mux.HandleFunc("POST /v1/leave", s.authed(s.leaveRoom))
+	mux.HandleFunc("GET /v1/spaces/{space}/events", s.authed(s.events))
 
 	return s.logged(s.limited(mux))
 }
@@ -359,6 +366,9 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 	}
 	return w.ResponseWriter.Write(b)
 }
+
+// Unwrap lets http.ResponseController reach the connection.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // Flush lets Server-Sent Events through the wrapper.
 func (w *statusWriter) Flush() {

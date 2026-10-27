@@ -421,7 +421,7 @@ and honest numbers on screen. English and French from the first release.
 ### Presence
 
 - Three short, distinct sounds: someone joined, someone left, someone lost
-  their connection (no packet for a few seconds). Adjustable volume, can be
+  their connection (no packet for 30 seconds). Adjustable volume, can be
   turned off.
 - These sounds are played locally and mixed low. They never delay teammates'
   audio.
@@ -433,7 +433,8 @@ and honest numbers on screen. English and French from the first release.
   later.
 - The control plane broadcasts join, leave and disconnect events over
   Server-Sent Events. Disconnects are detected by the server when UDP packets
-  stop arriving.
+  stop arriving for the relay's session timeout (30 seconds: three missed
+  keepalives, protocol section 10.3).
 
 ### Windows and Linux — Tauri v2 + React
 

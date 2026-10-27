@@ -38,3 +38,4 @@ Status: Accepted · YYYY-MM-DD
 | [0018](0018-resample-macos-microphones-in-the-backend.md) | Resample macOS microphones in the backend |
 | [0019](0019-replay-a-deletion-ledger-at-every-start.md) | Replay a deletion ledger at every start |
 | [0020](0020-log-in-with-a-challenge-signed-for-one-instance.md) | Log in with a challenge signed for one instance |
+| [0021](0021-hand-out-one-session-per-identity.md) | Hand out one session per identity, and end it when the relay stops hearing it |

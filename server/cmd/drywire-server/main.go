@@ -88,6 +88,10 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// Defaults that depend on the ports really bound (":0" in tests).
+	if err := cfg.setPublicAddresses(httpListener.Addr().String(), udpConn.LocalAddr().String()); err != nil {
+		return err
+	}
 
 	a := auth.New(cfg.publicURL, time.Now)
 	server := api.New(cfg.api, st, a, r, log, cfg.accessLog, time.Now)
@@ -98,6 +102,7 @@ func run(log *slog.Logger) error {
 		IdleTimeout:       2 * time.Minute,
 		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS13},
 	}
+	httpServer.RegisterOnShutdown(server.CloseEvents)
 
 	errs := make(chan error, 2)
 	go func() { errs <- r.Serve(udpConn) }()
@@ -115,6 +120,8 @@ func run(log *slog.Logger) error {
 	defer cancel()
 	daily := time.NewTicker(24 * time.Hour)
 	defer daily.Stop()
+	everySecond := time.NewTicker(time.Second)
+	defer everySecond.Stop()
 	for {
 		select {
 		case <-stop.Done():
@@ -127,6 +134,8 @@ func run(log *slog.Logger) error {
 				return nil
 			}
 			return err
+		case <-everySecond.C:
+			server.ExpireSessions()
 		case <-daily.C:
 			if err := maintain(context.Background(), st, led, log, false); err != nil {
 				log.Error("daily maintenance failed", "error", err)

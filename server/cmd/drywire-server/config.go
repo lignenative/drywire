@@ -41,7 +41,7 @@ const defaultAddr = "127.0.0.1:10050"
 //	DRYWIRE_ROOMS           phase 1 rooms file (optional)
 type config struct {
 	udpAddr, httpAddr  string
-	publicURL          string
+	publicURL          string // set by setPublicAddresses
 	dbPath, ledgerPath string
 	tlsCert, tlsKey    string
 	roomsPath          string
@@ -82,22 +82,9 @@ func loadConfig() (config, error) {
 		return c, fmt.Errorf("DRYWIRE_HTTP_ADDR %s is not a loopback address: serve TLS (DRYWIRE_TLS_CERT and DRYWIRE_TLS_KEY) or put a reverse proxy on this host in front of 127.0.0.1", c.httpAddr)
 	}
 
-	public := os.Getenv("DRYWIRE_PUBLIC_URL")
-	if public == "" {
-		public = "http://" + c.httpAddr
-	}
-	if c.publicURL, err = auth.CanonicalOrigin(public); err != nil {
-		return c, fmt.Errorf("DRYWIRE_PUBLIC_URL: %w", err)
-	}
-	if u, _ := url.Parse(c.publicURL); u.Scheme != "https" {
-		if ip, err := netip.ParseAddr(u.Hostname()); (err != nil || !ip.IsLoopback()) && u.Hostname() != "localhost" {
-			return c, fmt.Errorf("DRYWIRE_PUBLIC_URL %s: clients only use plain http with this machine; use https://", c.publicURL)
-		}
-	}
-
 	c.api = api.Config{
 		ServerVersion: version,
-		RelayAddr:     envOr("DRYWIRE_PUBLIC_RELAY", c.udpAddr),
+		RelayAddr:     os.Getenv("DRYWIRE_PUBLIC_RELAY"),
 		MaxMembers:    50,
 		TrustProxy:    os.Getenv("DRYWIRE_TRUST_PROXY") == "1",
 	}
@@ -136,4 +123,26 @@ func loadConfig() (config, error) {
 		c.accessLog = slog.New(slog.NewJSONHandler(io.Writer(f), nil))
 	}
 	return c, nil
+}
+
+// setPublicAddresses fills in the public URL and relay address, which
+// default to the addresses the server really listens on.
+func (c *config) setPublicAddresses(httpAddr, udpAddr string) error {
+	if c.api.RelayAddr == "" {
+		c.api.RelayAddr = udpAddr
+	}
+	public := os.Getenv("DRYWIRE_PUBLIC_URL")
+	if public == "" {
+		public = "http://" + httpAddr
+	}
+	var err error
+	if c.publicURL, err = auth.CanonicalOrigin(public); err != nil {
+		return fmt.Errorf("DRYWIRE_PUBLIC_URL: %w", err)
+	}
+	if u, _ := url.Parse(c.publicURL); u.Scheme != "https" {
+		if ip, err := netip.ParseAddr(u.Hostname()); (err != nil || !ip.IsLoopback()) && u.Hostname() != "localhost" {
+			return fmt.Errorf("DRYWIRE_PUBLIC_URL %s: clients only use plain http with this machine; use https://", c.publicURL)
+		}
+	}
+	return nil
 }
