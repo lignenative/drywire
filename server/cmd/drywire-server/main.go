@@ -71,7 +71,10 @@ func run(log *slog.Logger) error {
 	}
 
 	started := time.Now()
-	r := relay.New(rooms, time.Now, log)
+	r := relay.New(time.Now, log)
+	if err := rooms.AddTo(r); err != nil {
+		return err
+	}
 	httpServer := &http.Server{
 		Handler:           api.Handler(r, version, started),
 		ReadHeaderTimeout: 5 * time.Second,

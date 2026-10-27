@@ -94,3 +94,20 @@ func (m MemberConfig) secretBytes() ([]byte, error) {
 	}
 	return b, nil
 }
+
+// AddTo adds the file's sessions to the relay. They never expire: a phase 1
+// client can come back after any silence, as before the control plane.
+func (f RoomsFile) AddTo(r *Relay) error {
+	for _, rc := range f.Rooms {
+		for _, mc := range rc.Members {
+			secret, err := mc.secretBytes()
+			if err != nil {
+				return err
+			}
+			if err := r.addSession(rc.Name, mc.Session, secret, true); err != nil {
+				return fmt.Errorf("session %d: %w", mc.Session, err)
+			}
+		}
+	}
+	return nil
+}

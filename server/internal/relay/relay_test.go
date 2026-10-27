@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -44,7 +45,11 @@ func newTestRelay(t *testing.T) (*Relay, *fakeClock) {
 		t.Fatal(err)
 	}
 	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
-	return New(f, clock.now, slog.New(slog.NewTextHandler(io.Discard, nil))), clock
+	r := New(clock.now, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := f.AddTo(r); err != nil {
+		t.Fatal(err)
+	}
+	return r, clock
 }
 
 // addr returns a distinct client address per number: 10.0.0.n:5000+n.
@@ -355,5 +360,86 @@ func TestValidate(t *testing.T) {
 	}
 	if err := testRooms().Validate(); err != nil {
 		t.Fatalf("valid rooms rejected: %v", err)
+	}
+}
+
+func newDynamicRelay(t *testing.T) (*Relay, *fakeClock) {
+	t.Helper()
+	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
+	return New(clock.now, slog.New(slog.NewTextHandler(io.Discard, nil))), clock
+}
+
+func TestSessionsComeAndGo(t *testing.T) {
+	r, _ := newDynamicRelay(t)
+	for _, s := range []uint32{1, 2} {
+		if err := r.AddSession("room", s, secretFor(s)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.AddSession("other", 1, secretFor(1)); err != ErrSessionExists {
+		t.Fatalf("session 1 twice: %v", err)
+	}
+	if err := r.AddSession("room", 0, secretFor(0)); err != ErrBadSession {
+		t.Fatalf("session 0: %v", err)
+	}
+	bind(t, r, 1, addr(1), 1)
+	bind(t, r, 2, addr(2), 1)
+	if got := destinations(r.Handle(audioPacket(1, 0, 0, 40), addr(1))); len(got) != 1 {
+		t.Fatalf("audio went to %v", got)
+	}
+
+	if !r.RemoveSession(2) || r.RemoveSession(2) {
+		t.Fatal("RemoveSession must report whether the session existed")
+	}
+	if got := destinations(r.Handle(audioPacket(1, 0, 1, 40), addr(1))); len(got) != 0 {
+		t.Fatalf("audio went to %v after session 2 left", got)
+	}
+	if out := r.Handle(wire.NewKeepalive(2), addr(2)); out != nil {
+		t.Fatal("a removed session was answered")
+	}
+	expectDropped(t, r, DropUnknownSession, 1)
+
+	r.RemoveSession(1)
+	if st := r.Stats(); st.Rooms != 0 || st.Sessions != 0 {
+		t.Fatalf("empty rooms are kept: %+v", st)
+	}
+}
+
+func TestARoomHasAMaximumNumberOfSessions(t *testing.T) {
+	r, _ := newDynamicRelay(t)
+	for s := uint32(1); s <= MaxMembersPerRoom; s++ {
+		if err := r.AddSession("room", s, secretFor(s)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.AddSession("room", 100, secretFor(100)); err != ErrRoomFull {
+		t.Fatalf("one more: %v", err)
+	}
+	if err := r.AddSession("another room", 100, secretFor(100)); err != nil {
+		t.Fatalf("another room: %v", err)
+	}
+}
+
+func TestExpireRemovesSilentAndNeverBoundSessions(t *testing.T) {
+	r, clock := newDynamicRelay(t)
+	for _, s := range []uint32{1, 2, 3} {
+		r.AddSession("room", s, secretFor(s))
+	}
+	bind(t, r, 1, addr(1), 1)
+	bind(t, r, 2, addr(2), 1)
+
+	clock.advance(SessionTimeout / 2)
+	r.Handle(wire.NewKeepalive(1), addr(1))
+	clock.advance(SessionTimeout / 2)
+	if gone := r.Expire(); len(gone) != 0 {
+		t.Fatalf("expired %v at exactly the timeout", gone)
+	}
+	clock.advance(time.Second)
+	// 2 went silent; 3 never said hello.
+	if gone := r.Expire(); !slices.Equal(gone, []uint32{2, 3}) {
+		t.Fatalf("expired %v, want [2 3]", gone)
+	}
+	if st := r.Stats(); st.Sessions != 1 {
+		t.Fatalf("%d sessions left", st.Sessions)
 	}
 }

@@ -2,7 +2,6 @@ package relay
 
 import (
 	"bytes"
-	"encoding/hex"
 	"io"
 	"log/slog"
 	"net"
@@ -69,16 +68,19 @@ func (c *fakeClient) expectNothing(what string) {
 }
 
 // startRelay serves f on an ephemeral loopback port and returns its address.
-func startRelay(t *testing.T, f RoomsFile) *net.UDPAddr {
+// startRelay serves a relay with these sessions, all in one room.
+func startRelay(t *testing.T, secrets map[uint32][]byte) *net.UDPAddr {
 	t.Helper()
-	if err := f.Validate(); err != nil {
-		t.Fatal(err)
-	}
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := New(f, time.Now, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r := New(time.Now, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for session, secret := range secrets {
+		if err := r.AddSession("vectors", session, secret); err != nil {
+			t.Fatal(err)
+		}
+	}
 	done := make(chan error, 1)
 	go func() { done <- r.Serve(conn) }()
 	t.Cleanup(func() {
@@ -114,10 +116,10 @@ func TestRelayWithSharedVectors(t *testing.T) {
 	// The vectors' session, with its secret, plus a listener in the room.
 	listenerSecret := bytes.Repeat([]byte{0xee}, wire.SecretSize)
 	const listener = 7
-	relayAddr := startRelay(t, RoomsFile{Rooms: []RoomConfig{{Name: "vectors", Members: []MemberConfig{
-		{Session: m.Inputs.Session, Secret: hex.EncodeToString(m.Inputs.SessionSecret)},
-		{Session: listener, Secret: hex.EncodeToString(listenerSecret)},
-	}}}})
+	relayAddr := startRelay(t, map[uint32][]byte{
+		m.Inputs.Session: m.Inputs.SessionSecret,
+		listener:         listenerSecret,
+	})
 	sender := newFakeClient(t, relayAddr)
 	other := newFakeClient(t, relayAddr)
 

@@ -5,6 +5,10 @@
 // The logic lives in Handle, which takes one datagram and returns the
 // datagrams to send. It does no I/O, so tests can drive it with a fake clock.
 // Serve is the thin loop that connects Handle to a UDP socket.
+//
+// Sessions come from the control plane, which adds one when a member joins
+// a room (AddSession), removes it when they leave (RemoveSession), and
+// calls Expire every second to learn which sessions went silent.
 package relay
 
 import (
@@ -13,6 +17,7 @@ import (
 	"maps"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -69,13 +74,20 @@ type Stats struct {
 	Dropped       map[string]uint64 `json:"packets_dropped"`
 }
 
+// Errors of AddSession.
+var (
+	ErrSessionExists = errors.New("session number already in use")
+	ErrRoomFull      = errors.New("the room is full")
+	ErrBadSession    = errors.New("session 0 or a secret of the wrong size")
+)
+
 // Relay holds every room and session. All state is guarded by mu; Handle
 // holds it for the few microseconds a packet takes.
 type Relay struct {
 	mu        sync.Mutex
 	now       func() time.Time
 	log       *slog.Logger
-	rooms     int
+	rooms     map[string]*room
 	sessions  map[uint32]*session
 	ips       map[netip.Addr]*ratelimit.Bucket
 	overflow  ratelimit.Bucket // shared by new IPs while ips is full
@@ -92,6 +104,9 @@ type session struct {
 	id     uint32
 	secret []byte
 	room   *room
+	// static sessions come from a phase 1 rooms file: they never expire,
+	// only unbind.
+	static bool
 
 	// Binding: the address that last proved it holds the secret.
 	bound       bool
@@ -104,35 +119,98 @@ type session struct {
 	uplink  uplink
 }
 
-// New builds a relay from a validated rooms file. now is the clock; pass
-// time.Now outside tests.
-func New(f RoomsFile, now func() time.Time, log *slog.Logger) *Relay {
-	start := now()
-	r := &Relay{
+// New builds a relay with no session. now is the clock; pass time.Now
+// outside tests.
+func New(now func() time.Time, log *slog.Logger) *Relay {
+	return &Relay{
 		now:      now,
 		log:      log,
-		rooms:    len(f.Rooms),
+		rooms:    map[string]*room{},
 		sessions: map[uint32]*session{},
 		ips:      map[netip.Addr]*ratelimit.Bucket{},
-		overflow: ratelimit.New(IPPacketRate, IPPacketBurst, start),
+		overflow: ratelimit.New(IPPacketRate, IPPacketBurst, now()),
 		stats:    Stats{Dropped: map[string]uint64{}},
 	}
-	for _, rc := range f.Rooms {
-		rm := &room{name: rc.Name}
-		for _, mc := range rc.Members {
-			secret, _ := mc.secretBytes() // checked by Validate
-			s := &session{
-				id:      mc.Session,
-				secret:  secret,
-				room:    rm,
-				packets: ratelimit.New(SessionPacketRate, SessionPacketBurst, start),
-				bytes:   ratelimit.New(SessionByteRate, SessionByteBurst, start),
-			}
-			rm.members = append(rm.members, s)
-			r.sessions[s.id] = s
+}
+
+// AddSession creates session id in the named room, creating the room if
+// needed. Its client must say hello within SessionTimeout, or Expire
+// removes it.
+func (r *Relay) AddSession(roomName string, id uint32, secret []byte) error {
+	return r.addSession(roomName, id, secret, false)
+}
+
+func (r *Relay) addSession(roomName string, id uint32, secret []byte, static bool) error {
+	if id == 0 || len(secret) != wire.SecretSize {
+		return ErrBadSession
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.sessions[id] != nil {
+		return ErrSessionExists
+	}
+	rm := r.rooms[roomName]
+	if rm == nil {
+		rm = &room{name: roomName}
+		r.rooms[roomName] = rm
+	}
+	if len(rm.members) >= MaxMembersPerRoom {
+		return ErrRoomFull
+	}
+	now := r.now()
+	s := &session{
+		id:       id,
+		secret:   slices.Clone(secret),
+		room:     rm,
+		static:   static,
+		lastSeen: now,
+		packets:  ratelimit.New(SessionPacketRate, SessionPacketBurst, now),
+		bytes:    ratelimit.New(SessionByteRate, SessionByteBurst, now),
+	}
+	rm.members = append(rm.members, s)
+	r.sessions[id] = s
+	return nil
+}
+
+// RemoveSession forgets a session; its packets are dropped from now on. It
+// reports whether the session existed.
+func (r *Relay) RemoveSession(id uint32) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.remove(id)
+}
+
+func (r *Relay) remove(id uint32) bool {
+	s := r.sessions[id]
+	if s == nil {
+		return false
+	}
+	delete(r.sessions, id)
+	s.room.members = slices.DeleteFunc(s.room.members, func(m *session) bool { return m == s })
+	if len(s.room.members) == 0 {
+		delete(r.rooms, s.room.name)
+	}
+	return true
+}
+
+// Expire removes the sessions that sent nothing for SessionTimeout, bound
+// or never bound, and returns their numbers: for the control plane, these
+// members lost their connection. Static sessions only unbind (in Handle).
+func (r *Relay) Expire() []uint32 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.now()
+	var gone []uint32
+	for id, s := range r.sessions {
+		if !s.static && now.Sub(s.lastSeen) > SessionTimeout {
+			gone = append(gone, id)
 		}
 	}
-	return r
+	for _, id := range gone {
+		r.remove(id)
+	}
+	slices.Sort(gone)
+	return gone
 }
 
 // Serve reads datagrams from conn until it is closed.
@@ -307,7 +385,7 @@ func (r *Relay) Stats() Stats {
 	r.sweep(r.now())
 
 	st := r.stats
-	st.Rooms = r.rooms
+	st.Rooms = len(r.rooms)
 	st.Sessions = len(r.sessions)
 	st.Dropped = maps.Clone(r.stats.Dropped)
 	for _, s := range r.sessions {

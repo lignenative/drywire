@@ -13,7 +13,7 @@ import (
 )
 
 func TestRoutes(t *testing.T) {
-	r := relay.New(relay.RoomsFile{}, time.Now, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r := relay.New(time.Now, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(Handler(r, "test", time.Now()))
 	defer srv.Close()
 
