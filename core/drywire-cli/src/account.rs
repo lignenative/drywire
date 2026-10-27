@@ -5,7 +5,7 @@ use drywire_control::{Client, SpaceView};
 use drywire_proto::invite::Invitation;
 
 use crate::args::Account;
-use crate::home::{Home, KnownSpace};
+use crate::home::{Home, KnownSpace, printable};
 
 /// A client for the space's instance, with this device's identity.
 fn client(home: &Home, instance: &str) -> Result<Client, String> {
@@ -47,10 +47,10 @@ pub fn create_space(args: Account) -> Result<(), String> {
     ))?;
     println!(
         "Created {} on {} with the room {}. Invite people with: drywire-cli invite --space {:?}",
-        view.space.name,
+        printable(&view.space.name),
         client.instance(),
-        view.rooms[0].name,
-        view.space.name
+        printable(&view.rooms[0].name),
+        printable(&view.space.name)
     );
     Ok(())
 }
@@ -110,8 +110,8 @@ pub fn spaces(args: Account) -> Result<(), String> {
         let rooms = Client::new(&space.instance, home.identity()?)
             .and_then(|c| c.space(&space.space_id))
             .map(|v| {
-                let rooms: Vec<String> = v.rooms.into_iter().map(|r| r.name).collect();
-                format!("{}, rooms: {}", v.role, rooms.join(", "))
+                let rooms: Vec<String> = v.rooms.iter().map(|r| printable(&r.name)).collect();
+                format!("{}, rooms: {}", printable(&v.role), rooms.join(", "))
             })
             .unwrap_or_else(|e| e.to_string());
         println!(
@@ -161,7 +161,7 @@ pub fn rename(args: Account) -> Result<(), String> {
         let id = client(&home, &instance)?
             .rename(&name)
             .map_err(|e| format!("{instance}: {e}"))?;
-        println!("{}: you are now {}", instance, id.name);
+        println!("{}: you are now {}", instance, printable(&id.name));
     }
     Ok(())
 }

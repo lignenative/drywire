@@ -46,8 +46,8 @@ $("get").textContent = text.get;
 addEventListener("hashchange", () => location.reload());
 
 const fragment = location.hash.slice(1);
-// Keep the code and the key out of the browser's history, which some
-// browsers sync to their vendor's servers.
+// Keep the code and the key out of the page's history entry, as far as the
+// browser lets a page: it may have recorded the full link already.
 if (fragment) history.replaceState(null, "", location.pathname);
 
 const result = fragment ? readInvitation(fragment) : { error: "none" };

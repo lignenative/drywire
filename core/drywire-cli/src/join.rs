@@ -24,7 +24,7 @@ use drywire_core::wav;
 
 use crate::account::accept_link;
 use crate::args::Join;
-use crate::home::Home;
+use crate::home::{Home, printable};
 
 /// The period of the file device: 2.5 ms, the smallest frame, so that a
 /// file-mode client adds as little latency as a fast sound card.
@@ -68,10 +68,10 @@ pub fn run(args: Join) -> Result<(), String> {
     let mut names: HashMap<u32, String> = HashMap::new();
     let mut members = Vec::new();
     for p in joined.sessions.iter().filter(|p| p.room_id == room.id) {
-        names.insert(p.session, p.name.clone());
+        names.insert(p.session, printable(&p.name));
         members.push(Member {
             session: p.session,
-            name: p.name.clone(),
+            name: printable(&p.name),
             public_key: public_key(p)?,
         });
     }
@@ -104,7 +104,7 @@ pub fn run(args: Join) -> Result<(), String> {
         "joined as {} (session {me}) in {} / {} via {relay}: {} frames, {} kb/s{}",
         names.get(&me).map_or("?", String::as_str),
         space.name,
-        room.name,
+        printable(&room.name),
         args.frame,
         args.bitrate / 1000,
         if args.redundancy { ", redundancy" } else { "" }
@@ -208,7 +208,7 @@ fn pick_room(rooms: &[Room], wanted: Option<&str>) -> Result<Room, String> {
             .find(|r| r.name.eq_ignore_ascii_case(name))
             .cloned()
             .ok_or_else(|| {
-                let names: Vec<&str> = rooms.iter().map(|r| r.name.as_str()).collect();
+                let names: Vec<String> = rooms.iter().map(|r| printable(&r.name)).collect();
                 format!("no room {name:?}; the rooms are: {}", names.join(", "))
             }),
         None => rooms
@@ -281,9 +281,9 @@ fn on_event(
         }
         if let Ok(key) = public_key(p) {
             call.add(p.session, key);
-            names.insert(p.session, p.name.clone());
+            names.insert(p.session, printable(&p.name));
             if !quiet {
-                eprintln!("{} joined", p.name);
+                eprintln!("{} joined", printable(&p.name));
             }
         }
     };

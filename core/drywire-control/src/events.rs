@@ -4,6 +4,11 @@
 
 use std::io::{BufRead, BufReader, Read};
 
+/// The longest line and the largest event accepted: far above what the
+/// protocol sends, low enough that a hostile server cannot fill memory.
+const MAX_LINE: u64 = 64 * 1024;
+const MAX_EVENT: usize = 1024 * 1024;
+
 use serde::Deserialize;
 
 use crate::{Error, Event, Presence};
@@ -54,8 +59,11 @@ impl Iterator for Events {
         let mut line = String::new();
         loop {
             line.clear();
-            match self.reader.read_line(&mut line) {
+            match self.reader.by_ref().take(MAX_LINE).read_line(&mut line) {
                 Ok(0) => return None,
+                Ok(n) if n as u64 == MAX_LINE && !line.ends_with('\n') => {
+                    return Some(Err(Error::Protocol("an event line is too long".into())));
+                }
                 Ok(_) => {}
                 Err(e) => return Some(Err(Error::Network(e.to_string()))),
             }
@@ -75,6 +83,9 @@ impl Iterator for Events {
             match field {
                 "event" => name = value.to_string(),
                 "data" => {
+                    if data.len() + value.len() > MAX_EVENT {
+                        return Some(Err(Error::Protocol("an event is too large".into())));
+                    }
                     if !data.is_empty() {
                         data.push('\n');
                     }
@@ -114,5 +125,12 @@ mod tests {
             Event::Other("renamed".into())
         );
         assert!(events.next().is_none());
+    }
+
+    #[test]
+    fn a_hostile_stream_cannot_fill_memory() {
+        let long = format!("data: {}\n\n", "x".repeat(MAX_LINE as usize));
+        let mut events = Events::new(Box::new(std::io::Cursor::new(long.into_bytes())));
+        assert!(matches!(events.next(), Some(Err(Error::Protocol(_)))));
     }
 }

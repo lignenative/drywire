@@ -20,9 +20,11 @@ What it never does, and how that is enforced:
   (`connect-src 'none'`), image and form; scripts and styles come from the
   page's own origin only. `invite.test.js` checks the policy and that
   nothing is loaded from elsewhere.
-- **No trace in history.** Once read, the fragment is removed from the
-  address bar (`history.replaceState`), so browser history, which some
-  browsers sync to their vendor, keeps only `/i`.
+- **Less trace in history.** Once read, the fragment is removed from the
+  address bar (`history.replaceState`), so the page's history entry reads
+  `/i`. A browser may still have recorded the full link when the page
+  opened, and some sync their history to their vendor: the link stays a
+  secret to share privately, and the page says so.
 - **No cookie, no analytics, no external font**, and `noindex`.
 
 | File | What it does |

@@ -41,7 +41,7 @@ impl KnownSpace {
         KnownSpace {
             instance: instance.to_string(),
             space_id,
-            name: name.to_string(),
+            name: printable(name),
             space_key: to_hex(space_key),
         }
     }
@@ -173,6 +173,15 @@ impl Home {
     }
 }
 
+/// A name from a server, safe to print: control characters, which could
+/// move the cursor or rewrite the terminal, become `?`. An honest server
+/// never sends them (protocol section 13.4); another one might.
+pub fn printable(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect()
+}
+
 fn json<T: Serialize>(value: &T) -> String {
     serde_json::to_string_pretty(value).expect("serializable") + "\n"
 }
@@ -190,30 +199,30 @@ fn default_dir() -> Result<PathBuf, String> {
 
 /// Writes a file readable by its owner only, where the system has owners,
 /// through a temporary file renamed over the old one: a crash leaves the
-/// old file or the new one, never half of one.
+/// old file or the new one, never half of one. The temporary file has a
+/// random name and must not exist yet, so a link planted in a shared
+/// directory cannot redirect the write.
 pub fn write_private(path: &Path, contents: &str) -> Result<(), String> {
     let err = |e: std::io::Error| format!("{}: {e}", path.display());
-    let tmp = path.with_extension("tmp");
+    let mut random = [0u8; 8];
+    getrandom::fill(&mut random).map_err(|e| format!("random bytes: {e}"))?;
+    let tmp = path.with_extension(format!("{}.tmp", to_hex(&random)));
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    // create_new fails on any existing path, a symbolic link included.
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
     let mut file = options.open(&tmp).map_err(err)?;
-    // `mode` only applies to a new file: an old one is restricted before
-    // the secrets go in.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .map_err(err)?;
-    }
     std::io::Write::write_all(&mut file, contents.as_bytes()).map_err(err)?;
     file.sync_all().map_err(err)?;
     drop(file);
-    std::fs::rename(&tmp, path).map_err(err)
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        err(e)
+    })
 }
 
 #[cfg(test)]
