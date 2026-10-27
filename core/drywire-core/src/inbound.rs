@@ -42,6 +42,12 @@ pub enum Event {
         /// The sender's session.
         session: u32,
     },
+    /// The sender left the room: its track can serve someone else. The
+    /// call sends it, not [`Inbound`], when the control plane says so.
+    Left {
+        /// The sender's session.
+        session: u32,
+    },
 }
 
 /// Packets dropped by an [`Inbound`], by reason.
@@ -111,6 +117,23 @@ impl Inbound {
                 .collect(),
             stats: InboundStats::default(),
         }
+    }
+
+    /// Starts accepting packets from a member who joined the room. Returns
+    /// false if the session was known already.
+    pub fn add_peer(&mut self, session: u32, public_key: VerifyingKey) -> bool {
+        if self.peers.contains_key(&session) {
+            return false;
+        }
+        let epochs = Vec::with_capacity(2);
+        self.peers.insert(session, Peer { public_key, epochs });
+        true
+    }
+
+    /// Stops accepting packets from a member who left, and forgets their
+    /// keys. Returns false if the session was not known.
+    pub fn remove_peer(&mut self, session: u32) -> bool {
+        self.peers.remove(&session).is_some()
     }
 
     /// The counters so far.

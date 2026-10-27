@@ -8,6 +8,10 @@
 //! playback callback for 5 ms to play. Every callback must leave the
 //! counter at zero, from the first one on, while sam hears alex.
 //!
+//! Sam starts alone, as if alex joined the room after them: alex becomes a
+//! member of sam's call while it runs, and leaves before the end, so the
+//! track handed to playback mid-call and its release are counted too.
+//!
 //! It sees Rust's allocator only; libopus, the one C library on the path,
 //! does not allocate when it encodes or decodes.
 
@@ -141,7 +145,7 @@ fn the_audio_callbacks_never_allocate() {
     let (alex, mut alex_capture, mut alex_playback) =
         Call::join(&config(1, &members), options(FrameSize::Ms2_5, true)).unwrap();
     let (sam, mut sam_capture, mut sam_playback) =
-        Call::join(&config(2, &members), options(FrameSize::Ms5, false)).unwrap();
+        Call::join(&config(2, &members[1..]), options(FrameSize::Ms5, false)).unwrap();
 
     let period = 240; // 5 ms
     let tick = Duration::from_micros(5_000);
@@ -151,8 +155,18 @@ fn the_audio_callbacks_never_allocate() {
     let mut tone = vec![0.0f32; period];
     let started = Instant::now();
     let mut calls = 0u64;
-    // 200 ms of silence, 600 ms of tone, 400 ms of silence.
+    let mut heard = None;
+    // 200 ms of silence, 600 ms of tone, 400 ms of silence. Alex is in
+    // sam's call from 100 ms to 1.1 s.
     for k in 0..240u32 {
+        match k {
+            20 => sam.add_member(1, alex_key.verifying_key()),
+            220 => {
+                heard = sam.stats().tracks.first().copied();
+                sam.remove_member(1);
+            }
+            _ => {}
+        }
         std::thread::sleep((started + tick * (k + 1)).saturating_duration_since(Instant::now()));
         let talking = (40..160).contains(&k);
         for x in &mut tone {
@@ -175,7 +189,10 @@ fn the_audio_callbacks_never_allocate() {
     drop((alex_capture, alex_playback, sam_capture, sam_playback));
     let (alex, sam) = (alex.stats(), sam.stats());
     assert!(alex.sender.audio > 100, "{:?}", alex.sender);
-    let track = sam.tracks.first().expect("alex's track");
+    let track = heard.expect("alex's track, while alex was a member");
+    assert_eq!(track.session, 1);
     assert!(track.jitter.received > 0, "{track:?}");
     assert!(track.jitter.played > 0, "{track:?}");
+    // Once alex left, their track was free again.
+    assert!(sam.tracks.is_empty(), "{:?}", sam.tracks);
 }

@@ -172,7 +172,7 @@ fn decode_all(received: &[Vec<u8>], inbound: &mut Inbound, frame: FrameSize) -> 
         .iter()
         .filter_map(|packet| match inbound.handle(packet)? {
             Event::Audio { arrival, .. } => Some(arrival),
-            Event::Restarted { .. } => panic!("the sender did not restart"),
+            other => panic!("unexpected {other:?}"),
         })
         .collect();
     let first = frames.first().expect("received audio").timestamp;

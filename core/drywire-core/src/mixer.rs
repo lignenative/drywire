@@ -11,13 +11,15 @@
 //! softly clipped: a sum under half of full scale is left exactly as it
 //! is.
 //!
-//! In a call, every track is made before playback starts
-//! ([`Mixer::add_track`]): making one creates an Opus decoder, which
-//! allocates, and the playback callback never allocates (ADR 0017). A
-//! track's jitter buffer is kept, and reconfigured in place, when its
-//! sender changes frame size.
-
-use std::collections::BTreeMap;
+//! The playback callback never allocates (ADR 0017), and making a track
+//! does: it creates an Opus decoder and a jitter buffer. So a call makes
+//! one track per member before playback starts ([`Mixer::add_track`]),
+//! and while it runs, the network thread makes a spare track
+//! ([`Mixer::make_slot`]) when someone joins and passes it to playback
+//! ([`Mixer::add_slot`]). A member who leaves frees their track
+//! ([`Event::Left`]), which the next sender reuses: reset in place, never
+//! freed while the call lasts. A track's jitter buffer is also kept, and
+//! reconfigured in place, when its sender changes frame size.
 
 use crate::inbound::Event;
 use crate::jitter::{Arrival, JitterBuffer, JitterConfig, JitterStats, Playout};
@@ -46,6 +48,7 @@ pub struct TrackStats {
 
 /// One sender's playback.
 struct Track {
+    /// The sender's session, or [`FREE`] for a track nobody uses.
     session: u32,
     /// The sender's frame size, known from its first frame. Until then the
     /// buffer is empty and the track silent.
@@ -60,6 +63,10 @@ struct Track {
     decode_errors: u64,
 }
 
+/// The session of a free track: 0 is never a valid session (protocol
+/// section 3).
+const FREE: u32 = 0;
+
 impl Track {
     fn new(session: u32) -> Result<Track, OpusError> {
         Ok(Track {
@@ -73,6 +80,19 @@ impl Track {
             earlier: JitterStats::default(),
             decode_errors: 0,
         })
+    }
+
+    /// Makes a free track, or one whose sender left, ready for `session`,
+    /// as if new and without allocating.
+    fn reuse(&mut self, session: u32) {
+        self.session = session;
+        self.frame = None;
+        self.buffer.reset();
+        self.decoder.reset();
+        self.pcm.clear();
+        self.played = 0;
+        self.earlier = JitterStats::default();
+        self.decode_errors = 0;
     }
 
     fn push(&mut self, now_us: u64, arrival: Arrival, min_target_us: u64) {
@@ -158,10 +178,17 @@ impl Track {
     }
 }
 
+/// A track made ahead of time, off the playback thread, for a running
+/// mixer to take without allocating ([`Mixer::add_slot`]).
+pub struct Slot(Box<Track>);
+
 /// Mixes every sender of a room into one mono 48 kHz stream.
 #[derive(Default)]
 pub struct Mixer {
-    tracks: BTreeMap<u32, Track>,
+    /// Boxed, so a slot handed in by another thread moves in as a
+    /// pointer: unboxing it here would free the box on the playback thread.
+    #[expect(clippy::vec_box, reason = "see above, and ADR 0017")]
+    tracks: Vec<Box<Track>>,
     min_target_us: u64,
 }
 
@@ -184,29 +211,69 @@ impl Mixer {
 
     /// Makes the track of `session` now, rather than when its first frame
     /// arrives: making a track allocates, so a call makes every member's
-    /// before playback starts. A track that exists already is kept.
+    /// before playback starts. A track that exists already is kept; a free
+    /// one is used before a new one is made.
     pub fn add_track(&mut self, session: u32) -> Result<(), OpusError> {
-        if let std::collections::btree_map::Entry::Vacant(e) = self.tracks.entry(session) {
-            e.insert(Track::new(session)?);
-        }
+        self.track(session)?;
         Ok(())
+    }
+
+    /// Makes room for `n` more tracks, so that [`Mixer::add_slot`] never
+    /// grows the list while playback runs.
+    pub fn reserve(&mut self, n: usize) {
+        self.tracks.reserve(n);
+    }
+
+    /// Makes a free track to hand to a running mixer. It allocates: call
+    /// it off the playback thread.
+    pub fn make_slot() -> Result<Slot, OpusError> {
+        Ok(Slot(Box::new(Track::new(FREE)?)))
+    }
+
+    /// Adds a free track, which the next new sender takes. It does not
+    /// allocate as long as [`Mixer::reserve`] made room for it.
+    pub fn add_slot(&mut self, slot: Slot) {
+        let mut track = slot.0;
+        track.session = FREE;
+        self.tracks.push(track);
+    }
+
+    /// The track of `session`: its own, else a free one, else a new one
+    /// (which allocates; a call never gets there, see [`Mixer::make_slot`]).
+    fn track(&mut self, session: u32) -> Result<&mut Track, OpusError> {
+        let i = match self.tracks.iter().position(|t| t.session == session) {
+            Some(i) => i,
+            None => match self.tracks.iter().position(|t| t.session == FREE) {
+                Some(i) => {
+                    self.tracks[i].reuse(session);
+                    i
+                }
+                None => {
+                    self.tracks.push(Box::new(Track::new(session)?));
+                    self.tracks.len() - 1
+                }
+            },
+        };
+        Ok(&mut self.tracks[i])
     }
 
     /// Handles what [`Inbound`](crate::inbound::Inbound) produced, at the
     /// time the packet arrived. The first frame of a sender without a track
-    /// makes one (see [`Mixer::add_track`]).
+    /// takes a free one, or makes one (see [`Mixer::add_track`]).
     pub fn push(&mut self, now_us: u64, event: Event) -> Result<(), OpusError> {
         match event {
             Event::Audio { session, arrival } => {
-                let track = match self.tracks.entry(session) {
-                    std::collections::btree_map::Entry::Occupied(e) => e.into_mut(),
-                    std::collections::btree_map::Entry::Vacant(e) => e.insert(Track::new(session)?),
-                };
-                track.push(now_us, arrival, self.min_target_us);
+                let min_target_us = self.min_target_us;
+                self.track(session)?.push(now_us, arrival, min_target_us);
             }
             Event::Restarted { session } => {
-                if let Some(track) = self.tracks.get_mut(&session) {
+                if let Some(track) = self.tracks.iter_mut().find(|t| t.session == session) {
                     track.buffer.reset();
+                }
+            }
+            Event::Left { session } => {
+                if let Some(track) = self.tracks.iter_mut().find(|t| t.session == session) {
+                    track.reuse(FREE);
                 }
             }
         }
@@ -217,7 +284,7 @@ impl Mixer {
     /// at which `out[0]` is due, on the clock the arrivals were stamped with.
     pub fn render(&mut self, now_us: u64, out: &mut [f32]) {
         out.fill(0.0);
-        for track in self.tracks.values_mut() {
+        for track in &mut self.tracks {
             track.render(now_us, out);
         }
         for s in out.iter_mut() {
@@ -225,7 +292,8 @@ impl Mixer {
         }
     }
 
-    /// What each track is doing, by session.
+    /// What each sender's track is doing, in the order the tracks were
+    /// made; free tracks are left out.
     pub fn stats(&self) -> Vec<TrackStats> {
         self.track_stats().collect()
     }
@@ -233,7 +301,10 @@ impl Mixer {
     /// Like [`Mixer::stats`], without collecting them: the playback
     /// callback copies them into a list that already has room.
     pub fn track_stats(&self) -> impl Iterator<Item = TrackStats> + '_ {
-        self.tracks.values().map(Track::stats)
+        self.tracks
+            .iter()
+            .filter(|t| t.session != FREE)
+            .map(|t| t.stats())
     }
 }
 
@@ -326,5 +397,39 @@ mod tests {
             assert_eq!(track.jitter.played, 20, "{track:?}");
             assert_eq!(track.decode_errors, 0);
         }
+    }
+
+    #[test]
+    fn a_track_left_behind_serves_the_next_sender() {
+        let frame = FrameSize::Ms5;
+        let mut encoder = Encoder::new(frame, 64_000).unwrap();
+        let mut audio = |session: u32, k: u32| Event::Audio {
+            session,
+            arrival: Arrival {
+                timestamp: k * frame.samples() as u32,
+                end_of_spurt: false,
+                primary: FrameBytes::new(&encoder.encode(&vec![0.0; frame.samples()]).unwrap())
+                    .unwrap(),
+                redundant: None,
+            },
+        };
+        let mut mixer = Mixer::new();
+        mixer.add_track(1).unwrap();
+        mixer.push(0, audio(1, 0)).unwrap();
+        assert_eq!(mixer.stats()[0].jitter.received, 1);
+
+        mixer.push(5_000, Event::Left { session: 1 }).unwrap();
+        assert!(mixer.stats().is_empty(), "a free track shows no stats");
+        mixer.push(10_000, audio(2, 0)).unwrap();
+        assert_eq!(mixer.tracks.len(), 1, "the free track was reused");
+        let stats = mixer.stats();
+        assert_eq!((stats[0].session, stats[0].jitter.received), (2, 1));
+
+        // A slot handed in from elsewhere is the next new sender's.
+        mixer.reserve(1);
+        mixer.add_slot(Mixer::make_slot().unwrap());
+        mixer.push(15_000, audio(3, 0)).unwrap();
+        assert_eq!(mixer.tracks.len(), 2);
+        assert_eq!(mixer.stats().len(), 2);
     }
 }

@@ -246,6 +246,15 @@ impl Decoder {
     }
 }
 
+impl Decoder {
+    /// Forgets everything decoded so far, as if new, without allocating:
+    /// a mixer track reused for another sender starts clean.
+    pub fn reset(&mut self) {
+        // SAFETY: a valid decoder, and OPUS_RESET_STATE takes no argument.
+        unsafe { ffi::opus_decoder_ctl(self.raw.as_ptr(), ffi::OPUS_RESET_STATE) };
+    }
+}
+
 impl Drop for Decoder {
     fn drop(&mut self) {
         // SAFETY: the pointer came from opus_decoder_create and is freed once.

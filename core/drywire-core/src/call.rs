@@ -17,15 +17,20 @@
 //! The audio callbacks never wait for a lock: they update the shared
 //! statistics only when the lock is free. Once the call has started they
 //! never allocate or free memory either (ADR 0017): every buffer they use
-//! is made in [`Call::join`].
+//! is made in [`Call::join`], or, for a member who joins later
+//! ([`Call::add_member`]), by the network thread, which hands playback a
+//! ready-made track.
 
+use std::collections::VecDeque;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender as ChangeSender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use drywire_proto::crypto::VerifyingKey;
 use drywire_proto::header::MAX_PACKET_SIZE;
 use rtrb::{Consumer, Producer, RingBuffer};
 
@@ -33,7 +38,7 @@ use crate::audio::{InputCallback, OutputCallback};
 use crate::config::ClientConfig;
 use crate::inbound::{Event, Inbound, InboundStats};
 use crate::link::{Link, LinkConfig, LinkStats};
-use crate::mixer::{Mixer, TrackStats};
+use crate::mixer::{Mixer, Slot, TrackStats};
 use crate::opus::OpusError;
 use crate::sender::{Packets, Sender, SenderConfig, SenderStats};
 use crate::socket;
@@ -115,6 +120,28 @@ impl From<std::io::Error> for CallError {
 /// 60 ms stall of ten senders at 2.5 ms frames.
 pub const PLAYBACK_QUEUE: usize = 256;
 
+/// The most tracks playback holds: more than the other members a room can
+/// have (32 at the reference relay), so a call never runs out.
+pub const MAX_TRACKS: usize = 64;
+
+/// What the network thread passes to playback, through a wait-free ring.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "frames are inline on purpose: boxing them would allocate (ADR 0017)"
+)]
+enum ToPlayback {
+    /// A decrypted frame, or a sender's change, stamped with its arrival.
+    Event(u64, Event),
+    /// A spare track for a member who just joined.
+    Slot(Slot),
+}
+
+/// A change of the room's members, from the control plane.
+enum Change {
+    Add(u32, VerifyingKey),
+    Remove(u32),
+}
+
 /// State shared by the three threads.
 struct Shared {
     started: Instant,
@@ -136,6 +163,7 @@ impl Shared {
 pub struct Call {
     shared: Arc<Shared>,
     network: Option<JoinHandle<()>>,
+    changes: ChangeSender<Change>,
 }
 
 impl Call {
@@ -168,7 +196,7 @@ impl Call {
             last_sent_us: AtomicU64::new(0),
             stats: Mutex::new(CallStats {
                 // Room for every track, so playback never grows it.
-                tracks: Vec::with_capacity(others.len()),
+                tracks: Vec::with_capacity(MAX_TRACKS),
                 ..CallStats::default()
             }),
         });
@@ -190,20 +218,34 @@ impl Call {
         // The epoch's first announcement, before any audio (section 8.3).
         let _ = socket.send(&sender.announce());
 
-        // Every track before playback starts: making one allocates.
+        // Every track before playback starts: making one allocates. Room
+        // for the tracks of members who join later, handed in as slots.
         let mut mixer = Mixer::with_min_target(options.min_buffer_us);
-        for (session, _) in &others {
+        mixer.reserve(MAX_TRACKS);
+        for (session, _) in others.iter().take(MAX_TRACKS) {
             mixer.add_track(*session).map_err(CallError::Opus)?;
         }
+        let members = Members {
+            me: config.session,
+            peers: others.len(),
+            tracks: others.len().min(MAX_TRACKS),
+            changes: None,
+            pending: VecDeque::new(),
+        };
         let inbound = Inbound::new(config.room_id, &config.space_key, others);
         let (events, playback_events) = RingBuffer::new(PLAYBACK_QUEUE);
+        let (changes, changes_rx) = mpsc::channel();
 
         let network = {
             let socket = Arc::clone(&socket);
             let shared = Arc::clone(&shared);
+            let members = Members {
+                changes: Some(changes_rx),
+                ..members
+            };
             std::thread::Builder::new()
                 .name("drywire-network".into())
-                .spawn(move || network_loop(&socket, &shared, link, inbound, events))?
+                .spawn(move || network_loop(&socket, &shared, link, inbound, members, events))?
         };
         let input = capture_callback(socket, Arc::clone(&shared), sender);
         let output = playback_callback(Arc::clone(&shared), playback_events, mixer);
@@ -211,10 +253,25 @@ impl Call {
             Call {
                 shared,
                 network: Some(network),
+                changes,
             },
             input,
             output,
         ))
+    }
+
+    /// Someone joined the room: accept their announcements, verified with
+    /// `public_key`, and play their audio. Takes effect within the network
+    /// thread's next wake-up (50 ms at most). This client's own session is
+    /// ignored, as is a session already known.
+    pub fn add_member(&self, session: u32, public_key: VerifyingKey) {
+        let _ = self.changes.send(Change::Add(session, public_key));
+    }
+
+    /// Someone left the room: forget their keys, and free their track for
+    /// the next member.
+    pub fn remove_member(&self, session: u32) {
+        let _ = self.changes.send(Change::Remove(session));
     }
 
     /// A snapshot of the counters.
@@ -268,19 +325,82 @@ fn bind(
     Ok(())
 }
 
+/// The network thread's view of the room's members.
+struct Members {
+    /// This client's session, never a peer.
+    me: u32,
+    /// How many other members [`Inbound`] accepts packets from.
+    peers: usize,
+    /// How many tracks playback holds, used or free. Kept at least equal
+    /// to `peers`, so a new sender always finds a free track.
+    tracks: usize,
+    changes: Option<Receiver<Change>>,
+    /// Messages for playback that found its ring full, sent first next
+    /// time: a lost slot or `Left` would leave playback a track short.
+    pending: VecDeque<ToPlayback>,
+}
+
+impl Members {
+    /// Applies the changes the control plane sent since the last call.
+    fn apply(&mut self, now: u64, inbound: &mut Inbound, events: &mut Producer<ToPlayback>) {
+        while let Some(message) = self.pending.pop_front() {
+            if let Err(rtrb::PushError::Full(message)) = events.push(message) {
+                self.pending.push_front(message);
+                return;
+            }
+        }
+        let Some(changes) = &self.changes else {
+            return;
+        };
+        while let Ok(change) = changes.try_recv() {
+            match change {
+                Change::Add(session, key) if session != self.me => {
+                    if !inbound.add_peer(session, key) {
+                        continue;
+                    }
+                    self.peers += 1;
+                    if self.peers > self.tracks && self.tracks < MAX_TRACKS {
+                        // Made here, where allocating is fine.
+                        if let Ok(slot) = Mixer::make_slot() {
+                            self.tracks += 1;
+                            self.pending.push_back(ToPlayback::Slot(slot));
+                        }
+                    }
+                }
+                Change::Add(..) => {}
+                Change::Remove(session) => {
+                    if inbound.remove_peer(session) {
+                        self.peers -= 1;
+                        let left = Event::Left { session };
+                        self.pending.push_back(ToPlayback::Event(now, left));
+                    }
+                }
+            }
+        }
+        while let Some(message) = self.pending.pop_front() {
+            if let Err(rtrb::PushError::Full(message)) = events.push(message) {
+                self.pending.push_front(message);
+                return;
+            }
+        }
+    }
+}
+
 /// Receives, decrypts and forwards to playback; drives the link.
 fn network_loop(
     socket: &UdpSocket,
     shared: &Shared,
     mut link: Link,
     mut inbound: Inbound,
-    mut events: Producer<(u64, Event)>,
+    mut members: Members,
+    mut events: Producer<ToPlayback>,
 ) {
     let mut buf = [0u8; MAX_PACKET_SIZE];
     let mut next_stats_us = 0;
     let mut queue_full = 0;
     while !shared.stop.load(Ordering::Relaxed) {
         let now = shared.now_us();
+        members.apply(now, &mut inbound, &mut events);
         let other_sent = shared.last_sent_us.load(Ordering::Relaxed);
         while let Some(packet) = link.poll(now, unix_ms(), other_sent) {
             let _ = socket.send(&packet);
@@ -309,7 +429,7 @@ fn network_loop(
                 Ok(true) => {}
                 _ => {
                     if let Some(event) = inbound.handle(packet)
-                        && events.push((at, event)).is_err()
+                        && events.push(ToPlayback::Event(at, event)).is_err()
                     {
                         // Playback stalled, or is gone because the call is
                         // ending.
@@ -425,16 +545,23 @@ fn capture_callback(socket: Arc<UdpSocket>, shared: Arc<Shared>, sender: Sender)
 /// What the playback callback owns; statistics as for [`Capture`].
 struct Playback {
     shared: Arc<Shared>,
-    events: Consumer<(u64, Event)>,
+    events: Consumer<ToPlayback>,
     mixer: Mixer,
     next_stats_us: u64,
 }
 
 impl Playback {
     fn render(&mut self, out: &mut [f32]) {
-        while let Ok((at, event)) = self.events.pop() {
-            // A track whose decoder cannot be made stays silent.
-            let _ = self.mixer.push(at, event);
+        while let Ok(message) = self.events.pop() {
+            match message {
+                // A track whose decoder cannot be made stays silent.
+                ToPlayback::Event(at, event) => {
+                    let _ = self.mixer.push(at, event);
+                }
+                // Room was reserved for MAX_TRACKS, and the network thread
+                // never makes more: this never allocates.
+                ToPlayback::Slot(slot) => self.mixer.add_slot(slot),
+            }
         }
         let now = self.shared.now_us();
         self.mixer.render(now, out);
@@ -459,7 +586,7 @@ impl Drop for Playback {
 
 fn playback_callback(
     shared: Arc<Shared>,
-    events: Consumer<(u64, Event)>,
+    events: Consumer<ToPlayback>,
     mixer: Mixer,
 ) -> OutputCallback {
     let mut playback = Playback {
