@@ -628,17 +628,18 @@ phase ends on a measurable criterion.
    same server's Android app with a wired earbud, the console player's current
    chain, and the network paths (`mtr` to the relay from each player's
    connection). **Exit**: results in `docs/baseline.md`.
-1. **Low-level prototype.** UDP relay with rooms from a config file and the
-   authenticated `hello` (ADR 0004), Rust core, `drywire-cli` on Windows and macOS, all three frame sizes, voice
-   gate, `drywire-bench`. No encryption yet. **Exit**: two CLIs talk through
-   the relay with a median below the phase 0 baseline on the same setup, for
-   30 minutes without audible artifacts; default frame size chosen and the
-   measurements recorded.
+1. **Low-level prototype.** UDP relay with rooms and the authenticated
+   `hello` from a config file (ADR 0004), Rust core, `drywire-cli` on Windows
+   and macOS, all three frame sizes, voice gate, `drywire-bench`. Audio is
+   encrypted end to end from the start, with keys from a config file
+   (ADR 0006). **Exit**: two CLIs talk through the relay with a median below
+   the phase 0 baseline on the same setup, for 30 minutes without audible
+   artifacts; default frame size chosen and the measurements recorded.
 2. **Control plane and security.** Ed25519 identities, spaces and rooms in
-   SQLite, invitation links and the static invitation page, end-to-end
-   encryption with per-sender keys. Data export,
-   identity deletion, retention purge, deletion ledger. **Exit**: the team
-   joins by link; a packet capture on the server shows only ciphertext;
+   SQLite, invitation links and the static invitation page, which replace
+   the phase 1 config files. Data export, identity deletion, retention purge,
+   deletion ledger. **Exit**: the team joins by link; a packet capture on the
+   server shows only ciphertext;
    latency within 1 ms of phase 1.
 3. **Windows app.** Widget, overlay, global mute shortcut, latency lab, gate
    calibration. **Exit**: a full session of matches without falling back to
