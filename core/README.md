@@ -2,13 +2,14 @@
 
 The Rust workspace shared by every Drywire client: the wire protocol, the
 end-to-end encryption, Opus, the voice gate and the jitter buffer. Native
-apps link it; nothing in it talks to the network or to a sound card yet.
+apps link it; `drywire-cli` is the first program built on it.
 Section 6 of [`docs/spec.md`](../docs/spec.md) says where it is going.
 
 | Crate | What it does |
 | --- | --- |
 | [`drywire-proto`](drywire-proto/) | Packets, key derivation, AES-GCM, signed announcements, replay window. No I/O, no clock. |
 | [`drywire-core`](drywire-core/) | Opus (libopus, CELT only), the voice gate, the jitter buffer, and the client pipeline built on them: config file, sender, receiver, mixer, relay link. No sound card, no socket. |
+| [`drywire-cli`](drywire-cli/) | The phase 1 command-line client: joins a room, talks, prints the statistics; WAV files instead of a sound card for headless tests. |
 | [`drywire-bench`](drywire-bench/) | Replays simulated network traces against the jitter buffer (`make bench`); its regression test runs in `make test`. |
 
 ## Run the tests

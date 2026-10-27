@@ -183,6 +183,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "drywire-cli"
+version = "0.1.0"
+dependencies = [
+ "drywire-core",
+ "drywire-proto",
+ "getrandom",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "drywire-core"
 version = "0.1.0"
 dependencies = [

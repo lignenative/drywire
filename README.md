@@ -35,7 +35,7 @@ The full design, its reasons and the roadmap are in
 | Path | What it holds |
 | --- | --- |
 | `server/` | The Go relay and its HTTP API ([`server/README.md`](server/README.md)) |
-| `core/` | The Rust core shared by every client; today only the protocol test vectors |
+| `core/` | The Rust core shared by every client, and `drywire-cli`, the phase 1 client ([`core/README.md`](core/README.md)) |
 | `docs/` | The specification, the protocol, and decision records (`docs/adr/`) |
 | `scripts/` | The scripts behind every `make` command |
 | `Makefile` | Entry point for every command; `make help` lists them |
@@ -47,8 +47,11 @@ The target layout is in section 12 of the specification.
 
 You need:
 
-- **macOS or Linux** with `make` and a POSIX shell.
+- **macOS or Linux** with `make` and a POSIX shell (Windows: see
+  [`core/drywire-cli/README.md`](core/drywire-cli/README.md)).
 - **Go 1.27** or newer, for the relay.
+- **Rust** through `rustup`, plus **CMake** and a C compiler, for the core
+  (it builds libopus from source).
 
 Then:
 
@@ -57,7 +60,9 @@ make help      # list the commands
 make test      # run every test suite
 make fmt       # format all code
 make dev       # run the relay locally with the development rooms
+make live      # talk to an echo bot through a local relay (headphones)
 make vectors   # regenerate the protocol test vectors after a format change
+make bench     # replay simulated network traces against the jitter buffer
 ```
 
 `make dev` needs no setup: it serves `server/rooms.dev.json`, whose secrets

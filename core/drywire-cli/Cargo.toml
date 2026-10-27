@@ -1,0 +1,21 @@
+[package]
+name = "drywire-cli"
+description = "Drywire's command-line client: joins a room, talks and listens"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+drywire-core.workspace = true
+drywire-proto.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

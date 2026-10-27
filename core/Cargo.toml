@@ -1,7 +1,7 @@
 # The Rust workspace shared by every Drywire client. See README.md.
 [workspace]
 resolver = "3"
-members = ["drywire-proto", "drywire-core", "drywire-bench"]
+members = ["drywire-proto", "drywire-core", "drywire-bench", "drywire-cli"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,6 +14,7 @@ publish = false
 # before it is added here. Versions are pinned to a minor release.
 [workspace.dependencies]
 drywire-proto = { path = "drywire-proto" }
+drywire-core = { path = "drywire-core" }
 opusic-sys = "0.7"
 getrandom = "0.4"
 aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }

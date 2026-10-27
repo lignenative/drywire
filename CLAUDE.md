@@ -79,9 +79,10 @@ The Makefile is thin: each target calls a script in `scripts/`.
 
 ```sh
 make help     # list the commands
-make test     # gofmt check, go vet and go test -race; cargo fmt, clippy and test once core/ exists
+make test     # gofmt check, go vet and go test -race; cargo fmt, clippy and test
 make fmt      # gofmt and cargo fmt
 make dev      # run the relay on 127.0.0.1:10050
+make live     # live call on this Mac: you, an echo bot, a local relay
 make vectors  # regenerate core/drywire-proto/vectors/ after a wire format change
 make bench    # replay simulated network traces against the jitter buffer
 ```

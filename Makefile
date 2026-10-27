@@ -6,7 +6,7 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help dev test fmt vectors bench
+.PHONY: help dev test fmt vectors bench live
 
 help: ## List the commands
 	@scripts/help.sh
@@ -25,3 +25,6 @@ vectors: ## Regenerate the protocol test vectors
 
 bench: ## Replay simulated network traces against the jitter buffer
 	@scripts/bench.sh
+
+live: ## Live call on this Mac: you, an echo bot and a local relay (headphones)
+	@scripts/live.sh
