@@ -94,6 +94,7 @@ impl Relay {
             .env("DRYWIRE_ROOMS", rooms)
             .env("DRYWIRE_DB", dir.join("drywire.db"))
             .env("DRYWIRE_ACCESS_LOG", "off")
+            .env("DRYWIRE_SPACE_CREATORS", "*")
             .env("DRYWIRE_UDP_ADDR", "127.0.0.1:0")
             .env("DRYWIRE_HTTP_ADDR", "127.0.0.1:0")
             .stderr(Stdio::piped())
@@ -118,6 +119,11 @@ impl Relay {
             }
         });
         Relay { child, udp, http }
+    }
+
+    /// The control plane's origin, as clients reach it.
+    pub fn instance(&self) -> String {
+        format!("http://{}", self.http)
     }
 
     /// `GET /v1/status`, parsed.
