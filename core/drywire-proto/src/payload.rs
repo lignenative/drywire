@@ -4,6 +4,11 @@
 use crate::Error;
 use crate::header::FLAG_REDUNDANT;
 
+/// The longest Opus frame a payload may carry (section 7): two of them,
+/// with the header, the redundant length and the tag, fit in one datagram
+/// (`16 + 2 + 2 × 575 + 16 = 1184` bytes).
+pub const MAX_FRAME_SIZE: usize = 575;
+
 /// A decoded audio payload. Frames borrow from the decrypted plaintext.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioPayload<'a> {
@@ -48,7 +53,7 @@ impl AudioPayload<'_> {
     /// Splits a decrypted plaintext according to the flags of its header.
     pub fn decode(flags: u8, plaintext: &[u8]) -> Result<AudioPayload<'_>, Error> {
         if flags & FLAG_REDUNDANT == 0 {
-            if plaintext.is_empty() {
+            if plaintext.is_empty() || plaintext.len() > MAX_FRAME_SIZE {
                 return Err(Error::BadFraming);
             }
             return Ok(AudioPayload {
@@ -65,6 +70,9 @@ impl AudioPayload<'_> {
             return Err(Error::BadFraming);
         }
         let (redundant, primary) = rest.split_at(n);
+        if redundant.len() > MAX_FRAME_SIZE || primary.len() > MAX_FRAME_SIZE {
+            return Err(Error::BadFraming);
+        }
         Ok(AudioPayload {
             redundant: Some(redundant),
             primary,
@@ -96,6 +104,9 @@ mod tests {
             (FLAG_REDUNDANT, b"\x00\x01a"),  // no primary frame left
             (FLAG_REDUNDANT, b"\x00\x05ab"), // length past the end
         ];
+        let long = [7u8; MAX_FRAME_SIZE + 1];
+        assert_eq!(AudioPayload::decode(0, &long), Err(Error::BadFraming));
+        assert!(AudioPayload::decode(0, &long[1..]).is_ok(), "575 bytes fit");
         for (flags, plaintext) in bad {
             assert_eq!(
                 AudioPayload::decode(*flags, plaintext),

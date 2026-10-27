@@ -25,6 +25,11 @@ const (
 	SaltSize   = 32
 )
 
+// MaxFrameSize is the longest Opus frame an audio payload may carry
+// (section 7): two of them, with the header, the redundant length and the
+// tag, fit in one datagram.
+const MaxFrameSize = 575
+
 // Labels from sections 8.2 and 8.3.
 const (
 	roomInfo     = "drywire/room/v1"
@@ -145,7 +150,7 @@ func (p AudioPayload) Encode() (plaintext []byte, flags uint8) {
 // its header.
 func DecodeAudioPayload(flags uint8, plaintext []byte) (AudioPayload, error) {
 	if flags&wire.FlagRedundant == 0 {
-		if len(plaintext) < 1 {
+		if len(plaintext) < 1 || len(plaintext) > MaxFrameSize {
 			return AudioPayload{}, wire.ErrBadFraming
 		}
 		return AudioPayload{Primary: plaintext}, nil
@@ -156,6 +161,9 @@ func DecodeAudioPayload(flags uint8, plaintext []byte) (AudioPayload, error) {
 	n := int(binary.BigEndian.Uint16(plaintext))
 	rest := plaintext[2:]
 	if n < 1 || n >= len(rest) { // the primary frame needs at least one byte
+		return AudioPayload{}, wire.ErrBadFraming
+	}
+	if n > MaxFrameSize || len(rest)-n > MaxFrameSize {
 		return AudioPayload{}, wire.ErrBadFraming
 	}
 	return AudioPayload{Redundant: rest[:n], Primary: rest[n:]}, nil

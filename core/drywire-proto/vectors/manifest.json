@@ -225,6 +225,21 @@
       }
     },
     {
+      "name": "audio-frame-too-long",
+      "file": "audio-frame-too-long.bin",
+      "description": "Decrypts, but its frame is longer than 575 bytes.",
+      "error": "bad_framing",
+      "header": {
+        "version": 1,
+        "type": "audio",
+        "flags": 0,
+        "key_epoch": 0,
+        "session": 287454020,
+        "sequence": 11,
+        "timestamp": 77760
+      }
+    },
+    {
       "name": "announce",
       "file": "announce.bin",
       "description": "The sender publishes the salt of key epoch 0.",

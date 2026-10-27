@@ -209,7 +209,8 @@ impl Inbound {
                 return None;
             }
         };
-        // A frame longer than MAX_FRAME_BYTES is invalid (section 7).
+        // Never fails: the payload's frames were checked against the same
+        // limit (section 7) by `AudioPayload::decode`.
         let (Some(primary), Ok(redundant)) = (
             FrameBytes::new(payload.primary),
             payload

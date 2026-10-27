@@ -15,11 +15,12 @@ use opusic_sys as ffi;
 /// Drywire always runs Opus at 48 kHz.
 pub const SAMPLE_RATE: u32 = 48_000;
 
-/// The largest encoded frame we accept or produce. Two of them, plus the
-/// header, the redundant length and the tag, still fit in one 1200-byte
-/// datagram: `16 + 2 + 2 × 575 + 16 = 1184`. At 64 kb/s a 10 ms frame is
-/// about 80 bytes, so this is never a constraint in practice.
-pub const MAX_FRAME_BYTES: usize = 575;
+/// The largest encoded frame we accept or produce: the protocol's limit
+/// (section 7). Two of them, plus the header, the redundant length and the
+/// tag, still fit in one 1200-byte datagram: `16 + 2 + 2 × 575 + 16 =
+/// 1184`. At 64 kb/s a 10 ms frame is about 80 bytes, so this is never a
+/// constraint in practice.
+pub const MAX_FRAME_BYTES: usize = drywire_proto::payload::MAX_FRAME_SIZE;
 
 /// The frame sizes Drywire supports (spec section 7).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

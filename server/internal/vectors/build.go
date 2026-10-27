@@ -132,6 +132,13 @@ func Build() (Manifest, map[string][]byte) {
 		Description: "Decrypts, but its redundant length goes past the end of the plaintext.",
 		Error:       string(wire.ErrBadFraming)}, badFraming)
 
+	// Encrypted correctly, but its one frame is a byte over the limit.
+	tooLong := clientref.SealAudio(senderKeys[0], wire.Header{Version: wire.Version, Type: wire.TypeAudio,
+		Session: session, Sequence: 11, Timestamp: 77760}, make([]byte, clientref.MaxFrameSize+1))
+	add(Vector{Name: "audio-frame-too-long",
+		Description: "Decrypts, but its frame is longer than 575 bytes.",
+		Error:       string(wire.ErrBadFraming)}, tooLong)
+
 	// Announcements: the first one a sender sends in a room, and the same
 	// packet with one salt byte changed, which breaks the signature.
 	announce := clientref.NewAnnounce(private, roomID, session, 0, m.Epochs[0].SenderSalt)
