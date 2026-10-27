@@ -7,11 +7,17 @@
 //! the pace of its own frame size, all driven by the card's clock. Tracks
 //! are summed, then softly clipped: a sum under half of full scale is left
 //! exactly as it is.
+//!
+//! In a call, every track is made before playback starts
+//! ([`Mixer::add_track`]): making one creates an Opus decoder, which
+//! allocates, and the playback callback never allocates (ADR 0017). A
+//! track's jitter buffer is kept, and reconfigured in place, when its
+//! sender changes frame size.
 
 use std::collections::BTreeMap;
 
 use crate::inbound::Event;
-use crate::jitter::{JitterBuffer, JitterConfig, JitterStats, Playout};
+use crate::jitter::{Arrival, JitterBuffer, JitterConfig, JitterStats, Playout};
 use crate::opus::{Decoder, FrameSize, OpusError, SAMPLE_RATE, packet_samples};
 
 /// What one track is doing, for display.
@@ -32,8 +38,10 @@ pub struct TrackStats {
 /// One sender's playback.
 struct Track {
     session: u32,
-    /// Made when the first frame shows the sender's frame size.
-    buffer: Option<(FrameSize, JitterBuffer)>,
+    /// The sender's frame size, known from its first frame. Until then the
+    /// buffer is empty and the track silent.
+    frame: Option<FrameSize>,
+    buffer: JitterBuffer,
     decoder: Decoder,
     /// The decoded frame being played, and how much of it is played.
     pcm: Vec<f32>,
@@ -47,7 +55,9 @@ impl Track {
     fn new(session: u32) -> Result<Track, OpusError> {
         Ok(Track {
             session,
-            buffer: None,
+            frame: None,
+            // Reconfigured for the real frame size before the first push.
+            buffer: JitterBuffer::new(JitterConfig::new(FrameSize::Ms5)),
             decoder: Decoder::new()?,
             pcm: Vec::with_capacity(FrameSize::Ms10.samples()),
             played: 0,
@@ -56,7 +66,7 @@ impl Track {
         })
     }
 
-    fn push(&mut self, now_us: u64, arrival: crate::jitter::Arrival, min_target_us: u64) {
+    fn push(&mut self, now_us: u64, arrival: Arrival, min_target_us: u64) {
         let Some(frame) = packet_samples(&arrival.primary)
             .ok()
             .and_then(FrameSize::from_samples)
@@ -65,22 +75,22 @@ impl Track {
             return;
         };
         // A sender that changes its frame size starts a new timeline.
-        if self.buffer.as_ref().is_none_or(|(f, _)| *f != frame) {
-            if let Some((_, old)) = &self.buffer {
-                self.earlier = add(self.earlier, old.stats());
+        if self.frame != Some(frame) {
+            if self.frame.is_some() {
+                self.earlier = add(self.earlier, self.buffer.stats());
             }
             let mut config = JitterConfig::new(frame);
             config.min_target_us = config.min_target_us.max(min_target_us);
-            self.buffer = Some((frame, JitterBuffer::new(config)));
+            self.buffer.reconfigure(config);
+            self.frame = Some(frame);
         }
-        let (_, buffer) = self.buffer.as_mut().expect("just made");
-        buffer.push(now_us, arrival);
+        self.buffer.push(now_us, arrival);
     }
 
     /// Adds this track's next `out.len()` samples to `out`. `now_us` is the
     /// time of `out[0]`.
     fn render(&mut self, now_us: u64, out: &mut [f32]) {
-        let Some((frame, _)) = self.buffer else {
+        let Some(frame) = self.frame else {
             return;
         };
         let mut i = 0;
@@ -103,11 +113,10 @@ impl Track {
 
     /// Fills `pcm` with the next frame: decoded, concealed, or silence.
     fn next_frame(&mut self, frame: FrameSize, now_us: u64) {
-        let (_, buffer) = self.buffer.as_mut().expect("checked by render");
         self.pcm.clear();
         self.pcm.resize(frame.samples(), 0.0);
         self.played = 0;
-        let decoded = match buffer.pop(now_us) {
+        let decoded = match self.buffer.pop(now_us) {
             Playout::Silence => return,
             Playout::Frame { frame: bytes, .. } => self.decoder.decode(&bytes, &mut self.pcm),
             Playout::Conceal => self.decoder.conceal(&mut self.pcm),
@@ -120,14 +129,16 @@ impl Track {
     }
 
     fn stats(&self) -> TrackStats {
+        let known = self.frame.is_some();
         TrackStats {
             session: self.session,
-            frame: self.buffer.as_ref().map(|(f, _)| *f),
-            jitter: self
-                .buffer
-                .as_ref()
-                .map_or(self.earlier, |(_, b)| add(self.earlier, b.stats())),
-            depth: self.buffer.as_ref().map_or(0, |(_, b)| b.len()),
+            frame: self.frame,
+            jitter: if known {
+                add(self.earlier, self.buffer.stats())
+            } else {
+                self.earlier
+            },
+            depth: self.buffer.len(),
             decode_errors: self.decode_errors,
         }
     }
@@ -156,8 +167,19 @@ impl Mixer {
         }
     }
 
+    /// Makes the track of `session` now, rather than when its first frame
+    /// arrives: making a track allocates, so a call makes every member's
+    /// before playback starts. A track that exists already is kept.
+    pub fn add_track(&mut self, session: u32) -> Result<(), OpusError> {
+        if let std::collections::btree_map::Entry::Vacant(e) = self.tracks.entry(session) {
+            e.insert(Track::new(session)?);
+        }
+        Ok(())
+    }
+
     /// Handles what [`Inbound`](crate::inbound::Inbound) produced, at the
-    /// time the packet arrived.
+    /// time the packet arrived. The first frame of a sender without a track
+    /// makes one (see [`Mixer::add_track`]).
     pub fn push(&mut self, now_us: u64, event: Event) -> Result<(), OpusError> {
         match event {
             Event::Audio { session, arrival } => {
@@ -168,10 +190,8 @@ impl Mixer {
                 track.push(now_us, arrival, self.min_target_us);
             }
             Event::Restarted { session } => {
-                if let Some(track) = self.tracks.get_mut(&session)
-                    && let Some((_, buffer)) = &mut track.buffer
-                {
-                    buffer.reset();
+                if let Some(track) = self.tracks.get_mut(&session) {
+                    track.buffer.reset();
                 }
             }
         }
@@ -192,7 +212,13 @@ impl Mixer {
 
     /// What each track is doing, by session.
     pub fn stats(&self) -> Vec<TrackStats> {
-        self.tracks.values().map(Track::stats).collect()
+        self.track_stats().collect()
+    }
+
+    /// Like [`Mixer::stats`], without collecting them: the playback
+    /// callback copies them into a list that already has room.
+    pub fn track_stats(&self) -> impl Iterator<Item = TrackStats> + '_ {
+        self.tracks.values().map(Track::stats)
     }
 }
 
@@ -227,7 +253,7 @@ fn add(a: JitterStats, b: JitterStats) -> JitterStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jitter::Arrival;
+    use crate::jitter::FrameBytes;
     use crate::opus::Encoder;
 
     #[test]
@@ -257,7 +283,7 @@ mod tests {
                 let arrival = Arrival {
                     timestamp: k * frame.samples() as u32,
                     end_of_spurt: k == 19,
-                    primary: encoder.encode(&tone(f)).unwrap(),
+                    primary: FrameBytes::new(&encoder.encode(&tone(f)).unwrap()).unwrap(),
                     redundant: None,
                 };
                 arrivals.push((u64::from(k) * 5_000, Event::Audio { session, arrival }));

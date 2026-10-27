@@ -246,6 +246,11 @@ redundant length (2) ‖ redundant frame (redundant length) ‖ primary frame (�
 - `redundant length` MUST be at least 1, and the primary frame MUST be at
   least one byte. A payload that breaks either rule, or whose redundant length
   goes past the end of the plaintext, is invalid (`bad_framing`).
+- Each frame is at most 575 bytes, so that a primary and a redundant frame
+  always fit in one datagram (`16 + 2 + 2 × 575 + 16 = 1184` bytes). A
+  frame over 575 bytes is invalid (`bad_framing`). A 10 ms frame at 64 kb/s
+  is about 80 bytes; receivers rely on the bound to keep frames in fixed
+  buffers.
 - Redundancy only helps if the receiver's jitter buffer holds at least two
   frames, because the copy of frame *n* arrives with packet *n + 1*.
 

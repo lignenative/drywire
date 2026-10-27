@@ -55,21 +55,28 @@ fn hkdf(ikm: &[u8], salt: Option<&[u8]>, info: &[&[u8]]) -> [u8; KEY_SIZE] {
     okm
 }
 
+/// Size of the message an announcement signs.
+pub const ANNOUNCEMENT_MESSAGE_SIZE: usize = ANNOUNCE_INFO.len() + ROOM_ID_SIZE + 4 + 1 + SALT_SIZE;
+
 /// The message a sender signs to publish the salt of a key epoch
 /// (section 8.3). The room ID never travels on the wire but binds the
-/// signature to one room.
+/// signature to one room. A fixed-size array, so that signing in the
+/// capture callback does not allocate.
 pub fn announcement_message(
     room_id: &[u8; ROOM_ID_SIZE],
     session: u32,
     epoch: u8,
     sender_salt: &[u8; SALT_SIZE],
-) -> Vec<u8> {
-    let mut m = Vec::with_capacity(ANNOUNCE_INFO.len() + ROOM_ID_SIZE + 4 + 1 + SALT_SIZE);
-    m.extend_from_slice(ANNOUNCE_INFO);
-    m.extend_from_slice(room_id);
-    m.extend_from_slice(&session.to_be_bytes());
-    m.push(epoch);
-    m.extend_from_slice(sender_salt);
+) -> [u8; ANNOUNCEMENT_MESSAGE_SIZE] {
+    let mut m = [0u8; ANNOUNCEMENT_MESSAGE_SIZE];
+    let (info, rest) = m.split_at_mut(ANNOUNCE_INFO.len());
+    info.copy_from_slice(ANNOUNCE_INFO);
+    let (room, rest) = rest.split_at_mut(ROOM_ID_SIZE);
+    room.copy_from_slice(room_id);
+    let (session_bytes, rest) = rest.split_at_mut(4);
+    session_bytes.copy_from_slice(&session.to_be_bytes());
+    rest[0] = epoch;
+    rest[1..].copy_from_slice(sender_salt);
     m
 }
 

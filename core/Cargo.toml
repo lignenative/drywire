@@ -19,6 +19,9 @@ drywire-core = { path = "drywire-core", default-features = false }
 # drywire-core's `bundled-opus` feature (on by default) builds it instead.
 opusic-sys = { version = "0.7", default-features = false }
 getrandom = "0.4"
+# A wait-free single-producer, single-consumer ring: frames from the
+# network thread to the playback callback (ADR 0017). No dependencies.
+rtrb = "0.4"
 # Unix only: `poll`, to wait on the call's non-blocking socket (ADR 0016).
 libc = "0.2"
 aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }

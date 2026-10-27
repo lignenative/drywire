@@ -20,10 +20,14 @@ use drywire_proto::payload::AudioPayload;
 use drywire_proto::replay::{ReplayWindow, Verdict};
 use drywire_proto::{PacketType, parse};
 
-use crate::jitter::Arrival;
+use crate::jitter::{Arrival, FrameBytes};
 
 /// What an accepted packet means for playback.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the frame is inline on purpose: boxing it would allocate (ADR 0017)"
+)]
 pub enum Event {
     /// A frame to buffer for this sender.
     Audio {
@@ -205,14 +209,25 @@ impl Inbound {
                 return None;
             }
         };
+        // A frame longer than MAX_FRAME_BYTES is invalid (section 7).
+        let (Some(primary), Ok(redundant)) = (
+            FrameBytes::new(payload.primary),
+            payload
+                .redundant
+                .map(|r| FrameBytes::new(r).ok_or(()))
+                .transpose(),
+        ) else {
+            self.stats.bad_framing += 1;
+            return None;
+        };
         self.stats.audio += 1;
         Some(Event::Audio {
             session,
             arrival: Arrival {
                 timestamp: header.timestamp,
                 end_of_spurt: header.is_end_of_spurt(),
-                primary: payload.primary.to_vec(),
-                redundant: payload.redundant.map(<[u8]>::to_vec),
+                primary,
+                redundant,
             },
         })
     }

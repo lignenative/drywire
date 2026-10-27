@@ -7,7 +7,7 @@
 //! do, so its frames are sent slightly more (or less) often than the
 //! receiver plays them.
 
-use drywire_core::jitter::{Arrival, JitterBuffer, JitterConfig, JitterStats, Playout};
+use drywire_core::jitter::{Arrival, FrameBytes, JitterBuffer, JitterConfig, JitterStats, Playout};
 use drywire_core::opus::FrameSize;
 
 use crate::network::{Path, PathState, Rng, Talk};
@@ -70,11 +70,29 @@ fn percent(n: u64, of: u64) -> f64 {
     100.0 * n as f64 / of as f64
 }
 
-/// One packet in flight.
+/// One packet in flight. Its frames are made when it arrives, to keep the
+/// thousands in flight small.
 struct InFlight {
     arrives_us: u64,
     index: u64,
-    arrival: Arrival,
+    timestamp: u32,
+    end_of_spurt: bool,
+    /// Whether it carries a copy of the previous frame.
+    redundant: bool,
+}
+
+impl InFlight {
+    /// The packet as the jitter buffer sees it. A frame's bytes are its
+    /// index, so the receiver can check the order.
+    fn arrival(&self) -> Arrival {
+        let bytes = |k: u64| FrameBytes::new(&k.to_be_bytes()).expect("8 bytes fit");
+        Arrival {
+            timestamp: self.timestamp,
+            end_of_spurt: self.end_of_spurt,
+            primary: bytes(self.index),
+            redundant: self.redundant.then(|| bytes(self.index - 1)),
+        }
+    }
 }
 
 /// Runs a scenario and reports what the jitter buffer did.
@@ -95,7 +113,7 @@ pub fn run(scenario: &Scenario) -> Report {
     let mut lost = 0;
     let mut talking_left = 0; // frames left in the current spurt
     let mut silent_left = rng.between(0, 20); // start a little after zero
-    let mut previous_frame: Option<Vec<u8>> = None;
+    let mut has_previous = false;
 
     for k in 0..total_frames {
         if talking_left == 0 {
@@ -105,24 +123,12 @@ pub fn run(scenario: &Scenario) -> Report {
             }
             talking_left = frames_for(&mut rng, scenario.talk.spurt_ms, frame);
             silent_left = frames_for(&mut rng, scenario.talk.silence_ms, frame);
-            previous_frame = None; // never redundancy on a spurt's first packet
+            has_previous = false; // never redundancy on a spurt's first packet
         }
         talking_left -= 1;
 
-        // The frame's bytes are its index, so the receiver can check order.
-        let bytes = k.to_be_bytes().to_vec();
-        let arrival = Arrival {
-            timestamp: first_timestamp.wrapping_add((k * frame.samples() as u64) as u32),
-            // The talker also stops when the simulation ends.
-            end_of_spurt: talking_left == 0 || k == total_frames - 1,
-            primary: bytes.clone(),
-            redundant: if scenario.redundancy {
-                previous_frame.take()
-            } else {
-                None
-            },
-        };
-        previous_frame = Some(bytes);
+        let redundant = scenario.redundancy && has_previous;
+        has_previous = true;
         sent += 1;
 
         let sent_us = (k as f64 * frame_us / sender_rate) as u64;
@@ -130,7 +136,10 @@ pub fn run(scenario: &Scenario) -> Report {
             Some(arrives_us) => packets.push(InFlight {
                 arrives_us,
                 index: k,
-                arrival,
+                timestamp: first_timestamp.wrapping_add((k * frame.samples() as u64) as u32),
+                // The talker also stops when the simulation ends.
+                end_of_spurt: talking_left == 0 || k == total_frames - 1,
+                redundant,
             }),
             None => lost += 1,
         }
@@ -149,13 +158,13 @@ pub fn run(scenario: &Scenario) -> Report {
     let mut incoming = packets.into_iter().peekable();
     while tick_us < end_us {
         while let Some(p) = incoming.next_if(|p| p.arrives_us <= tick_us) {
-            buffer.push(p.arrives_us, p.arrival);
+            buffer.push(p.arrives_us, p.arrival());
         }
         if let Playout::Frame {
             frame, waited_us, ..
         } = buffer.pop(tick_us)
         {
-            let index = u64::from_be_bytes(frame.try_into().expect("8-byte test frame"));
+            let index = u64::from_be_bytes((*frame).try_into().expect("8-byte test frame"));
             if last_played.is_some_and(|last| index <= last) {
                 out_of_order += 1;
             }

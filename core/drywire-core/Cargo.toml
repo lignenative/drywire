@@ -18,6 +18,7 @@ bundled-opus = ["opusic-sys/bundled"]
 drywire-proto.workspace = true
 getrandom.workspace = true
 opusic-sys.workspace = true
+rtrb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

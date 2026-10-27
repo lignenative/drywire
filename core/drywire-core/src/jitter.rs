@@ -30,11 +30,61 @@
 //! The buffer knows nothing about Opus: frames are opaque bytes. It keeps no
 //! clock either; every call takes the current time in microseconds, so tests
 //! and `drywire-bench` drive it with simulated time.
+//!
+//! It runs in the playback callback, so it never allocates once made
+//! (ADR 0017): frames are stored inline ([`FrameBytes`]) in a sorted queue
+//! with room for [`JitterConfig::capacity`] of them, and the statistics
+//! use a scratch buffer of their own.
 
-use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
+use std::fmt;
+use std::ops::Deref;
 
-use crate::opus::{FrameSize, SAMPLE_RATE};
+use crate::opus::{FrameSize, MAX_FRAME_BYTES, SAMPLE_RATE};
+
+/// One Opus frame of at most [`MAX_FRAME_BYTES`], stored inline rather than
+/// on the heap, so that frames move from the network thread to the playback
+/// callback, and are dropped there, without the allocator.
+#[derive(Clone)]
+pub struct FrameBytes {
+    len: u16,
+    bytes: [u8; MAX_FRAME_BYTES],
+}
+
+impl FrameBytes {
+    /// A copy of `frame`, or `None` if it is longer than [`MAX_FRAME_BYTES`]
+    /// (protocol section 7).
+    pub fn new(frame: &[u8]) -> Option<FrameBytes> {
+        let mut bytes = [0u8; MAX_FRAME_BYTES];
+        bytes.get_mut(..frame.len())?.copy_from_slice(frame);
+        Some(FrameBytes {
+            len: frame.len() as u16,
+            bytes,
+        })
+    }
+}
+
+impl Deref for FrameBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.len)]
+    }
+}
+
+impl PartialEq for FrameBytes {
+    fn eq(&self, other: &FrameBytes) -> bool {
+        **self == **other
+    }
+}
+
+impl Eq for FrameBytes {}
+
+impl fmt::Debug for FrameBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
 
 /// Settings of a [`JitterBuffer`]. The defaults are starting points that
 /// `drywire-bench` measures, not tuned values.
@@ -87,20 +137,24 @@ pub struct Arrival {
     /// Whether the packet had the `end_of_spurt` flag.
     pub end_of_spurt: bool,
     /// The primary Opus frame.
-    pub primary: Vec<u8>,
+    pub primary: FrameBytes,
     /// The copy of the previous frame, if the packet carried one.
-    pub redundant: Option<Vec<u8>>,
+    pub redundant: Option<FrameBytes>,
 }
 
 /// What to play at one tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the frame is inline on purpose: boxing it would allocate (ADR 0017)"
+)]
 pub enum Playout {
     /// No talk spurt is playing: play nothing (or silence) for this sender.
     Silence,
     /// Decode and play this frame.
     Frame {
         /// The Opus frame.
-        frame: Vec<u8>,
+        frame: FrameBytes,
         /// How long the frame waited in the buffer: the latency it added.
         waited_us: u64,
         /// Whether it came from a redundant copy because its own packet was
@@ -138,10 +192,79 @@ pub struct JitterStats {
 
 /// A buffered frame.
 struct Frame {
-    bytes: Vec<u8>,
+    bytes: FrameBytes,
     arrival_us: u64,
     end_of_spurt: bool,
     recovered: bool,
+}
+
+/// Buffered frames sorted by unwrapped timestamp, in a queue made once with
+/// room for every frame the buffer may hold. Frames nearly always arrive
+/// in order, so inserting is nearly always appending, and playing is
+/// taking the first.
+struct Frames(VecDeque<(i64, Frame)>);
+
+impl Frames {
+    fn with_capacity(capacity: usize) -> Frames {
+        Frames(VecDeque::with_capacity(capacity))
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    /// Where `timestamp` is, or would go.
+    fn position(&self, timestamp: i64) -> Result<usize, usize> {
+        self.0.binary_search_by_key(&timestamp, |(ts, _)| *ts)
+    }
+
+    fn first_timestamp(&self) -> Option<i64> {
+        self.0.front().map(|(ts, _)| *ts)
+    }
+
+    /// The earliest frame at or before `timestamp`.
+    fn first_until(&self, timestamp: i64) -> Option<i64> {
+        self.first_timestamp().filter(|ts| *ts <= timestamp)
+    }
+
+    fn get(&self, timestamp: i64) -> Option<&Frame> {
+        let i = self.position(timestamp).ok()?;
+        Some(&self.0[i].1)
+    }
+
+    fn get_mut(&mut self, timestamp: i64) -> Option<&mut Frame> {
+        let i = self.position(timestamp).ok()?;
+        Some(&mut self.0[i].1)
+    }
+
+    fn contains(&self, timestamp: i64) -> bool {
+        self.position(timestamp).is_ok()
+    }
+
+    /// Inserts a frame in its place. The caller checks first that its
+    /// timestamp is not buffered yet; if it were, nothing would change.
+    fn insert(&mut self, timestamp: i64, frame: Frame) {
+        if let Err(i) = self.position(timestamp) {
+            self.0.insert(i, (timestamp, frame));
+        }
+    }
+
+    fn remove(&mut self, timestamp: i64) -> Option<Frame> {
+        let i = self.position(timestamp).ok()?;
+        self.0.remove(i).map(|(_, frame)| frame)
+    }
+
+    fn pop_first(&mut self) {
+        self.0.pop_front();
+    }
 }
 
 enum State {
@@ -157,9 +280,11 @@ enum State {
 pub struct JitterBuffer {
     config: JitterConfig,
     /// Buffered frames by unwrapped timestamp.
-    frames: BTreeMap<i64, Frame>,
+    frames: Frames,
     /// Recent transit times in microseconds, oldest first.
     transits: VecDeque<i64>,
+    /// Where [`JitterBuffer::schedule`] sorts the recent jitter.
+    scratch: Vec<u64>,
     /// The last raw timestamp seen and its unwrapped value, to turn 32-bit
     /// timestamps that wrap into ever-growing ones.
     unwrap_reference: Option<(u32, i64)>,
@@ -179,8 +304,11 @@ impl JitterBuffer {
     pub fn new(config: JitterConfig) -> JitterBuffer {
         JitterBuffer {
             config,
-            frames: BTreeMap::new(),
+            // A packet adds at most two frames (its own and the redundant
+            // copy) before the oldest above capacity are dropped.
+            frames: Frames::with_capacity(config.capacity + 2),
             transits: VecDeque::with_capacity(config.history),
+            scratch: Vec::with_capacity(config.history),
             unwrap_reference: None,
             redundancy: false,
             last_arrival: None,
@@ -213,9 +341,28 @@ impl JitterBuffer {
     /// the buffer also does it by itself when the timestamps jump (see
     /// [`JitterConfig::max_jump_us`]).
     pub fn reset(&mut self) {
-        *self = JitterBuffer {
-            stats: self.stats,
-            ..JitterBuffer::new(self.config)
+        self.frames.clear();
+        self.transits.clear();
+        self.unwrap_reference = None;
+        self.redundancy = false;
+        self.last_arrival = None;
+        self.last_played = None;
+        self.state = State::Idle { start: None };
+    }
+
+    /// Starts over with another configuration, counters included, reusing
+    /// the memory already held: a receiver does it when a sender changes
+    /// its frame size. It only allocates if the new configuration needs
+    /// more room than the old one.
+    pub fn reconfigure(&mut self, config: JitterConfig) {
+        self.reset();
+        self.frames.0.reserve(config.capacity + 2);
+        self.transits.reserve(config.history);
+        self.scratch.reserve(config.history);
+        self.config = config;
+        self.stats = JitterStats {
+            target_us: config.min_target_us,
+            ..JitterStats::default()
         };
     }
 
@@ -235,23 +382,23 @@ impl JitterBuffer {
         if self.is_late(timestamp) {
             self.stats.late += 1;
         } else {
-            match self.frames.entry(timestamp) {
-                Entry::Vacant(slot) => {
-                    slot.insert(Frame {
+            match self.frames.get_mut(timestamp) {
+                None => self.frames.insert(
+                    timestamp,
+                    Frame {
                         bytes: arrival.primary,
                         arrival_us: now_us,
                         end_of_spurt: arrival.end_of_spurt,
                         recovered: false,
-                    });
-                }
+                    },
+                ),
                 // The frame came first as a redundant copy: same bytes, ready
                 // since the copy arrived. Its own packet only adds the flags.
-                Entry::Occupied(mut slot) if slot.get().recovered => {
-                    let frame = slot.get_mut();
+                Some(frame) if frame.recovered => {
                     frame.recovered = false;
                     frame.end_of_spurt = arrival.end_of_spurt;
                 }
-                Entry::Occupied(_) => self.stats.duplicates += 1,
+                Some(_) => self.stats.duplicates += 1,
             }
         }
 
@@ -260,7 +407,7 @@ impl JitterBuffer {
         // have carried, so it never replaces anything.
         if let Some(frame) = arrival.redundant {
             let previous = timestamp - self.frame_samples();
-            if !self.is_late(previous) && !self.frames.contains_key(&previous) {
+            if !self.is_late(previous) && !self.frames.contains(previous) {
                 self.frames.insert(
                     previous,
                     Frame {
@@ -283,7 +430,7 @@ impl JitterBuffer {
     /// per frame period, at the pace of the sound card.
     pub fn pop(&mut self, now_us: u64) -> Playout {
         if let State::Idle { start } = self.state {
-            let Some((&first, _)) = self.frames.first_key_value() else {
+            let Some(first) = self.frames.first_timestamp() else {
                 return Playout::Silence;
             };
             // Schedule the spurt once per first frame; a frame that arrives
@@ -319,9 +466,9 @@ impl JitterBuffer {
         // frame of a spurt, since the silence after it resets the delay.
         if self.frames.len() > self.target_frames() + 2
             && let Some(due) = self.due(next, waiting)
-            && !self.frames[&due].end_of_spurt
+            && self.frames.get(due).is_some_and(|f| !f.end_of_spurt)
         {
-            self.frames.remove(&due);
+            self.frames.remove(due);
             self.stats.dropped += 1;
             self.last_played = Some(due);
             next = due + self.frame_samples();
@@ -344,7 +491,7 @@ impl JitterBuffer {
             return Playout::Conceal;
         };
 
-        let buffered = self.frames.remove(&due).expect("a due frame is buffered");
+        let buffered = self.frames.remove(due).expect("a due frame is buffered");
         self.last_played = Some(due);
         self.stats.played += 1;
         self.stats.recovered += u64::from(buffered.recovered);
@@ -369,7 +516,7 @@ impl JitterBuffer {
     /// already covered them.
     fn due(&self, next: i64, waiting: i64) -> Option<i64> {
         let last_due = next + waiting * self.frame_samples();
-        self.frames.range(..=last_due).next().map(|(&ts, _)| ts)
+        self.frames.first_until(last_due)
     }
 
     fn frame_samples(&self) -> i64 {
@@ -401,7 +548,7 @@ impl JitterBuffer {
     /// the same spurt, since the first packet of a spurt never has a copy.
     fn note_redundancy(&mut self, timestamp: i64, has_copy: bool) {
         let previous = timestamp - self.frame_samples();
-        let same_spurt = match self.frames.get(&previous) {
+        let same_spurt = match self.frames.get(previous) {
             Some(frame) => !frame.end_of_spurt,
             // Played already: the spurt still goes on only while playing.
             None => {
@@ -442,9 +589,11 @@ impl JitterBuffer {
     /// spurt starting at `first` should start playing.
     fn schedule(&mut self, first: i64) -> u64 {
         let base = self.transits.iter().copied().min().unwrap_or(0);
-        let mut jitter: Vec<u64> = self.transits.iter().map(|t| (t - base) as u64).collect();
-        jitter.sort_unstable();
-        let p95 = percentile(&jitter, 95);
+        self.scratch.clear();
+        self.scratch
+            .extend(self.transits.iter().map(|t| (t - base) as u64));
+        self.scratch.sort_unstable();
+        let p95 = percentile(&self.scratch, 95);
         let floor = if self.redundancy {
             self.config
                 .min_target_us
@@ -482,11 +631,15 @@ mod tests {
     const F_US: u64 = 5_000;
     const F_TS: u32 = 240;
 
+    fn bytes(frame: &[u8]) -> FrameBytes {
+        FrameBytes::new(frame).unwrap()
+    }
+
     fn arrival(index: u32) -> Arrival {
         Arrival {
             timestamp: index * F_TS,
             end_of_spurt: false,
-            primary: vec![index as u8],
+            primary: bytes(&[index as u8]),
             redundant: None,
         }
     }
@@ -600,7 +753,7 @@ mod tests {
         // starts with a two-frame target, deep enough for the copies.
         let mut jb = JitterBuffer::new(JitterConfig::new(FRAME));
         let packet = |i: u32, first: u32, last: u32| Arrival {
-            redundant: (i > first).then(|| vec![(i - 1) as u8]),
+            redundant: (i > first).then(|| bytes(&[(i - 1) as u8])),
             end_of_spurt: i == last,
             ..arrival(i)
         };
@@ -640,7 +793,7 @@ mod tests {
         let mut jb = JitterBuffer::new(JitterConfig::new(FRAME));
         jb.push(0, arrival(0));
         let mut second = arrival(2);
-        second.redundant = Some(vec![1]);
+        second.redundant = Some(bytes(&[1]));
         jb.push(1, second);
         let mut first = arrival(1); // overtaken by the packet after it
         first.end_of_spurt = true;
@@ -651,7 +804,7 @@ mod tests {
         assert_eq!(
             jb.pop(2 * F_US),
             Playout::Frame {
-                frame: vec![1],
+                frame: bytes(&[1]),
                 waited_us: 2 * F_US - 1,
                 recovered: false
             }
@@ -770,7 +923,7 @@ mod tests {
                 Arrival {
                     timestamp: ts,
                     end_of_spurt: false,
-                    primary: vec![k as u8],
+                    primary: bytes(&[k as u8]),
                     redundant: None,
                 },
             );
@@ -791,7 +944,7 @@ mod tests {
                     Arrival {
                         timestamp: timestamp.wrapping_add(k * F_TS),
                         end_of_spurt: k == n - 1,
-                        primary: vec![k as u8],
+                        primary: bytes(&[k as u8]),
                         redundant: None,
                     },
                 );
@@ -835,7 +988,7 @@ mod tests {
                 u64::from(i) * F_US,
                 Arrival {
                     end_of_spurt: i == 2,
-                    redundant: (i != 0 && i != 3).then(|| vec![(i - 1) as u8]),
+                    redundant: (i != 0 && i != 3).then(|| bytes(&[(i - 1) as u8])),
                     ..arrival(i)
                 },
             );

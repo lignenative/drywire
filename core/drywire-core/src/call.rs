@@ -10,22 +10,24 @@
 //!   once is dropped and counted, never waited for (ADR 0016).
 //! - **Network** (a thread of its own): receives, checks and decrypts with
 //!   [`Inbound`], drives the [`Link`] (pings, keepalives, new hellos), and
-//!   passes decrypted frames to playback through a channel.
-//! - **Playback** (the audio output callback): drains that channel into the
+//!   passes decrypted frames to playback through a wait-free ring.
+//! - **Playback** (the audio output callback): drains that ring into the
 //!   [`Mixer`] and renders the mix.
 //!
 //! The audio callbacks never wait for a lock: they update the shared
-//! statistics only when the lock is free.
+//! statistics only when the lock is free. Once the call has started they
+//! never allocate or free memory either (ADR 0017): every buffer they use
+//! is made in [`Call::join`].
 
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender as ChannelSender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use drywire_proto::header::MAX_PACKET_SIZE;
+use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::audio::{InputCallback, OutputCallback};
 use crate::config::ClientConfig;
@@ -69,6 +71,9 @@ pub struct CallStats {
     pub send_errors: u64,
     /// What was received and dropped before playback.
     pub inbound: InboundStats,
+    /// Frames dropped because playback had not taken the previous ones yet
+    /// (see [`PLAYBACK_QUEUE`]): playback stalled.
+    pub playback_queue_full: u64,
     /// Each sender's playback.
     pub tracks: Vec<TrackStats>,
 }
@@ -104,6 +109,11 @@ impl From<std::io::Error> for CallError {
         CallError::Io(e)
     }
 }
+
+/// How many decrypted frames may wait for the playback callback. It drains
+/// them every callback, every few milliseconds; 256 frames are more than a
+/// 60 ms stall of ten senders at 2.5 ms frames.
+pub const PLAYBACK_QUEUE: usize = 256;
 
 /// State shared by the three threads.
 struct Shared {
@@ -146,11 +156,21 @@ impl Call {
         socket.connect(options.relay)?;
         let socket = Arc::new(socket);
 
+        let others: Vec<_> = config
+            .members
+            .iter()
+            .filter(|m| m.session != config.session)
+            .map(|m| (m.session, m.public_key))
+            .collect();
         let shared = Arc::new(Shared {
             started: Instant::now(),
             stop: AtomicBool::new(false),
             last_sent_us: AtomicU64::new(0),
-            stats: Mutex::new(CallStats::default()),
+            stats: Mutex::new(CallStats {
+                // Room for every track, so playback never grows it.
+                tracks: Vec::with_capacity(others.len()),
+                ..CallStats::default()
+            }),
         });
         let mut link = Link::new(config.session, config.session_secret, options.link);
         bind(&socket, &shared, &mut link, options.join_timeout)?;
@@ -170,13 +190,13 @@ impl Call {
         // The epoch's first announcement, before any audio (section 8.3).
         let _ = socket.send(&sender.announce());
 
-        let others = config
-            .members
-            .iter()
-            .filter(|m| m.session != config.session)
-            .map(|m| (m.session, m.public_key));
+        // Every track before playback starts: making one allocates.
+        let mut mixer = Mixer::with_min_target(options.min_buffer_us);
+        for (session, _) in &others {
+            mixer.add_track(*session).map_err(CallError::Opus)?;
+        }
         let inbound = Inbound::new(config.room_id, &config.space_key, others);
-        let (events, playback_events) = channel();
+        let (events, playback_events) = RingBuffer::new(PLAYBACK_QUEUE);
 
         let network = {
             let socket = Arc::clone(&socket);
@@ -186,11 +206,7 @@ impl Call {
                 .spawn(move || network_loop(&socket, &shared, link, inbound, events))?
         };
         let input = capture_callback(socket, Arc::clone(&shared), sender);
-        let output = playback_callback(
-            Arc::clone(&shared),
-            playback_events,
-            Mixer::with_min_target(options.min_buffer_us),
-        );
+        let output = playback_callback(Arc::clone(&shared), playback_events, mixer);
         Ok((
             Call {
                 shared,
@@ -258,10 +274,11 @@ fn network_loop(
     shared: &Shared,
     mut link: Link,
     mut inbound: Inbound,
-    events: ChannelSender<(u64, Event)>,
+    mut events: Producer<(u64, Event)>,
 ) {
     let mut buf = [0u8; MAX_PACKET_SIZE];
     let mut next_stats_us = 0;
+    let mut queue_full = 0;
     while !shared.stop.load(Ordering::Relaxed) {
         let now = shared.now_us();
         let other_sent = shared.last_sent_us.load(Ordering::Relaxed);
@@ -285,26 +302,30 @@ fn network_loop(
             match link.handle(at, packet) {
                 Ok(true) => {}
                 _ => {
-                    if let Some(event) = inbound.handle(packet) {
-                        // Playback gone means the call is ending.
-                        let _ = events.send((at, event));
+                    if let Some(event) = inbound.handle(packet)
+                        && events.push((at, event)).is_err()
+                    {
+                        // Playback stalled, or is gone because the call is
+                        // ending.
+                        queue_full += 1;
                     }
                 }
             }
         }
         if now >= next_stats_us {
             next_stats_us = now + 100_000;
-            publish_network(shared, &link, &inbound);
+            publish_network(shared, &link, &inbound, queue_full);
         }
     }
     // The final numbers, after the last packet.
-    publish_network(shared, &link, &inbound);
+    publish_network(shared, &link, &inbound, queue_full);
 }
 
-fn publish_network(shared: &Shared, link: &Link, inbound: &Inbound) {
+fn publish_network(shared: &Shared, link: &Link, inbound: &Inbound, queue_full: u64) {
     let mut stats = shared.stats.lock().expect("not poisoned");
     stats.link = link.stats();
     stats.inbound = inbound.stats();
+    stats.playback_queue_full = queue_full;
 }
 
 /// What the capture callback owns. Its statistics are published with
@@ -387,14 +408,14 @@ fn capture_callback(socket: Arc<UdpSocket>, shared: Arc<Shared>, sender: Sender)
 /// What the playback callback owns; statistics as for [`Capture`].
 struct Playback {
     shared: Arc<Shared>,
-    events: Receiver<(u64, Event)>,
+    events: Consumer<(u64, Event)>,
     mixer: Mixer,
     next_stats_us: u64,
 }
 
 impl Playback {
     fn render(&mut self, out: &mut [f32]) {
-        while let Ok((at, event)) = self.events.try_recv() {
+        while let Ok((at, event)) = self.events.pop() {
             // A track whose decoder cannot be made stays silent.
             let _ = self.mixer.push(at, event);
         }
@@ -404,7 +425,9 @@ impl Playback {
             && let Ok(mut stats) = self.shared.stats.try_lock()
         {
             self.next_stats_us = now + 100_000;
-            stats.tracks = self.mixer.stats();
+            // Copied into the room made in `Call::join`.
+            stats.tracks.clear();
+            stats.tracks.extend(self.mixer.track_stats());
         }
     }
 }
@@ -419,7 +442,7 @@ impl Drop for Playback {
 
 fn playback_callback(
     shared: Arc<Shared>,
-    events: Receiver<(u64, Event)>,
+    events: Consumer<(u64, Event)>,
     mixer: Mixer,
 ) -> OutputCallback {
     let mut playback = Playback {

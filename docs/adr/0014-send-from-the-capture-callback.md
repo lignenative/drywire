@@ -1,6 +1,6 @@
 # 0014. Send from the capture callback
 
-Status: Accepted · 2026-10-27 · The socket part is amended by ADR 0016
+Status: Accepted · 2026-10-27 · Amended by ADR 0016 (the socket) and ADR 0017 (allocation)
 
 ## Context
 
