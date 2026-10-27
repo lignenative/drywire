@@ -144,6 +144,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/auth/challenge", s.challenge)
 	mux.HandleFunc("POST /v1/auth/login", s.login)
 
+	mux.HandleFunc("GET /v1/me", s.authed(s.me))
+	mux.HandleFunc("PATCH /v1/me", s.authed(s.rename))
+	mux.HandleFunc("DELETE /v1/me", s.authed(s.deleteMe))
+	mux.HandleFunc("GET /v1/me/export", s.authed(s.export))
+
 	mux.HandleFunc("GET /v1/spaces", s.authed(s.listSpaces))
 	mux.HandleFunc("POST /v1/spaces", s.authed(s.createSpace))
 	mux.HandleFunc("GET /v1/spaces/{space}", s.authed(s.getSpace))

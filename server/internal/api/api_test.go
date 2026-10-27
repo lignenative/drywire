@@ -67,6 +67,8 @@ type harness struct {
 	store  *store.Store
 	server *Server
 	access *syncBuffer
+	// ledgerPath is the deletion ledger's file.
+	ledgerPath string
 }
 
 const instance = "https://voice.example.org"
@@ -100,7 +102,8 @@ func newHarness(t *testing.T, cfg Config) *harness {
 		st.Close()
 		led.Close()
 	})
-	return &harness{t: t, url: srv.URL, clock: clock, relay: r, store: st, server: s, access: access}
+	return &harness{t: t, url: srv.URL, clock: clock, relay: r, store: st, server: s, access: access,
+		ledgerPath: led.Path()}
 }
 
 // client is one device with its identity key.

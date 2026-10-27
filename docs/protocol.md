@@ -649,6 +649,26 @@ space the caller is not a member of answers `404`, as if it did not exist.
   streams at a time.
 - Presence is kept in memory only, never stored.
 
+### 13.7 Personal data
+
+The rights of spec section 9, in the API:
+
+| Request | Body → answer |
+| --- | --- |
+| `GET /v1/me` | → `{public_key, name, created_at, last_seen_at}`, or `404` for a key with no identity yet |
+| `PATCH /v1/me` | `{name}` → the identity, renamed |
+| `GET /v1/me/export` | → everything the server stores about the caller, as a JSON file: identity, memberships, invitations created |
+| `DELETE /v1/me` | → `204`; the identity, its memberships, session, event streams and tokens end |
+| `DELETE /v1/spaces/{space}/members/{own public key}` | → `204`, leaves the space |
+
+- Deleting an identity hands each space it owned to the space's oldest
+  admin, or failing that its oldest member; a space with nobody else in it
+  is deleted.
+- Every deletion goes through the deletion ledger first (ADR 0019), so a
+  restored backup cannot bring it back.
+- Identities that have not logged in for 12 months are purged the same
+  way, daily.
+
 ## 14. Invitation links
 
 An invitation carries everything a new member needs: where the instance
