@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -108,6 +109,26 @@ func TestMigrationsRunOnceAndRefuseANewerSchema(t *testing.T) {
 	s.Close()
 	if _, err := Open(path, l, time.Now); err == nil {
 		t.Fatal("a schema from a newer server was accepted")
+	}
+}
+
+func TestTheDatabaseIsPrivate(t *testing.T) {
+	dir := t.TempDir()
+	l, _ := ledger.Open(filepath.Join(dir, "l"))
+	defer l.Close()
+	s, err := Open(filepath.Join(dir, "db"), l, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, name := range []string{"db", "db-wal"} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("%s: mode %v", name, info.Mode())
+		}
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 	"unicode"
@@ -126,6 +127,13 @@ func Open(path string, l *ledger.Ledger, now func() time.Time) (*Store, error) {
 	if strings.ContainsAny(path, "?#") {
 		return nil, fmt.Errorf("database path %q: ? and # are not allowed", path)
 	}
+	// Personal data: readable by the server's user only. SQLite gives its
+	// -wal and -shm files the database's permissions.
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	f.Close()
 	// Foreign keys are off by default in SQLite; WAL lets readers work
 	// while a write is in progress.
 	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
