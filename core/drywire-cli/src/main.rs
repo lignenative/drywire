@@ -27,6 +27,8 @@ join options:
   --gate-close DBFS    Level under which it starts closing (default -46)
   --hold MS            How long it stays open after that (default 150)
   --buffer FRAMES      Ask the sound card for this I/O buffer (default: smallest)
+  --min-buffer MS      Never let the jitter buffers aim below this delay
+                       (default 0: one frame, or more if the network asks)
   --input FILE.wav     Capture from a 48 kHz WAV file instead of the microphone
   --output FILE.wav    Play into a WAV file instead of the speakers
   --echo               Send back what you receive (an echo bot; no sound card)

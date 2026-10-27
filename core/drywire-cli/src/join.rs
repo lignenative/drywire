@@ -49,6 +49,7 @@ pub fn run(args: Join) -> Result<(), String> {
             ping_interval_us: args.ping.then_some(1_000_000),
         },
         join_timeout: Duration::from_secs(5),
+        min_buffer_us: (args.min_buffer_ms * 1000.0) as u64,
     };
     let (mut call, capture, playback) = Call::join(&config, options).map_err(|e| e.to_string())?;
     let me = config.me();

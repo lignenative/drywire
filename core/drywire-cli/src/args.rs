@@ -17,6 +17,7 @@ pub struct Join {
     pub redundancy: bool,
     pub gate: GateConfig,
     pub buffer: Option<u32>,
+    pub min_buffer_ms: f64,
     pub input: Option<PathBuf>,
     pub output: Option<PathBuf>,
     pub echo: bool,
@@ -87,6 +88,7 @@ impl Join {
             redundancy: false,
             gate: GateConfig::default(),
             buffer: None,
+            min_buffer_ms: 0.0,
             input: None,
             output: None,
             echo: false,
@@ -114,6 +116,12 @@ impl Join {
                 "--gate-close" => join.gate.close_dbfs = flags.parsed(flag)?,
                 "--hold" => join.gate.hold_ms = flags.parsed(flag)?,
                 "--buffer" => join.buffer = Some(flags.parsed(flag)?),
+                "--min-buffer" => {
+                    join.min_buffer_ms = flags.parsed(flag)?;
+                    if !(0.0..=1000.0).contains(&join.min_buffer_ms) {
+                        return Err("--min-buffer must be between 0 and 1000 ms".into());
+                    }
+                }
                 "--input" => join.input = Some(PathBuf::from(flags.value(flag)?)),
                 "--output" => join.output = Some(PathBuf::from(flags.value(flag)?)),
                 "--echo" => join.echo = true,

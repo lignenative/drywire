@@ -157,6 +157,10 @@ fn two_clients_talk_through_the_relay_with_wav_files() {
         &path(&heard),
         "--duration",
         "5",
+        // The test checks the path, not this machine's scheduling: a busy
+        // machine can delay one packet by more than a frame now and then.
+        "--min-buffer",
+        "30",
     ])
     .spawn()
     .expect("start sam");

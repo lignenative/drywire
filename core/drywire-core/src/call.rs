@@ -44,6 +44,9 @@ pub struct CallOptions {
     pub link: LinkConfig,
     /// How long to wait for the relay to acknowledge the first `hello`.
     pub join_timeout: Duration,
+    /// The smallest delay the jitter buffers aim for, in microseconds, on
+    /// top of their one-frame floor (see [`Mixer::with_min_target`]).
+    pub min_buffer_us: u64,
 }
 
 /// Everything a call counts, for display.
@@ -172,7 +175,11 @@ impl Call {
                 .spawn(move || network_loop(&socket, &shared, link, inbound, events))?
         };
         let input = capture_callback(socket, Arc::clone(&shared), sender);
-        let output = playback_callback(Arc::clone(&shared), playback_events);
+        let output = playback_callback(
+            Arc::clone(&shared),
+            playback_events,
+            Mixer::with_min_target(options.min_buffer_us),
+        );
         Ok((
             Call {
                 shared,
@@ -320,8 +327,11 @@ fn capture_callback(
     })
 }
 
-fn playback_callback(shared: Arc<Shared>, events: Receiver<(u64, Event)>) -> OutputCallback {
-    let mut mixer = Mixer::new();
+fn playback_callback(
+    shared: Arc<Shared>,
+    events: Receiver<(u64, Event)>,
+    mut mixer: Mixer,
+) -> OutputCallback {
     let mut next_stats_us = 0;
     Box::new(move |out: &mut [f32]| {
         while let Ok((at, event)) = events.try_recv() {

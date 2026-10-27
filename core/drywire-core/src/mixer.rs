@@ -56,7 +56,7 @@ impl Track {
         })
     }
 
-    fn push(&mut self, now_us: u64, arrival: crate::jitter::Arrival) {
+    fn push(&mut self, now_us: u64, arrival: crate::jitter::Arrival, min_target_us: u64) {
         let Some(frame) = packet_samples(&arrival.primary)
             .ok()
             .and_then(FrameSize::from_samples)
@@ -69,7 +69,9 @@ impl Track {
             if let Some((_, old)) = &self.buffer {
                 self.earlier = add(self.earlier, old.stats());
             }
-            self.buffer = Some((frame, JitterBuffer::new(JitterConfig::new(frame))));
+            let mut config = JitterConfig::new(frame);
+            config.min_target_us = config.min_target_us.max(min_target_us);
+            self.buffer = Some((frame, JitterBuffer::new(config)));
         }
         let (_, buffer) = self.buffer.as_mut().expect("just made");
         buffer.push(now_us, arrival);
@@ -135,12 +137,23 @@ impl Track {
 #[derive(Default)]
 pub struct Mixer {
     tracks: BTreeMap<u32, Track>,
+    min_target_us: u64,
 }
 
 impl Mixer {
     /// A mixer with no tracks yet; tracks appear with their first frame.
     pub fn new() -> Mixer {
         Mixer::default()
+    }
+
+    /// A mixer whose jitter buffers never aim below `min_target_us`, on top
+    /// of their own one-frame floor. Raising it trades latency for fewer
+    /// gaps on a network, or a machine, that stalls now and then.
+    pub fn with_min_target(min_target_us: u64) -> Mixer {
+        Mixer {
+            min_target_us,
+            ..Mixer::default()
+        }
     }
 
     /// Handles what [`Inbound`](crate::inbound::Inbound) produced, at the
@@ -152,7 +165,7 @@ impl Mixer {
                     std::collections::btree_map::Entry::Occupied(e) => e.into_mut(),
                     std::collections::btree_map::Entry::Vacant(e) => e.insert(Track::new(session)?),
                 };
-                track.push(now_us, arrival);
+                track.push(now_us, arrival, self.min_target_us);
             }
             Event::Restarted { session } => {
                 if let Some(track) = self.tracks.get_mut(&session)

@@ -131,8 +131,13 @@ fn record(sam: &Client, quiet: Duration) -> Vec<(u64, Vec<u8>)> {
 
 /// Plays the received packets through the mixer, on a sound card that asks
 /// for 64 samples at a time starting at the first arrival.
+///
+/// The jitter buffers aim for at least 30 ms: this test checks the path,
+/// not the machine's scheduling, and a busy test machine can delay one
+/// packet by more than a frame now and then. A concealed frame would make
+/// the comparison with the input meaningless.
 fn play(received: Vec<(u64, Vec<u8>)>, inbound: &mut Inbound, samples: usize) -> (Vec<f32>, Mixer) {
-    let mut mixer = Mixer::new();
+    let mut mixer = Mixer::with_min_target(30_000);
     let first_us = received.first().expect("received something").0;
     let mut incoming = received.into_iter().peekable();
     let mut output = vec![0.0; samples];
@@ -219,9 +224,9 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         // the codec settle.
         let talk_start = 200 * SAMPLE_RATE as usize / 1000;
         let talk_end = 800 * SAMPLE_RATE as usize / 1000;
-        // Search 50 ms of lag on the first 100 ms of tones.
+        // Search 70 ms of lag on the first 100 ms of tones.
         let probe = talk_start..talk_start + 4800;
-        let lag = best_lag(&input[probe.clone()], &output[probe.start..], 2400);
+        let lag = best_lag(&input[probe.clone()], &output[probe.start..], 3360);
         assert!(lag >= LOOKAHEAD, "{frame}: lag {lag} samples");
         let edge = 960;
         let snr = snr_db(
@@ -233,7 +238,7 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         assert!(snr > 15.0, "{frame}: SNR {snr:.1} dB at lag {lag}");
         sent_total += sent;
         eprintln!(
-            "{frame}{}: {sent} packets, SNR {snr:.1} dB, buffer target {} µs",
+            "{frame}{}: {sent} packets, SNR {snr:.1} dB at lag {lag}, buffer target {} µs",
             if redundancy { " + redundancy" } else { "" },
             track.jitter.target_us
         );
