@@ -1,0 +1,24 @@
+# Local configuration: HOST and port overrides, never committed.
+.env
+
+# Build output.
+/bin/
+/dist/
+target/
+
+# Local state written by `make dev` and the tests.
+.dev/
+
+# Go
+*.test
+*.out
+coverage.*
+
+# JavaScript (Bun, Vite)
+node_modules/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
