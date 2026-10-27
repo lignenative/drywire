@@ -10,8 +10,11 @@ use drywire_core::opus::FrameSize;
 /// Options of `join`.
 #[derive(Debug)]
 pub struct Join {
-    pub config: PathBuf,
-    pub relay: Option<String>,
+    pub home: Option<PathBuf>,
+    pub space: Option<String>,
+    pub room: Option<String>,
+    pub link: Option<String>,
+    pub display_name: String,
     pub frame: FrameSize,
     pub bitrate: u32,
     pub redundancy: bool,
@@ -33,16 +36,27 @@ pub struct Devices {
     pub play_silence: bool,
 }
 
-/// Options of `new-room`.
-#[derive(Debug)]
-pub struct NewRoom {
-    pub relay: String,
-    pub members: Vec<String>,
-    pub out: PathBuf,
-    pub room: String,
-    pub first_session: u32,
-    /// Hidden: write the public development files, with fixed keys.
-    pub dev: bool,
+/// Options of the commands about identities, spaces and invitations.
+#[derive(Debug, Default)]
+pub struct Account {
+    pub home: Option<PathBuf>,
+    pub instance: Option<String>,
+    pub space: Option<String>,
+    pub name: Option<String>,
+    pub room: Option<String>,
+    pub display_name: String,
+    pub uses: Option<u32>,
+    pub days: Option<f64>,
+    /// The positional argument, if any (an invitation link, a new name).
+    pub value: Option<String>,
+}
+
+/// The display name to use when none is given: the system's user name.
+pub fn default_display_name() -> String {
+    let name = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "player".into());
+    name.chars().take(32).collect()
 }
 
 /// Walks the arguments: `--flag` or `--flag value`.
@@ -81,8 +95,11 @@ fn unknown(flag: &str) -> String {
 impl Join {
     pub fn parse(args: &[String]) -> Result<Join, String> {
         let mut join = Join {
-            config: PathBuf::new(),
-            relay: None,
+            home: None,
+            space: None,
+            room: None,
+            link: None,
+            display_name: default_display_name(),
             frame: FrameSize::Ms5,
             bitrate: 64_000,
             redundancy: false,
@@ -96,12 +113,14 @@ impl Join {
             ping: true,
             quiet: false,
         };
-        let mut config = None;
         let mut flags = Flags::new(args);
         while let Some(flag) = flags.next_flag() {
             match flag {
-                "--config" => config = Some(PathBuf::from(flags.value(flag)?)),
-                "--relay" => join.relay = Some(flags.value(flag)?.to_string()),
+                "--home" => join.home = Some(PathBuf::from(flags.value(flag)?)),
+                "--space" => join.space = Some(flags.value(flag)?.to_string()),
+                "--room" => join.room = Some(flags.value(flag)?.to_string()),
+                "--link" => join.link = Some(flags.value(flag)?.to_string()),
+                "--display-name" => join.display_name = flags.value(flag)?.to_string(),
                 "--frame" => {
                     join.frame = match flags.value(flag)? {
                         "2.5" => FrameSize::Ms2_5,
@@ -137,7 +156,9 @@ impl Join {
                 _ => return Err(unknown(flag)),
             }
         }
-        join.config = config.ok_or("join needs --config FILE")?;
+        if join.link.is_some() && join.space.is_some() {
+            return Err("--link already says which space: drop --space".into());
+        }
         if join.echo && join.input.is_some() {
             return Err("--echo and --input both say what to capture: pick one".into());
         }
@@ -171,64 +192,46 @@ impl Devices {
     }
 }
 
-impl NewRoom {
-    pub fn parse(args: &[String]) -> Result<NewRoom, String> {
-        let mut relay = None;
-        let mut members = None;
-        let mut out = None;
-        let mut room = "team".to_string();
-        let mut first_session = 1;
-        let mut dev = false;
+impl Account {
+    /// Parses the options of a command that takes `positional` (a
+    /// description such as "LINK"), or none.
+    pub fn parse(args: &[String], positional: Option<&str>) -> Result<Account, String> {
+        let mut account = Account {
+            display_name: default_display_name(),
+            ..Account::default()
+        };
         let mut flags = Flags::new(args);
         while let Some(flag) = flags.next_flag() {
             match flag {
-                "--relay" => relay = Some(flags.value(flag)?.to_string()),
-                "--members" => {
-                    let names: Vec<String> = flags
-                        .value(flag)?
-                        .split(',')
-                        .map(|n| n.trim().to_string())
-                        .collect();
-                    // Each name becomes a file name next to rooms.json.
-                    let valid = |n: &String| {
-                        !n.is_empty()
-                            && n != "rooms"
-                            && n.chars()
-                                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-                    };
-                    if let Some(bad) = names.iter().find(|n| !valid(n)) {
-                        return Err(format!(
-                            "--members: {bad:?} is not a valid name: use letters, digits, - \
-                             and _, and not \"rooms\""
-                        ));
+                "--home" => account.home = Some(PathBuf::from(flags.value(flag)?)),
+                "--instance" => account.instance = Some(flags.value(flag)?.to_string()),
+                "--space" => account.space = Some(flags.value(flag)?.to_string()),
+                "--name" => account.name = Some(flags.value(flag)?.to_string()),
+                "--room" => account.room = Some(flags.value(flag)?.to_string()),
+                "--display-name" => account.display_name = flags.value(flag)?.to_string(),
+                "--uses" => account.uses = Some(flags.parsed(flag)?),
+                "--days" => {
+                    let days: f64 = flags.parsed(flag)?;
+                    if !(days > 0.0 && days.is_finite()) {
+                        return Err("--days must be a positive number".into());
                     }
-                    members = Some(names);
+                    account.days = Some(days);
                 }
-                "--out" => out = Some(PathBuf::from(flags.value(flag)?)),
-                "--room" => room = flags.value(flag)?.to_string(),
-                "--first-session" => first_session = flags.parsed(flag)?,
-                "--dev" => dev = true,
+                other if positional.is_some() && !other.starts_with("--") => {
+                    if account.value.is_some() {
+                        return Err(format!("only one {} please", positional.unwrap_or("")));
+                    }
+                    account.value = Some(other.to_string());
+                }
                 _ => return Err(unknown(flag)),
             }
         }
-        let members = members.ok_or("new-room needs --members A,B,...")?;
-        let mut unique = members.clone();
-        unique.sort();
-        unique.dedup();
-        if unique.len() != members.len() {
-            return Err("--members: a name is listed twice".into());
+        if let Some(what) = positional
+            && account.value.is_none()
+        {
+            return Err(format!("this command needs {what}"));
         }
-        if first_session == 0 {
-            return Err("--first-session: session 0 is not valid".into());
-        }
-        Ok(NewRoom {
-            relay: relay.ok_or("new-room needs --relay HOST:PORT")?,
-            members,
-            out: out.ok_or("new-room needs --out DIR")?,
-            room,
-            first_session,
-            dev,
-        })
+        Ok(account)
     }
 }
 
@@ -243,8 +246,8 @@ mod tests {
     #[test]
     fn join_reads_its_options() {
         let join = Join::parse(&strings(&[
-            "--config",
-            "a.json",
+            "--space",
+            "Team",
             "--frame",
             "2.5",
             "--redundancy",
@@ -256,6 +259,7 @@ mod tests {
             "-35",
         ]))
         .unwrap();
+        assert_eq!(join.space.as_deref(), Some("Team"));
         assert_eq!(join.frame, FrameSize::Ms2_5);
         assert!(join.redundancy && join.file_mode());
         assert_eq!(join.duration, Some(Duration::from_millis(1500)));
@@ -265,12 +269,12 @@ mod tests {
     #[test]
     fn join_refuses_mistakes() {
         for (args, message) in [
-            (&["--frame", "5"][..], "--config"),
-            (&["--config", "a", "--frame", "3"], "not 2.5, 5 or 10"),
-            (&["--config", "a", "--echo", "--input", "x"], "pick one"),
-            (&["--config", "a", "--bogus"], "unknown option"),
-            (&["--config", "a", "--duration", "-1"], "positive"),
-            (&["--config"], "needs a value"),
+            (&["--frame", "3"][..], "not 2.5, 5 or 10"),
+            (&["--echo", "--input", "x"], "pick one"),
+            (&["--bogus"], "unknown option"),
+            (&["--duration", "-1"], "positive"),
+            (&["--space"], "needs a value"),
+            (&["--link", "l", "--space", "s"], "drop --space"),
         ] {
             let err = Join::parse(&strings(args)).unwrap_err();
             assert!(err.contains(message), "{args:?}: {err}");
@@ -278,24 +282,13 @@ mod tests {
     }
 
     #[test]
-    fn new_room_refuses_names_that_are_not_plain_file_names() {
-        for names in ["a,", "../x", "rooms", "a b"] {
-            let args = strings(&["--relay", "r:1", "--members", names, "--out", "d"]);
-            assert!(NewRoom::parse(&args).is_err(), "{names}");
-        }
-    }
-
-    #[test]
-    fn new_room_needs_unique_members() {
-        let err = NewRoom::parse(&strings(&[
-            "--relay",
-            "r:1",
-            "--members",
-            "a,a",
-            "--out",
-            "d",
-        ]))
-        .unwrap_err();
-        assert!(err.contains("twice"), "{err}");
+    fn account_commands_take_one_positional_value() {
+        let a = Account::parse(&strings(&["LINK", "--display-name", "sam"]), Some("LINK")).unwrap();
+        assert_eq!(a.value.as_deref(), Some("LINK"));
+        assert_eq!(a.display_name, "sam");
+        assert!(Account::parse(&strings(&[]), Some("LINK")).is_err());
+        assert!(Account::parse(&strings(&["a", "b"]), Some("LINK")).is_err());
+        assert!(Account::parse(&strings(&["a"]), None).is_err());
+        assert!(Account::parse(&strings(&["--days", "0"]), None).is_err());
     }
 }

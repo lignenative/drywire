@@ -28,9 +28,8 @@ use drywire_core::config::{ClientConfig, Member};
 use drywire_core::link::LinkConfig;
 use drywire_core::opus::{FrameSize, SAMPLE_RATE};
 use drywire_core::sender::SenderConfig;
-use drywire_proto::crypto::SigningKey;
 
-use relay::{Relay, dev_secret};
+use relay::{Relay, Team};
 
 /// Allocations and frees made inside a callback.
 static IN_CALLBACK_CALLS: AtomicU64 = AtomicU64::new(0);
@@ -89,30 +88,22 @@ fn as_callback(f: impl FnOnce()) -> u64 {
     IN_CALLBACK_CALLS.load(Ordering::Relaxed) - before
 }
 
-const ROOM_ID: [u8; 16] = [0x0f; 16];
-const SPACE_KEY: [u8; 32] = [0x5a; 32];
-
-fn config(session: u32, members: &[(u32, &str, &SigningKey)]) -> ClientConfig {
-    let identity = members
-        .iter()
-        .find(|(s, _, _)| *s == session)
-        .expect("a member")
-        .2
-        .clone();
+/// The call of the `me`-th member of the team, who starts knowing the
+/// members `known` (themselves included).
+fn config(team: &Team, me: usize, known: &[usize]) -> ClientConfig {
+    let seat = &team.seats[me];
     ClientConfig {
-        dev_only: true,
-        relay: String::new(),
-        room_id: ROOM_ID,
-        space_key: SPACE_KEY,
-        session,
-        session_secret: dev_secret(session),
-        identity,
-        members: members
+        room_id: team.room_id,
+        space_key: team.space_key,
+        session: seat.session,
+        session_secret: seat.secret,
+        identity: seat.identity.clone(),
+        members: known
             .iter()
-            .map(|(session, name, key)| Member {
-                session: *session,
-                name: (*name).into(),
-                public_key: key.verifying_key(),
+            .map(|&i| Member {
+                session: team.seats[i].session,
+                name: team.seats[i].name.clone(),
+                public_key: team.seats[i].identity.verifying_key(),
             })
             .collect(),
     }
@@ -128,9 +119,8 @@ fn the_audio_callbacks_never_allocate() {
     );
 
     let relay = Relay::start();
-    let alex_key = SigningKey::from_bytes(&[0xa1; 32]);
-    let sam_key = SigningKey::from_bytes(&[0xb2; 32]);
-    let members = [(1, "alex", &alex_key), (2, "sam", &sam_key)];
+    let team = relay.team(&["alex", "sam"]);
+    let alex_seat = &team.seats[0];
     let options = |frame, redundancy| CallOptions {
         relay: relay.udp,
         sender: SenderConfig {
@@ -143,9 +133,9 @@ fn the_audio_callbacks_never_allocate() {
     };
     // Alex at 2.5 ms with redundancy, so the copy path runs too.
     let (alex, mut alex_capture, mut alex_playback) =
-        Call::join(&config(1, &members), options(FrameSize::Ms2_5, true)).unwrap();
+        Call::join(&config(&team, 0, &[0, 1]), options(FrameSize::Ms2_5, true)).unwrap();
     let (sam, mut sam_capture, mut sam_playback) =
-        Call::join(&config(2, &members[1..]), options(FrameSize::Ms5, false)).unwrap();
+        Call::join(&config(&team, 1, &[1]), options(FrameSize::Ms5, false)).unwrap();
 
     let period = 240; // 5 ms
     let tick = Duration::from_micros(5_000);
@@ -160,10 +150,10 @@ fn the_audio_callbacks_never_allocate() {
     // sam's call from 100 ms to 1.1 s.
     for k in 0..240u32 {
         match k {
-            20 => sam.add_member(1, alex_key.verifying_key()),
+            20 => sam.add_member(alex_seat.session, alex_seat.identity.verifying_key()),
             220 => {
                 heard = sam.stats().tracks.first().copied();
-                sam.remove_member(1);
+                sam.remove_member(alex_seat.session);
             }
             _ => {}
         }
@@ -190,7 +180,7 @@ fn the_audio_callbacks_never_allocate() {
     let (alex, sam) = (alex.stats(), sam.stats());
     assert!(alex.sender.audio > 100, "{:?}", alex.sender);
     let track = heard.expect("alex's track, while alex was a member");
-    assert_eq!(track.session, 1);
+    assert_eq!(track.session, alex_seat.session);
     assert!(track.jitter.received > 0, "{track:?}");
     assert!(track.jitter.played > 0, "{track:?}");
     // Once alex left, their track was free again.

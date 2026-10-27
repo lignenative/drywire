@@ -1,8 +1,10 @@
 #!/bin/sh
-# A live call on this Mac: a local relay, an echo bot, and you.
+# A live call on this Mac: a local server, an echo bot, and you.
 #
-# You join as "alex" with the default microphone and speakers; "sam" is an
-# echo bot that sends back everything it hears. Speak and you hear yourself
+# The script makes a space on a fresh local server, as its owner "alex",
+# and invites "sam", an echo bot that sends back everything it hears, with
+# an invitation link. You then join as alex with the default microphone
+# and speakers. Speak and you hear yourself
 # come back through the relay twice, so the delay you hear is about two
 # mouth-to-ear trips minus one capture and one playback. Use headphones:
 # with speakers, the bot's echo reaches the microphone again and loops.
@@ -21,7 +23,10 @@ echo "==> building the relay and drywire-cli (release)"
 (cd server && go build -o "$root/.dev/drywire-server" ./cmd/drywire-server)
 (cd core && cargo build --release -p drywire-cli)
 cli="$root/core/target/release/drywire-cli"
-dev="$root/core/drywire-cli/dev"
+# Fresh state for every run: this directory belongs to this script.
+live="$root/.dev/live"
+rm -rf "$live"
+mkdir -p "$live"
 
 pids=""
 cleanup() {
@@ -48,20 +53,24 @@ wait_for() {
 
 : "${DRYWIRE_UDP_ADDR:=127.0.0.1:10050}"
 : "${DRYWIRE_HTTP_ADDR:=127.0.0.1:10050}"
-DRYWIRE_ROOMS=server/rooms.dev.json DRYWIRE_UDP_ADDR="$DRYWIRE_UDP_ADDR" \
-	DRYWIRE_DB=.dev/live.db DRYWIRE_ACCESS_LOG=off \
-	DRYWIRE_HTTP_ADDR="$DRYWIRE_HTTP_ADDR" \
+DRYWIRE_UDP_ADDR="$DRYWIRE_UDP_ADDR" DRYWIRE_HTTP_ADDR="$DRYWIRE_HTTP_ADDR" \
+	DRYWIRE_DB="$live/drywire.db" DRYWIRE_ACCESS_LOG=off DRYWIRE_SPACE_CREATORS='*' \
 	"$root/.dev/drywire-server" 2>.dev/live-relay.log &
 relay=$!
 pids="$pids $relay"
-if ! wait_for "$relay" .dev/live-relay.log "drywire-server started" "the relay"; then
+if ! wait_for "$relay" .dev/live-relay.log "drywire-server started" "the server"; then
 	echo "A port it needs ($DRYWIRE_UDP_ADDR udp, $DRYWIRE_HTTP_ADDR tcp) is probably" >&2
-	echo "taken, often by \`make dev\` or another \`make live\`. Stop that relay, or" >&2
+	echo "taken, often by \`make dev\` or another \`make live\`. Stop that server, or" >&2
 	echo "move this one: make live DRYWIRE_UDP_ADDR=127.0.0.1:10058 DRYWIRE_HTTP_ADDR=127.0.0.1:10058" >&2
 	exit 1
 fi
 
-"$cli" join --config "$dev/sam.json" --relay "$DRYWIRE_UDP_ADDR" --echo --quiet \
+# Alex makes the space and an invitation; sam joins with the link alone.
+"$cli" create-space --home "$live/alex" --instance "http://$DRYWIRE_HTTP_ADDR" \
+	--name Live --display-name alex >/dev/null
+link=$("$cli" invite --home "$live/alex" --uses 1 2>/dev/null)
+
+"$cli" join --home "$live/sam" --link "$link" --display-name sam --echo --quiet \
 	>/dev/null 2>.dev/live-echo.log &
 echo_bot=$!
 pids="$pids $echo_bot"
@@ -69,4 +78,4 @@ wait_for "$echo_bot" .dev/live-echo.log "joined as" "the echo bot" || exit 1
 
 echo "==> joining as alex; speak, and sam echoes you back (Ctrl-C to stop)"
 # shellcheck disable=SC2086 # ARGS is a list of options
-"$cli" join --config "$dev/alex.json" --relay "$DRYWIRE_UDP_ADDR" ${ARGS:-}
+"$cli" join --home "$live/alex" ${ARGS:-}

@@ -60,15 +60,16 @@ Then:
 make help      # list the commands
 make test      # run every test suite
 make fmt       # format all code
-make dev       # run the relay locally with the development rooms
-make live      # talk to an echo bot through a local relay (headphones)
+make dev       # run the server locally (relay and control plane)
+make live      # talk to an echo bot through a local server (headphones)
 make vectors   # regenerate the protocol test vectors after a format change
 make bench     # replay simulated network traces against the jitter buffer
 ```
 
-`make dev` needs no setup: it serves `server/rooms.dev.json`, whose secrets
-are public and which the server only accepts on a loopback address. Check it
-with `curl http://127.0.0.1:10050/v1/status`.
+`make dev` needs no setup: it keeps its database in `.dev/` and lets anyone
+create a space. Check it with `curl http://127.0.0.1:10050/v1/status`, then
+create a space and an invitation link with `drywire-cli` (see
+[`server/README.md`](server/README.md)).
 
 Local ports follow a fixed block, bound to `127.0.0.1` only:
 

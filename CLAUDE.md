@@ -52,9 +52,9 @@ fixed in the same change.
   previous protocol version. A client facing an unsupported version says an
   update is needed instead of failing silently.
 - **No secret in the repository.** Configuration comes from environment
-  variables and untracked files (`.env`). Development secrets that are
-  committed live in files marked `"dev_only": true`, which the server refuses
-  to serve on anything but a loopback address.
+  variables and untracked files (`.env`). Development needs no committed
+  secret: `make dev` and the tests start a server with a fresh database, and
+  clients make their own keys.
 - **No private detail in the repository.** Examples use generic people,
   devices and hosts. Never commit a real server name, address or player.
 - **Logs stay minimal.** Application logs never contain audio, tokens, secrets

@@ -19,14 +19,17 @@ drywire-proto.workspace = true
 getrandom.workspace = true
 opusic-sys.workspace = true
 rtrb.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true
+
+[dev-dependencies]
+# The integration tests set up their rooms through the real control plane.
+drywire-control.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

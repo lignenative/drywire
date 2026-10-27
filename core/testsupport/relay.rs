@@ -6,10 +6,10 @@
 //!
 //! The relay is built from `server/` with `go build` once per test binary,
 //! or taken from `DRYWIRE_SERVER_BIN` if that variable names a binary. It
-//! listens on ports the system picks, so tests run in parallel, and serves
-//! the development rooms of `server/rooms.dev.json`. These tests need Go:
-//! without it they fail and say so, rather than pass without testing
-//! anything.
+//! listens on ports the system picks, so tests run in parallel, with a
+//! database of its own. Tests get their sessions from its control plane,
+//! as real clients do ([`Relay::team`]). These tests need Go: without it
+//! they fail and say so, rather than pass without testing anything.
 
 #![allow(dead_code)] // each test binary uses a different part
 
@@ -19,6 +19,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::OnceLock;
 use std::time::Duration;
+
+use drywire_control::Client;
+use drywire_proto::crypto::SigningKey;
 
 /// The repository root, from this crate's manifest directory.
 pub fn repo_root() -> PathBuf {
@@ -33,10 +36,27 @@ pub fn repo_root() -> PathBuf {
     dir
 }
 
-/// The session secrets of `server/rooms.dev.json`: session `n` of the
-/// development rooms has the secret made of 32 bytes `0xnn`.
-pub fn dev_secret(session: u32) -> [u8; 32] {
-    [session as u8 * 0x11; 32]
+/// One member of a [`Team`], in its room.
+pub struct Seat {
+    /// The member's identity: seed `0xa1 + i` for the `i`-th member.
+    pub identity: SigningKey,
+    /// The session the control plane gave it.
+    pub session: u32,
+    /// Its session secret.
+    pub secret: [u8; 32],
+    /// Its display name.
+    pub name: String,
+}
+
+/// A space with one room, and members who joined it through the control
+/// plane.
+pub struct Team {
+    /// The room's id, which the key derivation uses.
+    pub room_id: [u8; 16],
+    /// The space key, which only the members hold.
+    pub space_key: [u8; 32],
+    /// The members, in the order they were named.
+    pub seats: Vec<Seat>,
 }
 
 fn server_binary() -> &'static Path {
@@ -80,7 +100,6 @@ pub struct Relay {
 impl Relay {
     /// Starts a relay with the development rooms.
     pub fn start() -> Relay {
-        let rooms = repo_root().join("server").join("rooms.dev.json");
         // A database of its own in a fresh directory, so tests never share
         // or leave state.
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
@@ -91,7 +110,6 @@ impl Relay {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create the relay's directory");
         let mut child = Command::new(server_binary())
-            .env("DRYWIRE_ROOMS", rooms)
             .env("DRYWIRE_DB", dir.join("drywire.db"))
             .env("DRYWIRE_ACCESS_LOG", "off")
             .env("DRYWIRE_SPACE_CREATORS", "*")
@@ -124,6 +142,48 @@ impl Relay {
     /// The control plane's origin, as clients reach it.
     pub fn instance(&self) -> String {
         format!("http://{}", self.http)
+    }
+
+    /// Makes a space whose first member owns it and invites the others,
+    /// then has everyone join its room, in order. Their sessions are
+    /// ready for a `hello`.
+    pub fn team(&self, names: &[&str]) -> Team {
+        let space_key = [0x5a; 32];
+        let clients: Vec<Client> = (0..names.len())
+            .map(|i| {
+                let identity = SigningKey::from_bytes(&[0xa1 + i as u8; 32]);
+                Client::new(&self.instance(), identity).expect("a client")
+            })
+            .collect();
+        let view = clients[0]
+            .create_space("Team", "general", names[0])
+            .expect("create a space");
+        for (client, name) in clients.iter().zip(names).skip(1) {
+            let (invitation, _) = clients[0]
+                .invite(&view.space.id, &space_key, None, Some(1))
+                .expect("invite");
+            client.redeem(&invitation.code, name).expect("redeem");
+        }
+        let room = view.rooms[0].id;
+        let seats = clients
+            .iter()
+            .zip(names)
+            .enumerate()
+            .map(|(i, (client, name))| {
+                let joined = client.join(&room).expect("join the room");
+                Seat {
+                    identity: SigningKey::from_bytes(&[0xa1 + i as u8; 32]),
+                    session: joined.session,
+                    secret: joined.session_secret.0,
+                    name: name.to_string(),
+                }
+            })
+            .collect();
+        Team {
+            room_id: room.0,
+            space_key,
+            seats,
+        }
     }
 
     /// `GET /v1/status`, parsed.

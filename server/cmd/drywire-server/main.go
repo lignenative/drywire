@@ -66,18 +66,6 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("DRYWIRE_UDP_ADDR: %w", err)
 	}
 	r := relay.New(time.Now, log)
-	if cfg.roomsPath != "" {
-		rooms, err := relay.LoadRooms(cfg.roomsPath)
-		if err != nil {
-			return err
-		}
-		if rooms.DevOnly && !laddr.IP.IsLoopback() {
-			return fmt.Errorf("%s holds public development secrets and may only be served on a loopback address, not %s", cfg.roomsPath, cfg.udpAddr)
-		}
-		if err := rooms.AddTo(r); err != nil {
-			return err
-		}
-	}
 	udpConn, err := net.ListenUDP("udp", laddr)
 	if err != nil {
 		return err

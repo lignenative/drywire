@@ -41,3 +41,4 @@ Status: Accepted · YYYY-MM-DD
 | [0021](0021-hand-out-one-session-per-identity.md) | Hand out one session per identity, and end it when the relay stops hearing it |
 | [0022](0022-talk-to-the-control-plane-with-ureq-and-rustls.md) | Talk to the control plane with ureq and rustls |
 | [0023](0023-hand-playback-a-ready-track-for-a-new-member.md) | Hand playback a ready track for a member who joins mid-call |
+| [0024](0024-replace-the-phase-1-files-with-the-control-plane.md) | Replace the phase 1 files with the control plane |

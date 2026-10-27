@@ -105,8 +105,8 @@ packet of any other size is invalid.
 
 A client sends `hello` to tell the relay "this address now speaks for my
 session". The client obtained its session number and a 32-byte **session
-secret** when it joined the room (from the control plane, over TLS; in phase 1
-from a configuration file). The secret never travels over UDP.
+secret** when it joined the room, from the control plane over TLS (section
+13.6). The secret never travels over UDP.
 
 ```text
 header (16) ‖ counter (8) ‖ mac (32)
@@ -317,7 +317,7 @@ message = "drywire/sender-announce/v1" ‖ room_id (16) ‖ session (4)
   spurt, and then once per second while its gate stays open. It sends the
   first one of an epoch before any audio of that epoch.
 - A receiver verifies the signature with the public key it knows for that
-  session (from the control plane; in phase 1 from a configuration file)
+  session (from the control plane, section 13.6)
   before deriving the key. An announcement from a session with no known
   public key, or whose signature does not verify, is dropped
   (`bad_signature`).

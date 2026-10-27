@@ -32,13 +32,14 @@ if [ -f "$root/core/Cargo.toml" ]; then
 
 	# The Windows backend cannot run here, but it must keep compiling.
 	# Without default features libopus is not built, so no Windows C
-	# toolchain is needed: `cargo check` links nothing. Only drywire-core
-	# is checked: drywire-cli pulls in ring (through rustls), whose C code
-	# needs the Windows SDK headers. CI builds and tests the CLI on Windows.
+	# toolchain is needed: `cargo check` links nothing. Only drywire-core's
+	# library is checked: the CLI and the tests pull in ring (through
+	# rustls), whose C code needs the Windows SDK headers (ADR 0022). CI
+	# builds and tests everything on Windows.
 	if rustup target list --installed 2>/dev/null | grep -q '^x86_64-pc-windows-msvc$'; then
 		echo "==> core (Windows build check)"
 		cargo clippy --target x86_64-pc-windows-msvc -p drywire-core \
-			--no-default-features --all-targets -- -D warnings
+			--no-default-features --lib -- -D warnings
 	else
 		echo "note: Windows build check skipped; run: rustup target add x86_64-pc-windows-msvc"
 	fi

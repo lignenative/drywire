@@ -28,9 +28,9 @@ In scope, among others:
 
 Not vulnerabilities:
 
-- The development keys in `server/rooms.dev.json` and
-  `core/drywire-cli/dev/` are public on purpose. Both the relay and the
-  clients refuse to use them anywhere but on a loopback address.
+- A development server (`make dev`) lets anyone create a space and
+  serves plain HTTP on `127.0.0.1` only; a real instance lists who may
+  create spaces and serves HTTPS.
 - Any member of a space can forge audio that appears to come from another
   member of the same space: a known limit until group key management
   arrives ([`docs/spec.md`](docs/spec.md), section 8).

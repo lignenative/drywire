@@ -38,13 +38,11 @@ const defaultAddr = "127.0.0.1:10050"
 //	                        client address comes from X-Forwarded-For
 //	DRYWIRE_ACCESS_LOG      access log file, - for standard output (the
 //	                        default), off for none
-//	DRYWIRE_ROOMS           phase 1 rooms file (optional)
 type config struct {
 	udpAddr, httpAddr  string
 	publicURL          string // set by setPublicAddresses
 	dbPath, ledgerPath string
 	tlsCert, tlsKey    string
-	roomsPath          string
 	accessLog          *slog.Logger
 	api                api.Config
 	warnings           []string
@@ -59,12 +57,11 @@ func envOr(name, fallback string) string {
 
 func loadConfig() (config, error) {
 	c := config{
-		udpAddr:   envOr("DRYWIRE_UDP_ADDR", defaultAddr),
-		httpAddr:  envOr("DRYWIRE_HTTP_ADDR", defaultAddr),
-		dbPath:    envOr("DRYWIRE_DB", "drywire.db"),
-		tlsCert:   os.Getenv("DRYWIRE_TLS_CERT"),
-		tlsKey:    os.Getenv("DRYWIRE_TLS_KEY"),
-		roomsPath: os.Getenv("DRYWIRE_ROOMS"),
+		udpAddr:  envOr("DRYWIRE_UDP_ADDR", defaultAddr),
+		httpAddr: envOr("DRYWIRE_HTTP_ADDR", defaultAddr),
+		dbPath:   envOr("DRYWIRE_DB", "drywire.db"),
+		tlsCert:  os.Getenv("DRYWIRE_TLS_CERT"),
+		tlsKey:   os.Getenv("DRYWIRE_TLS_KEY"),
 	}
 	c.ledgerPath = envOr("DRYWIRE_LEDGER", c.dbPath+".deletions")
 	if (c.tlsCert == "") != (c.tlsKey == "") {

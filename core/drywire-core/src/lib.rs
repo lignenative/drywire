@@ -2,7 +2,7 @@
 //! gate that decides when to send, the jitter buffer that decides when to
 //! play, and the pieces of a call built on them.
 //!
-//! - [`config`]: the phase 1 client configuration file (ADR 0006).
+//! - [`config`]: what a call starts from, as the control plane hands it out.
 //! - [`sender`]: microphone frames to sealed packets.
 //! - [`inbound`]: packets from the relay to checked, decrypted frames.
 //! - [`mixer`]: one jitter buffer and decoder per sender, mixed for the

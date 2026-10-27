@@ -1,6 +1,6 @@
 # 0004. Configure phase 1 rooms with a JSON file
 
-Status: Accepted · 2026-10-27
+Status: Accepted · 2026-10-27 · Superseded by ADR 0024
 
 ## Context
 

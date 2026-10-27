@@ -190,6 +190,8 @@ pub struct Mixer {
     #[expect(clippy::vec_box, reason = "see above, and ADR 0017")]
     tracks: Vec<Box<Track>>,
     min_target_us: u64,
+    /// The counters of the senders who left, summed.
+    departed: JitterStats,
 }
 
 impl Mixer {
@@ -273,6 +275,7 @@ impl Mixer {
             }
             Event::Left { session } => {
                 if let Some(track) = self.tracks.iter_mut().find(|t| t.session == session) {
+                    self.departed = add(self.departed, track.stats().jitter);
                     track.reuse(FREE);
                 }
             }
@@ -290,6 +293,12 @@ impl Mixer {
         for s in out.iter_mut() {
             *s = soft_clip(*s);
         }
+    }
+
+    /// The jitter counters of the senders who left, summed: with
+    /// [`Mixer::stats`], everything this mixer played.
+    pub fn departed(&self) -> JitterStats {
+        self.departed
     }
 
     /// What each sender's track is doing, in the order the tracks were
@@ -420,6 +429,7 @@ mod tests {
 
         mixer.push(5_000, Event::Left { session: 1 }).unwrap();
         assert!(mixer.stats().is_empty(), "a free track shows no stats");
+        assert_eq!(mixer.departed().received, 1, "but its counters are kept");
         mixer.push(10_000, audio(2, 0)).unwrap();
         assert_eq!(mixer.tracks.len(), 1, "the free track was reused");
         let stats = mixer.stats();

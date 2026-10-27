@@ -1,8 +1,8 @@
 //! Audio from one client to another through the real Go relay:
 //! gate → Opus → seal → UDP → relay → UDP → open → decode.
 //!
-//! Two clients of the development room "lobby" bind their sessions with
-//! `hello`. The first one announces its key, then talks for 600 ms at the
+//! Two members of a room, who got their sessions from the real control
+//! plane, bind them with `hello`. The first one announces its key, then talks for 600 ms at the
 //! pace of a microphone, at each frame size. The second records what it
 //! receives. On the way, the first client pings the relay and sends a
 //! keepalive, and the relay's own counters must show nothing dropped.
@@ -26,13 +26,9 @@ use drywire_core::link::{Link, LinkConfig};
 use drywire_core::opus::{Decoder, FrameSize, SAMPLE_RATE};
 use drywire_core::sender::{Packets, Sender, SenderConfig};
 use drywire_proto::control::{new_keepalive, new_ping};
-use drywire_proto::crypto::SigningKey;
 use drywire_proto::{PacketType, parse};
 
-use relay::{Relay, dev_secret};
-
-const ROOM_ID: [u8; 16] = [0x0f; 16];
-const SPACE_KEY: [u8; 32] = [0x5a; 32];
+use relay::{Relay, Seat};
 /// Opus delays the signal by 2.5 ms (`opus::tests` pins it).
 const LOOKAHEAD: usize = 120;
 
@@ -43,8 +39,9 @@ struct Client {
 }
 
 impl Client {
-    /// Binds `session` to a fresh socket: hello until the relay answers.
-    fn join(relay: &Relay, session: u32) -> Client {
+    /// Binds a member's session to a fresh socket: hello until the relay
+    /// answers.
+    fn join(relay: &Relay, seat: &Seat) -> Client {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
         socket.connect(relay.udp).unwrap();
         socket
@@ -52,7 +49,7 @@ impl Client {
             .unwrap();
         let mut client = Client {
             socket,
-            link: Link::new(session, dev_secret(session), LinkConfig::default()),
+            link: Link::new(seat.session, seat.secret, LinkConfig::default()),
             started: Instant::now(),
         };
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -202,8 +199,12 @@ fn snr_db(input: &[f32], output: &[f32]) -> f32 {
 #[test]
 fn audio_crosses_the_relay_at_every_frame_size() {
     let relay = Relay::start();
-    let sam = Client::join(&relay, 2);
-    let alex_identity = SigningKey::from_bytes(&[0xa1; 32]);
+    let team = relay.team(&["alex", "sam"]);
+    let (alex_seat, sam_seat) = (&team.seats[0], &team.seats[1]);
+    let (room_id, space_key) = (team.room_id, team.space_key);
+    let sam = Client::join(&relay, sam_seat);
+    let alex_identity = alex_seat.identity.clone();
+    let alex_session = alex_seat.session;
     let input = speech();
     let mut alex = None;
     let mut last_sent = 0;
@@ -217,14 +218,20 @@ fn audio_crosses_the_relay_at_every_frame_size() {
             redundancy,
             ..SenderConfig::new(frame)
         };
-        let mut sender = Sender::new(alex_identity.clone(), 1, ROOM_ID, &SPACE_KEY, config)
-            .expect("an Opus encoder");
+        let mut sender = Sender::new(
+            alex_identity.clone(),
+            alex_session,
+            room_id,
+            &space_key,
+            config,
+        )
+        .expect("an Opus encoder");
         // A fresh binding for each run, as a restarted client would make:
         // every sender restarts its sequence at 0 in epoch 0, and the relay
         // resets its loss counters and replay window on a new hello
         // (protocol 10.4). Reusing the binding would let the relay treat a
         // longer run's sequences as duplicates of the previous run's.
-        let alex = alex.insert(Client::join(&relay, 1));
+        let alex = alex.insert(Client::join(&relay, alex_seat));
         let done = AtomicBool::new(false);
         let (talked, received) = std::thread::scope(|scope| {
             let recorder = scope.spawn(|| record(&sam, &done));
@@ -236,7 +243,11 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         let sent = talked.sent;
 
         // Every packet arrived and decrypted, and the frames are complete.
-        let mut inbound = Inbound::new(ROOM_ID, &SPACE_KEY, [(1, alex_identity.verifying_key())]);
+        let mut inbound = Inbound::new(
+            room_id,
+            &space_key,
+            [(alex_session, alex_identity.verifying_key())],
+        );
         let output = decode_all(&received, &mut inbound, frame);
         let stats = inbound.stats();
         assert_eq!(stats.audio, sent, "{frame}: {stats:?}");
@@ -276,7 +287,9 @@ fn audio_crosses_the_relay_at_every_frame_size() {
     // last run's binding. It is
     // built by hand: the test did not pump the link while talking, and a
     // link without pongs for five seconds says hello again instead.
-    alex.socket.send(&new_ping(1, 1, alex.now_us())).unwrap();
+    alex.socket
+        .send(&new_ping(alex_session, 1, alex.now_us()))
+        .unwrap();
     alex.socket
         .set_read_timeout(Some(Duration::from_secs(2)))
         .unwrap();
@@ -290,7 +303,7 @@ fn audio_crosses_the_relay_at_every_frame_size() {
     assert_eq!(u64::from(link.uplink_received), last_sent, "{link:?}");
 
     // A keepalive is accepted silently: nothing comes back, nothing drops.
-    alex.socket.send(&new_keepalive(1)).unwrap();
+    alex.socket.send(&new_keepalive(alex_session)).unwrap();
     std::thread::sleep(Duration::from_millis(100));
     let status = relay.status();
     let dropped = &status["packets_dropped"];

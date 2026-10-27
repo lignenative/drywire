@@ -25,6 +25,9 @@ import (
 	"github.com/lignenative/drywire/server/internal/wire"
 )
 
+// MaxMembersPerRoom bounds how many copies one audio packet can turn into.
+const MaxMembersPerRoom = 32
+
 // Limits of protocol section 10.3.
 const (
 	SessionPacketRate  = 600
@@ -104,9 +107,6 @@ type session struct {
 	id     uint32
 	secret []byte
 	room   *room
-	// static sessions come from a phase 1 rooms file: they never expire,
-	// only unbind.
-	static bool
 
 	// Binding: the address that last proved it holds the secret.
 	bound       bool
@@ -137,10 +137,6 @@ func New(now func() time.Time, log *slog.Logger) *Relay {
 // needed. Its client must say hello within SessionTimeout, or Expire
 // removes it.
 func (r *Relay) AddSession(roomName string, id uint32, secret []byte) error {
-	return r.addSession(roomName, id, secret, false)
-}
-
-func (r *Relay) addSession(roomName string, id uint32, secret []byte, static bool) error {
 	if id == 0 || len(secret) != wire.SecretSize {
 		return ErrBadSession
 	}
@@ -162,7 +158,6 @@ func (r *Relay) addSession(roomName string, id uint32, secret []byte, static boo
 		id:       id,
 		secret:   slices.Clone(secret),
 		room:     rm,
-		static:   static,
 		lastSeen: now,
 		packets:  ratelimit.New(SessionPacketRate, SessionPacketBurst, now),
 		bytes:    ratelimit.New(SessionByteRate, SessionByteBurst, now),
@@ -195,14 +190,14 @@ func (r *Relay) remove(id uint32) bool {
 
 // Expire removes the sessions that sent nothing for SessionTimeout, bound
 // or never bound, and returns their numbers: for the control plane, these
-// members lost their connection. Static sessions only unbind (in Handle).
+// members lost their connection.
 func (r *Relay) Expire() []uint32 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := r.now()
 	var gone []uint32
 	for id, s := range r.sessions {
-		if !s.static && now.Sub(s.lastSeen) > SessionTimeout {
+		if now.Sub(s.lastSeen) > SessionTimeout {
 			gone = append(gone, id)
 		}
 	}

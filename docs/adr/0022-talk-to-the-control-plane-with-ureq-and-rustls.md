@@ -40,8 +40,10 @@ Options considered:
 
 - `ring` compiles C code, so checking `drywire-cli` for Windows from a Mac
   with `cargo clippy --target x86_64-pc-windows-msvc` no longer works
-  without the Windows SDK headers. `make test` checks `drywire-core` for
-  Windows (the WASAPI backend, which is what that check is for); the
-  Windows CI job builds and tests the CLI natively.
+  without the Windows SDK headers. `make test` checks `drywire-core`'s
+  library for Windows (the WASAPI backend, which is what that check is
+  for), without its tests, which reach the server through
+  `drywire-control`; the Windows CI job builds and tests everything
+  natively.
 - About 80 crates join the dependency tree of the CLI. `cargo deny` checks
   every one of them against the license list.

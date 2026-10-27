@@ -2,7 +2,6 @@ package relay
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,27 +26,18 @@ func secretFor(session uint32) []byte {
 	return bytes.Repeat([]byte{byte(session)}, wire.SecretSize)
 }
 
-// testRooms has two rooms: sessions 1, 2 and 3 in "lobby", 4 in "solo".
-func testRooms() RoomsFile {
-	member := func(s uint32) MemberConfig {
-		return MemberConfig{Session: s, Secret: hex.EncodeToString(secretFor(s))}
-	}
-	return RoomsFile{Rooms: []RoomConfig{
-		{Name: "lobby", Members: []MemberConfig{member(1), member(2), member(3)}},
-		{Name: "solo", Members: []MemberConfig{member(4)}},
-	}}
-}
-
+// newTestRelay has two rooms: sessions 1, 2 and 3 in "lobby", 4 in "solo".
 func newTestRelay(t *testing.T) (*Relay, *fakeClock) {
 	t.Helper()
-	f := testRooms()
-	if err := f.Validate(); err != nil {
-		t.Fatal(err)
-	}
 	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
 	r := New(clock.now, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err := f.AddTo(r); err != nil {
-		t.Fatal(err)
+	for s, room := range []string{1: "lobby", 2: "lobby", 3: "lobby", 4: "solo"} {
+		if s == 0 {
+			continue
+		}
+		if err := r.AddSession(room, uint32(s), secretFor(uint32(s))); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return r, clock
 }
@@ -341,26 +331,6 @@ func TestRelayOnlyTypesAreDropped(t *testing.T) {
 		t.Fatal("a pong from a client was answered or forwarded")
 	}
 	expectDropped(t, r, DropRelayOnlyType, 1)
-}
-
-func TestValidate(t *testing.T) {
-	ok := MemberConfig{Session: 1, Secret: hex.EncodeToString(secretFor(1))}
-	tests := map[string]RoomsFile{
-		"room without a name": {Rooms: []RoomConfig{{Members: []MemberConfig{ok}}}},
-		"duplicate room":      {Rooms: []RoomConfig{{Name: "a"}, {Name: "a"}}},
-		"session 0":           {Rooms: []RoomConfig{{Name: "a", Members: []MemberConfig{{Secret: ok.Secret}}}}},
-		"duplicate session": {Rooms: []RoomConfig{
-			{Name: "a", Members: []MemberConfig{ok}}, {Name: "b", Members: []MemberConfig{ok}}}},
-		"short secret": {Rooms: []RoomConfig{{Name: "a", Members: []MemberConfig{{Session: 1, Secret: "abcd"}}}}},
-	}
-	for name, f := range tests {
-		if err := f.Validate(); err == nil {
-			t.Errorf("%s: Validate() accepted it", name)
-		}
-	}
-	if err := testRooms().Validate(); err != nil {
-		t.Fatalf("valid rooms rejected: %v", err)
-	}
 }
 
 func newDynamicRelay(t *testing.T) (*Relay, *fakeClock) {

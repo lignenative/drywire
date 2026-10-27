@@ -37,6 +37,7 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use crate::audio::{InputCallback, OutputCallback};
 use crate::config::ClientConfig;
 use crate::inbound::{Event, Inbound, InboundStats};
+use crate::jitter::JitterStats;
 use crate::link::{Link, LinkConfig, LinkStats};
 use crate::mixer::{Mixer, Slot, TrackStats};
 use crate::opus::OpusError;
@@ -81,6 +82,8 @@ pub struct CallStats {
     pub playback_queue_full: u64,
     /// Each sender's playback.
     pub tracks: Vec<TrackStats>,
+    /// The playback counters of the senders who left the room, summed.
+    pub departed: JitterStats,
 }
 
 /// Why a call could not start.
@@ -99,8 +102,8 @@ impl std::fmt::Display for CallError {
         match self {
             CallError::Io(e) => write!(f, "network: {e}"),
             CallError::NoAnswer => f.write_str(
-                "the relay did not answer: check its address, that it runs, and that this \
-                 configuration's session and secret are in its rooms file",
+                "the relay did not answer: check that its address is reachable (UDP) and \
+                 that the session is still valid; join the room again for a new one",
             ),
             CallError::Opus(e) => e.fmt(f),
         }
@@ -134,6 +137,27 @@ enum ToPlayback {
     Event(u64, Event),
     /// A spare track for a member who just joined.
     Slot(Slot),
+}
+
+/// Changes the members of a running call; cheap to clone, and usable from
+/// any thread.
+#[derive(Clone)]
+pub struct CallMembers(ChangeSender<Change>);
+
+impl CallMembers {
+    /// Someone joined the room: accept their announcements, verified with
+    /// `public_key`, and play their audio. Takes effect within the network
+    /// thread's next wake-up (50 ms at most). This client's own session is
+    /// ignored, as is a session already known.
+    pub fn add(&self, session: u32, public_key: VerifyingKey) {
+        let _ = self.0.send(Change::Add(session, public_key));
+    }
+
+    /// Someone left the room: forget their keys, and free their track for
+    /// the next member.
+    pub fn remove(&self, session: u32) {
+        let _ = self.0.send(Change::Remove(session));
+    }
 }
 
 /// A change of the room's members, from the control plane.
@@ -260,18 +284,20 @@ impl Call {
         ))
     }
 
-    /// Someone joined the room: accept their announcements, verified with
-    /// `public_key`, and play their audio. Takes effect within the network
-    /// thread's next wake-up (50 ms at most). This client's own session is
-    /// ignored, as is a session already known.
+    /// Someone joined the room: see [`CallMembers::add`].
     pub fn add_member(&self, session: u32, public_key: VerifyingKey) {
-        let _ = self.changes.send(Change::Add(session, public_key));
+        self.members().add(session, public_key);
     }
 
-    /// Someone left the room: forget their keys, and free their track for
-    /// the next member.
+    /// Someone left the room: see [`CallMembers::remove`].
     pub fn remove_member(&self, session: u32) {
-        let _ = self.changes.send(Change::Remove(session));
+        self.members().remove(session);
+    }
+
+    /// A handle that changes the call's members from another thread, such
+    /// as the one reading the control plane's events.
+    pub fn members(&self) -> CallMembers {
+        CallMembers(self.changes.clone())
     }
 
     /// A snapshot of the counters.
@@ -572,6 +598,7 @@ impl Playback {
             // Copied into the room made in `Call::join`.
             stats.tracks.clear();
             stats.tracks.extend(self.mixer.track_stats());
+            stats.departed = self.mixer.departed();
         }
     }
 }
@@ -580,6 +607,7 @@ impl Drop for Playback {
     fn drop(&mut self) {
         if let Ok(mut stats) = self.shared.stats.lock() {
             stats.tracks = self.mixer.stats();
+            stats.departed = self.mixer.departed();
         }
     }
 }

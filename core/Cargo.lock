@@ -285,6 +285,7 @@ dependencies = [
 name = "drywire-cli"
 version = "0.1.0"
 dependencies = [
+ "drywire-control",
  "drywire-core",
  "drywire-proto",
  "getrandom 0.4.3",
@@ -307,12 +308,12 @@ dependencies = [
 name = "drywire-core"
 version = "0.1.0"
 dependencies = [
+ "drywire-control",
  "drywire-proto",
  "getrandom 0.4.3",
  "libc",
  "opusic-sys",
  "rtrb",
- "serde",
  "serde_json",
  "windows",
 ]

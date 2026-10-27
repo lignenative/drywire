@@ -1,9 +1,10 @@
-//! Two `drywire-cli` processes talk through the real relay, headless: WAV
+//! Two `drywire-cli` processes talk through the real server, headless: WAV
 //! files instead of a microphone and speakers, so no test ever opens a
 //! sound card or asks for microphone permission.
 //!
-//! Alex plays three tone bursts at 440, 660 and 990 Hz into the call; Sam
-//! records what they hear. Both clients' counters must agree that every
+//! Alex creates a space and prints an invitation link; Sam joins with the
+//! link alone. Alex plays three tone bursts at 440, 660 and 990 Hz into
+//! the call; Sam records what they hear. Both clients' counters must agree that every
 //! packet arrived and decrypted, and Sam's recording must hold the three
 //! tones, in order.
 //!
@@ -23,15 +24,11 @@ use std::process::{Child, Command, Stdio};
 
 use drywire_core::opus::SAMPLE_RATE;
 use drywire_core::wav;
-use relay::{Relay, dev_secret, repo_root};
+use relay::Relay;
 
 const RATE: usize = SAMPLE_RATE as usize;
 const TONES: [f32; 3] = [440.0, 660.0, 990.0];
 const BURST_MS: usize = 300;
-
-fn dev_config(name: &str) -> PathBuf {
-    repo_root().join(format!("core/drywire-cli/dev/{name}.json"))
-}
 
 fn cli(args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_drywire-cli"));
@@ -121,9 +118,9 @@ fn power_at(samples: &[f32], frequency: f32) -> f32 {
 #[test]
 fn two_clients_talk_through_the_relay_with_wav_files() {
     let relay = Relay::start();
-    let relay_addr = relay.udp.to_string();
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("two-clients-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let input = dir.join("alex-in.wav");
     let heard = dir.join("sam-heard.wav");
@@ -131,15 +128,44 @@ fn two_clients_talk_through_the_relay_with_wav_files() {
     let signal = bursts();
     wav::write(&input, &signal).unwrap();
     let path = |p: &Path| p.to_str().unwrap().to_string();
+    let alex_home = path(&dir.join("alex"));
+    let sam_home = path(&dir.join("sam"));
 
-    // Sam listens first, so he is bound before Alex talks.
-    let sam_config = path(&dev_config("sam"));
+    // Alex creates the space and an invitation; the link is all Sam gets.
+    let instance = relay.instance();
+    let created = cli(&[
+        "create-space",
+        "--home",
+        &alex_home,
+        "--instance",
+        &instance,
+        "--name",
+        "Team",
+        "--display-name",
+        "alex",
+    ])
+    .output()
+    .unwrap();
+    assert!(created.status.success(), "{created:?}");
+    let invited = cli(&["invite", "--home", &alex_home, "--uses", "1"])
+        .output()
+        .unwrap();
+    assert!(invited.status.success(), "{invited:?}");
+    let link = String::from_utf8(invited.stdout)
+        .unwrap()
+        .trim()
+        .to_string();
+    assert!(link.starts_with("https://drywire.gg/i#"), "{link}");
+
+    // Sam listens first, so they are in the room before Alex talks.
     let mut sam = cli(&[
         "join",
-        "--config",
-        &sam_config,
-        "--relay",
-        &relay_addr,
+        "--home",
+        &sam_home,
+        "--link",
+        &link,
+        "--display-name",
+        "sam",
         "--output",
         &path(&heard),
         "--duration",
@@ -153,13 +179,10 @@ fn two_clients_talk_through_the_relay_with_wav_files() {
     .expect("start sam");
     let sam_log = wait_until_joined(&mut sam);
 
-    let alex_config = path(&dev_config("alex"));
     let mut alex = cli(&[
         "join",
-        "--config",
-        &alex_config,
-        "--relay",
-        &relay_addr,
+        "--home",
+        &alex_home,
         "--input",
         &path(&input),
         "--output",
@@ -182,9 +205,13 @@ fn two_clients_talk_through_the_relay_with_wav_files() {
     assert!(sent > 0, "{alex_summary:?}");
     assert_eq!(alex_summary["spurts"], 3, "one spurt per burst");
     assert_eq!(sam_summary["received_audio"], sent, "{sam_summary:?}");
-    for key in ["no_key", "bad_tag", "bad_signature", "duplicate"] {
+    for key in ["no_key", "bad_tag", "duplicate"] {
         assert_eq!(sam_summary[key], 0, "{key}: {sam_summary:?}");
     }
+    // Alex's first announcement, sent the moment they join, can reach Sam
+    // before the control plane's event saying who Alex is: then it cannot
+    // be verified yet. Alex announces again before the first spurt.
+    assert!(sam_summary["bad_signature"] <= 1, "{sam_summary:?}");
 
     // Every frame received is accounted for: played, dropped by the jitter
     // buffer, too late, or dropped before it because playback stalled. A
@@ -233,27 +260,14 @@ fn two_clients_talk_through_the_relay_with_wav_files() {
     assert!(alex_recording.iter().all(|x| *x == 0.0));
     assert_eq!(sam_summary["sent_audio"], 0);
 
-    // The development files are the counterpart of server/rooms.dev.json.
-    let rooms: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(repo_root().join("server/rooms.dev.json")).unwrap(),
-    )
-    .unwrap();
-    let lobby = &rooms["rooms"][0];
-    assert_eq!(lobby["name"], "lobby");
-    for (session, name) in [(1u32, "alex"), (2, "sam"), (3, "kim")] {
-        let config = drywire_core::config::ClientConfig::load(&dev_config(name)).unwrap();
-        assert!(config.dev_only);
-        assert_eq!(config.session, session);
-        assert_eq!(config.session_secret, dev_secret(session));
-        let listed = lobby["members"]
-            .as_array()
+    // Sam's identity and the space key stay on Sam's device, private.
+    #[cfg(unix)]
+    for file in ["identity.json", "spaces.json"] {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(dir.join("sam").join(file))
             .unwrap()
-            .iter()
-            .find(|m| m["session"] == session)
-            .unwrap();
-        assert_eq!(
-            listed["secret"],
-            drywire_core::config::to_hex(&dev_secret(session))
-        );
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600, "{file}");
     }
 }

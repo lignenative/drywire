@@ -538,7 +538,8 @@ drywire/
     drywire-ffi/      UniFFI bindings (Swift, Kotlin)
     drywire-wasm/     Web build
     drywire-bench/    Network simulation, latency measurement
-    drywire-cli/      Command-line client (phase 1)
+    drywire-control/  Control plane client: login, spaces, invitations, presence
+    drywire-cli/      Command-line client
   apps/
     desktop/          Tauri v2 + React (Windows, Linux)
     apple/            SwiftUI (iOS, macOS)
@@ -640,7 +641,7 @@ phase ends on a measurable criterion.
    artifacts; default frame size chosen and the measurements recorded.
 2. **Control plane and security.** Ed25519 identities, spaces and rooms in
    SQLite, invitation links and the static invitation page, which replace
-   the phase 1 config files. Data export, identity deletion, retention purge,
+   the phase 1 config files (ADR 0024). Data export, identity deletion, retention purge,
    deletion ledger. **Exit**: the team joins by link; a packet capture on the
    server shows only ciphertext;
    latency within 1 ms of phase 1.

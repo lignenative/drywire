@@ -1,6 +1,6 @@
 # 0006. Encrypt audio from phase 1
 
-Status: Accepted · 2026-10-27
+Status: Accepted · 2026-10-27 · Its configuration file is superseded by ADR 0024
 
 ## Context
 
