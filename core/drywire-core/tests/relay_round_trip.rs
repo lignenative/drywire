@@ -181,11 +181,11 @@ fn snr_db(input: &[f32], output: &[f32]) -> f32 {
 #[test]
 fn audio_crosses_the_relay_at_every_frame_size() {
     let relay = Relay::start();
-    let mut alex = Client::join(&relay, 1);
     let sam = Client::join(&relay, 2);
     let alex_identity = SigningKey::from_bytes(&[0xa1; 32]);
     let input = speech();
-    let mut sent_total = 0;
+    let mut alex = None;
+    let mut last_sent = 0;
 
     for (frame, redundancy) in [
         (FrameSize::Ms2_5, true),
@@ -198,10 +198,16 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         };
         let mut sender = Sender::new(alex_identity.clone(), 1, ROOM_ID, &SPACE_KEY, config)
             .expect("an Opus encoder");
+        // A fresh binding for each run, as a restarted client would make:
+        // every sender restarts its sequence at 0 in epoch 0, and the relay
+        // resets its loss counters and replay window on a new hello
+        // (protocol 10.4). Reusing the binding would let the relay treat a
+        // longer run's sequences as duplicates of the previous run's.
+        let alex = alex.insert(Client::join(&relay, 1));
         // Receive while talking, so arrival times are real.
         let (sent, received) = std::thread::scope(|scope| {
             let recorder = scope.spawn(|| record(&sam, Duration::from_millis(300)));
-            (talk(&alex, &mut sender, &input), recorder.join().unwrap())
+            (talk(alex, &mut sender, &input), recorder.join().unwrap())
         });
 
         let mut inbound = Inbound::new(ROOM_ID, &SPACE_KEY, [(1, alex_identity.verifying_key())]);
@@ -236,7 +242,7 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         // A concealed frame would stretch the spurt and break the alignment.
         assert_eq!(track.jitter.concealed, 0, "{frame}: {track:?}");
         assert!(snr > 15.0, "{frame}: SNR {snr:.1} dB at lag {lag}");
-        sent_total += sent;
+        last_sent = sent;
         eprintln!(
             "{frame}{}: {sent} packets, SNR {snr:.1} dB at lag {lag}, buffer target {} µs",
             if redundancy { " + redundancy" } else { "" },
@@ -244,7 +250,9 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         );
     }
 
-    // A ping comes back with the round trip and the uplink counters. It is
+    let mut alex = alex.expect("three runs");
+    // A ping comes back with the round trip and the uplink counters of the
+    // last run's binding. It is
     // built by hand: the test did not pump the link while talking, and a
     // link without pongs for five seconds says hello again instead.
     alex.socket.send(&new_ping(1, 1, alex.now_us())).unwrap();
@@ -258,9 +266,7 @@ fn audio_crosses_the_relay_at_every_frame_size() {
     let link = alex.link.stats();
     assert!(link.rtt_us.is_some_and(|rtt| rtt < 1_000_000), "{link:?}");
     assert_eq!(link.uplink_lost, 0, "{link:?}");
-    assert!(link.uplink_received > 0, "{link:?}");
-
-    assert_eq!(u64::from(link.uplink_received), sent_total, "{link:?}");
+    assert_eq!(u64::from(link.uplink_received), last_sent, "{link:?}");
 
     // A keepalive is accepted silently: nothing comes back, nothing drops.
     alex.socket.send(&new_keepalive(1)).unwrap();
