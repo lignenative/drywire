@@ -6,4 +6,5 @@
 //! The wire format and the encryption live in `drywire-proto`.
 
 pub mod gate;
+pub mod jitter;
 pub mod opus;

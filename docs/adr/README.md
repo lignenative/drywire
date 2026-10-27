@@ -27,3 +27,4 @@ Status: Accepted · YYYY-MM-DD
 | [0007](0007-send-sender-announcements-through-the-relay.md) | Send sender announcements through the relay |
 | [0008](0008-use-rustcrypto-and-dalek-in-the-core.md) | Use RustCrypto and dalek for the core's cryptography |
 | [0009](0009-bind-libopus-through-opusic-sys.md) | Bind libopus through opusic-sys |
+| [0010](0010-schedule-talk-spurts-from-the-fastest-recent-transit.md) | Schedule talk spurts from the fastest recent transit |
