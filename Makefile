@@ -6,7 +6,7 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help dev test fmt
+.PHONY: help dev test fmt vectors
 
 help: ## List the commands
 	@scripts/help.sh
@@ -19,3 +19,6 @@ test: ## Run every test suite
 
 fmt: ## Format all code
 	@scripts/fmt.sh
+
+vectors: ## Regenerate the protocol test vectors
+	@scripts/vectors.sh
