@@ -37,6 +37,19 @@ fn max_conceal_frames(r: &Report) -> u64 {
     JitterConfig::new(r.scenario.frame).max_conceal_us / frame_us(r)
 }
 
+/// The target delay of the last spurt is at most `bound_us`, or the
+/// one-frame floor when that is larger. Without this, a regression that
+/// inflates the target would pass `check_added_p95`, which is relative to it.
+fn check_target(r: &Report, bound_us: u64) {
+    let bound = bound_us.max(frame_us(r));
+    assert!(
+        r.buffer.target_us <= bound,
+        "{}: target {} µs > {bound} µs",
+        r.scenario.frame,
+        r.buffer.target_us
+    );
+}
+
 /// The latency added to 95 % of frames, at most `extra_us` above what the
 /// target and the tick alignment explain.
 fn check_added_p95(r: &Report, extra_us: u64) {
@@ -82,17 +95,25 @@ fn a_clean_network_adds_one_frame_and_loses_nothing() {
             "{}",
             r.scenario.frame
         );
-        assert_eq!(b.target_us, frame_us(&r), "the floor");
+        check_target(&r, 0); // the one-frame floor
         check_added_p95(&r, 0);
     }
 }
 
 #[test]
-fn a_wired_network_conceals_exactly_the_lost_frames() {
+fn a_wired_network_conceals_only_the_lost_frames() {
     for r in reports("wired") {
         let b = r.buffer;
-        assert_eq!(b.concealed, r.lost, "{}", r.scenario.frame);
-        assert_eq!((b.dropped, b.late), (0, 0), "{}", r.scenario.frame);
+        let frame = r.scenario.frame;
+        // Exactly the lost frames with this seed; a lost end_of_spurt packet
+        // would add up to one give-up's worth of concealment.
+        assert!(b.concealed >= r.lost, "{frame}");
+        assert!(
+            b.concealed <= r.lost + max_conceal_frames(&r),
+            "{frame}: {b:?}"
+        );
+        assert_eq!((b.dropped, b.late), (0, 0), "{frame}");
+        check_target(&r, 0);
         check_added_p95(&r, 0);
     }
 }
@@ -113,6 +134,7 @@ fn bursty_loss_is_concealed_frame_for_frame() {
             r.lost
         );
         assert_eq!(b.dropped, 0, "{frame}");
+        check_target(&r, 3_000);
         check_added_p95(&r, frame_us(&r));
     }
 }
@@ -157,6 +179,7 @@ fn wifi_delay_spikes_stay_within_bounds() {
             "{frame}: added p95 {} µs",
             r.added_us[1]
         );
+        check_target(&r, 8_000);
     }
 }
 
@@ -174,6 +197,7 @@ fn clock_drift_is_absorbed_with_at_most_a_stretch_per_spurt() {
                 b.spurts
             );
             assert_eq!((b.dropped, b.late), (0, 0), "{what}");
+            check_target(&r, 0);
             // 100 ppm over a 30-second monologue is 3 ms of drift.
             check_added_p95(&r, 3_000);
         }
