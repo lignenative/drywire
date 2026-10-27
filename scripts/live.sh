@@ -30,16 +30,41 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# wait_for PID LOG TEXT WHAT: waits up to 5 s for TEXT in LOG. If PID exits
+# first, or the time runs out, prints LOG and stops: going on would hide
+# the failure, or join whatever else answers on the port.
+wait_for() {
+	tries=0
+	until grep -q "$3" "$2" 2>/dev/null; do
+		if ! kill -0 "$1" 2>/dev/null || [ "$tries" -ge 50 ]; then
+			echo "drywire: $4 did not start; its log ($2):" >&2
+			sed 's/^/  /' "$2" >&2
+			return 1
+		fi
+		tries=$((tries + 1))
+		sleep 0.1
+	done
+}
+
 : "${DRYWIRE_UDP_ADDR:=127.0.0.1:10050}"
+: "${DRYWIRE_HTTP_ADDR:=127.0.0.1:10050}"
 DRYWIRE_ROOMS=server/rooms.dev.json DRYWIRE_UDP_ADDR="$DRYWIRE_UDP_ADDR" \
+	DRYWIRE_HTTP_ADDR="$DRYWIRE_HTTP_ADDR" \
 	"$root/.dev/drywire-server" 2>.dev/live-relay.log &
-pids="$pids $!"
-sleep 0.5
+relay=$!
+pids="$pids $relay"
+if ! wait_for "$relay" .dev/live-relay.log "drywire-server started" "the relay"; then
+	echo "A port it needs ($DRYWIRE_UDP_ADDR udp, $DRYWIRE_HTTP_ADDR tcp) is probably" >&2
+	echo "taken, often by \`make dev\` or another \`make live\`. Stop that relay, or" >&2
+	echo "move this one: make live DRYWIRE_UDP_ADDR=127.0.0.1:10058 DRYWIRE_HTTP_ADDR=127.0.0.1:10058" >&2
+	exit 1
+fi
 
 "$cli" join --config "$dev/sam.json" --relay "$DRYWIRE_UDP_ADDR" --echo --quiet \
 	>/dev/null 2>.dev/live-echo.log &
-pids="$pids $!"
-sleep 0.5
+echo_bot=$!
+pids="$pids $echo_bot"
+wait_for "$echo_bot" .dev/live-echo.log "joined as" "the echo bot" || exit 1
 
 echo "==> joining as alex; speak, and sam echoes you back (Ctrl-C to stop)"
 # shellcheck disable=SC2086 # ARGS is a list of options
