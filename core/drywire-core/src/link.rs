@@ -20,6 +20,11 @@ pub const KEEPALIVE_US: u64 = 10_000_000;
 pub const PONG_TIMEOUT_US: u64 = 5_000_000;
 
 /// When a [`Link`] pings.
+///
+/// Without pings, the link cannot tell that the relay forgot its binding
+/// (a relay restart, an expired NAT mapping): nothing answers keepalives.
+/// It then stays "bound" while the relay drops its packets, until the
+/// client joins again. Pings are on by default for that reason.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LinkConfig {
     /// Time between two pings, or `None` for no pings (then keepalives keep

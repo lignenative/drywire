@@ -100,8 +100,9 @@ same headset.
 3. Windows may ask to allow the program through the firewall: it only
    needs outgoing UDP to the relay.
 
-`devices` shows the buffers and latencies Windows gives, without starting
-a stream. To use the microphone in exclusive mode, allow it in the sound
+`devices` shows the buffers and latencies Windows gives: it initializes
+each stream as `join` would and releases it without starting it, so for an
+instant it holds the microphone in exclusive mode. To use the microphone in exclusive mode, allow it in the sound
 settings of the device ("Allow applications to take exclusive control");
 if another app holds the microphone, the CLI falls back to shared mode and
 says so on start.

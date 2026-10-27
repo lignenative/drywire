@@ -33,7 +33,8 @@ join options:
   --output FILE.wav    Play into a WAV file instead of the speakers
   --echo               Send back what you receive (an echo bot; no sound card)
   --duration SECONDS   Stop after this long (file mode: input length + 1 s)
-  --no-ping            Do not ping the relay (keepalives only)
+  --no-ping            Do not ping the relay (keepalives only; a relay
+                       restart then goes unnoticed until you join again)
   --quiet              Print only the start and the final summary
 
 devices options:

@@ -1,6 +1,9 @@
-//! `drywire-cli devices`: what the default audio devices report, without
-//! opening a stream. No sound plays, and the microphone is not opened, so
-//! macOS does not ask for permission.
+//! `drywire-cli devices`: what the default audio devices report. No sound
+//! plays. On macOS no stream is opened, so macOS does not ask for the
+//! microphone. On Windows each stream is initialized as `join` would, read
+//! and released without starting: WASAPI only reports periods and
+//! latencies for an initialized client, and exclusive capture briefly
+//! takes the microphone.
 
 use crate::args::Devices;
 use drywire_core::audio::AudioOptions;
