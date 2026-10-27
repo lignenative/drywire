@@ -146,8 +146,8 @@ impl Mixer {
         Mixer::default()
     }
 
-    /// A mixer whose jitter buffers never aim below `min_target_us`, on top
-    /// of their own one-frame floor. Raising it trades latency for fewer
+    /// A mixer whose jitter buffers never aim below `min_target_us`: it
+    /// raises their one-frame floor when it is larger. Raising it trades latency for fewer
     /// gaps on a network, or a machine, that stalls now and then.
     pub fn with_min_target(min_target_us: u64) -> Mixer {
         Mixer {

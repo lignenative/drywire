@@ -44,8 +44,9 @@ pub struct CallOptions {
     pub link: LinkConfig,
     /// How long to wait for the relay to acknowledge the first `hello`.
     pub join_timeout: Duration,
-    /// The smallest delay the jitter buffers aim for, in microseconds, on
-    /// top of their one-frame floor (see [`Mixer::with_min_target`]).
+    /// The smallest delay the jitter buffers aim for, in microseconds; it
+    /// raises their one-frame floor when larger (see
+    /// [`Mixer::with_min_target`]).
     pub min_buffer_us: u64,
 }
 
@@ -279,72 +280,133 @@ fn network_loop(
         }
         if now >= next_stats_us {
             next_stats_us = now + 100_000;
-            let mut stats = shared.stats.lock().expect("not poisoned");
-            stats.link = link.stats();
-            stats.inbound = inbound.stats();
+            publish_network(shared, &link, &inbound);
+        }
+    }
+    // The final numbers, after the last packet.
+    publish_network(shared, &link, &inbound);
+}
+
+fn publish_network(shared: &Shared, link: &Link, inbound: &Inbound) {
+    let mut stats = shared.stats.lock().expect("not poisoned");
+    stats.link = link.stats();
+    stats.inbound = inbound.stats();
+}
+
+/// What the capture callback owns. Its statistics are published with
+/// `try_lock` while it runs, and once more, waiting for the lock, when the
+/// device drops the callback, so the final numbers are never stale.
+struct Capture {
+    socket: Arc<UdpSocket>,
+    shared: Arc<Shared>,
+    sender: Sender,
+    pending: Vec<f32>,
+    packets: Vec<Vec<u8>>,
+    send_errors: u64,
+}
+
+impl Capture {
+    fn process(&mut self, samples: &[f32]) {
+        let frame = self.sender.config().frame.samples();
+        let mut rest = samples;
+        while !rest.is_empty() {
+            let take = (frame - self.pending.len()).min(rest.len());
+            self.pending.extend_from_slice(&rest[..take]);
+            rest = &rest[take..];
+            if self.pending.len() < frame {
+                break;
+            }
+            self.packets.clear();
+            // An Opus error drops this one frame; the next may be fine.
+            let _ = self.sender.process(&self.pending, &mut self.packets);
+            self.pending.clear();
+            for packet in &self.packets {
+                if self.socket.send(packet).is_err() {
+                    self.send_errors += 1;
+                }
+            }
+            if !self.packets.is_empty() {
+                let now = self.shared.now_us();
+                self.shared.last_sent_us.store(now, Ordering::Relaxed);
+            }
+        }
+        if let Ok(mut stats) = self.shared.stats.try_lock() {
+            self.publish(&mut stats);
+        }
+    }
+
+    fn publish(&self, stats: &mut CallStats) {
+        stats.sender = self.sender.stats();
+        stats.talking = self.sender.is_talking();
+        stats.send_errors = self.send_errors;
+    }
+}
+
+impl Drop for Capture {
+    fn drop(&mut self) {
+        if let Ok(mut stats) = self.shared.stats.lock() {
+            self.publish(&mut stats);
+            stats.talking = false;
         }
     }
 }
 
-fn capture_callback(
-    socket: Arc<UdpSocket>,
-    shared: Arc<Shared>,
-    mut sender: Sender,
-) -> InputCallback {
+fn capture_callback(socket: Arc<UdpSocket>, shared: Arc<Shared>, sender: Sender) -> InputCallback {
     let frame = sender.config().frame.samples();
-    let mut pending: Vec<f32> = Vec::with_capacity(frame);
-    let mut packets: Vec<Vec<u8>> = Vec::with_capacity(4);
-    let mut send_errors = 0u64;
-    Box::new(move |samples: &[f32]| {
-        let mut rest = samples;
-        while !rest.is_empty() {
-            let take = (frame - pending.len()).min(rest.len());
-            pending.extend_from_slice(&rest[..take]);
-            rest = &rest[take..];
-            if pending.len() < frame {
-                break;
-            }
-            packets.clear();
-            // An Opus error drops this one frame; the next may be fine.
-            let _ = sender.process(&pending, &mut packets);
-            pending.clear();
-            for packet in &packets {
-                if socket.send(packet).is_err() {
-                    send_errors += 1;
-                }
-            }
-            if !packets.is_empty() {
-                shared
-                    .last_sent_us
-                    .store(shared.now_us(), Ordering::Relaxed);
-            }
+    let mut capture = Capture {
+        socket,
+        shared,
+        sender,
+        pending: Vec::with_capacity(frame),
+        packets: Vec::with_capacity(4),
+        send_errors: 0,
+    };
+    Box::new(move |samples: &[f32]| capture.process(samples))
+}
+
+/// What the playback callback owns; statistics as for [`Capture`].
+struct Playback {
+    shared: Arc<Shared>,
+    events: Receiver<(u64, Event)>,
+    mixer: Mixer,
+    next_stats_us: u64,
+}
+
+impl Playback {
+    fn render(&mut self, out: &mut [f32]) {
+        while let Ok((at, event)) = self.events.try_recv() {
+            // A track whose decoder cannot be made stays silent.
+            let _ = self.mixer.push(at, event);
         }
-        if let Ok(mut stats) = shared.stats.try_lock() {
-            stats.sender = sender.stats();
-            stats.talking = sender.is_talking();
-            stats.send_errors = send_errors;
+        let now = self.shared.now_us();
+        self.mixer.render(now, out);
+        if now >= self.next_stats_us
+            && let Ok(mut stats) = self.shared.stats.try_lock()
+        {
+            self.next_stats_us = now + 100_000;
+            stats.tracks = self.mixer.stats();
         }
-    })
+    }
+}
+
+impl Drop for Playback {
+    fn drop(&mut self) {
+        if let Ok(mut stats) = self.shared.stats.lock() {
+            stats.tracks = self.mixer.stats();
+        }
+    }
 }
 
 fn playback_callback(
     shared: Arc<Shared>,
     events: Receiver<(u64, Event)>,
-    mut mixer: Mixer,
+    mixer: Mixer,
 ) -> OutputCallback {
-    let mut next_stats_us = 0;
-    Box::new(move |out: &mut [f32]| {
-        while let Ok((at, event)) = events.try_recv() {
-            // A track whose decoder cannot be made stays silent.
-            let _ = mixer.push(at, event);
-        }
-        let now = shared.now_us();
-        mixer.render(now, out);
-        if now >= next_stats_us
-            && let Ok(mut stats) = shared.stats.try_lock()
-        {
-            next_stats_us = now + 100_000;
-            stats.tracks = mixer.stats();
-        }
-    })
+    let mut playback = Playback {
+        shared,
+        events,
+        mixer,
+        next_stats_us: 0,
+    };
+    Box::new(move |out: &mut [f32]| playback.render(out))
 }
