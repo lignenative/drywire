@@ -126,9 +126,10 @@ impl Resampler {
 
     /// Converts `input` and writes the samples it completes to `output`,
     /// returning how many. `output` must hold
-    /// [`Resampler::max_output`]`(input.len())`; anything beyond its
-    /// length would be lost, so the backend sizes it once from the largest
-    /// buffer the OS may hand over.
+    /// [`Resampler::max_output`]`(input.len())`, which the backend sizes
+    /// once from the largest buffer the OS may hand over. A shorter `output`
+    /// would corrupt the stream: the samples that did not fit would be
+    /// computed later, from the wrong window.
     pub fn process(&mut self, input: &[f32], output: &mut [f32]) -> usize {
         let half = (self.taps / 2) as u64;
         let mut written = 0;

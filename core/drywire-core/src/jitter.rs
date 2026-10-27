@@ -13,7 +13,8 @@
 //!   recent transit is the "on time" baseline, and how far each packet lags
 //!   behind it is its jitter.
 //! - The **target delay** is the 95th percentile of that recent jitter plus a
-//!   margin, never less than one frame.
+//!   margin, never less than one frame, or two while the sender uses
+//!   redundancy or has not shown yet whether it does.
 //! - The target only changes **between talk spurts**. When a spurt starts,
 //!   its first frame is scheduled at its on-time arrival plus the target, and
 //!   the following frames play at the receiver's pace, one per tick. The
@@ -559,7 +560,9 @@ impl JitterBuffer {
     /// spurt gets it right: scheduled with two frames while unknown, it
     /// stays at two frames when the second packet brings a copy, and comes
     /// back to one frame, about when the second packet arrives, when it
-    /// does not.
+    /// does not. Should that second packet be lost, nothing can tell before
+    /// the spurt starts, and a sender without redundancy keeps two frames
+    /// for its first spurt.
     fn note_redundancy(&mut self, timestamp: i64, has_copy: bool) {
         let previous = timestamp - self.frame_samples();
         let same_spurt = match self.frames.get(previous) {

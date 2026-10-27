@@ -166,7 +166,8 @@ pub struct Mixer {
 }
 
 impl Mixer {
-    /// A mixer with no tracks yet; tracks appear with their first frame.
+    /// A mixer with no tracks yet: add them with [`Mixer::add_track`], or
+    /// let each appear with its sender's first frame.
     pub fn new() -> Mixer {
         Mixer::default()
     }

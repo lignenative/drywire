@@ -19,7 +19,7 @@ samples after the one it outputs. The choice is how much.
 - **A polyphase windowed-sinc filter** of 32 taps waits for 16 input
   samples, 0.36 ms at 44.1 kHz: in the measured response it is flat
   within 0.01 dB to 17 kHz, keeps 62 to 68 dB of signal-to-error ratio on
-  tones, and puts aliases 100 dB down when the rate goes down.
+  tones, and puts aliases 78 to 100 dB down when the rate goes down.
 - **Longer filters** would add delay for a difference nobody hears in a
   voice.
 
@@ -39,6 +39,8 @@ samples after the one it outputs. The choice is how much.
 
 ## Consequences
 
+- The delay is 16 input samples at any rate going up: 0.36 ms at
+  44.1 kHz, 0.5 ms at 32 kHz, 1 ms at 16 kHz, 2 ms at 8 kHz.
 - A 44.1 kHz microphone works, for 0.36 ms more latency than the same
   microphone at 48 kHz. Setting it to 48 kHz stays the lowest-latency
   setting, and `drywire-cli devices` shows the difference.
