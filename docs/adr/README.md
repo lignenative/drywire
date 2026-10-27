@@ -32,3 +32,4 @@ Status: Accepted · YYYY-MM-DD
 | [0012](0012-start-over-when-a-sender-timeline-jumps.md) | Start over when a sender's timeline jumps |
 | [0013](0013-write-the-audio-backends-against-the-os-apis.md) | Write the audio backends against the OS APIs |
 | [0014](0014-send-from-the-capture-callback.md) | Send from the capture callback |
+| [0015](0015-keep-one-period-queued-for-playback.md) | Keep one period queued for playback |

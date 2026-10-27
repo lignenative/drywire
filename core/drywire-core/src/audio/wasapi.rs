@@ -8,7 +8,8 @@
 //!   it got is reported.
 //! - **Playback** stays in **shared mode**, because the game plays on the
 //!   same headset, with the smallest period `IAudioClient3` offers, which
-//!   the device reports and `drywire-cli devices` shows.
+//!   the device reports and `drywire-cli devices` shows. Each wake-up tops
+//!   the queue up to **one period**, never the whole buffer (ADR 0015).
 //!
 //! Both streams ask for the raw signal path (`AUDCLNT_STREAMOPTIONS_RAW`),
 //! which bypasses the driver's effects where the device allows it, and the
@@ -299,6 +300,9 @@ fn duration_of(frames: u32, rate: u32) -> i64 {
 struct Stream {
     client: IAudioClient,
     layout: Layout,
+    /// The audio engine's period, in frames of `layout`: how much it takes
+    /// from, or gives to, the stream at each pass.
+    period_frames: u32,
     info: StreamInfo,
 }
 
@@ -323,7 +327,7 @@ fn open_shared(
         let mix_format = MixFormat::of(&base)?;
         let mix = mix_format.layout;
         let flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
-        let (layout, min_period, mode) = if mix.rate == SAMPLE_RATE {
+        let (layout, period, min_period, mode) = if mix.rate == SAMPLE_RATE {
             let format = mix_format.format as *const WAVEFORMATEX;
             let (mut default, mut fundamental, mut min, mut max) = (0, 0, 0, 0);
             client
@@ -347,6 +351,7 @@ fn open_shared(
                 .map_err(|e| error("initializing the shared stream", e))?;
             (
                 mix,
+                period,
                 min,
                 format!("WASAPI shared, IAudioClient3 period {period} frames{note}"),
             )
@@ -370,16 +375,23 @@ fn open_shared(
                 None,
             )
             .map_err(|e| error("initializing the shared stream", e))?;
+            // The classic shared stream runs at the engine's default period.
+            let mut default_period = 0i64;
+            base.GetDevicePeriod(Some(&mut default_period), None)
+                .map_err(|e| error("reading the device period", e))?;
+            let period = frames_of(default_period, SAMPLE_RATE);
             let mode = format!(
-                "WASAPI shared, resampled from {} Hz by Windows, default period{note}",
+                "WASAPI shared, resampled from {} Hz by Windows, default period {period} \
+                 frames{note}",
                 mix.rate
             );
-            (ours, 0, mode)
+            (ours, period, 0, mode)
         };
         let info = describe(device, &base, direction, layout, min_period, mode)?;
         Ok(Stream {
             client: base,
             layout,
+            period_frames: period,
             info,
         })
     }
@@ -480,6 +492,7 @@ fn open_exclusive(device: &IMMDevice, options: AudioOptions) -> Result<Stream, A
         Ok(Stream {
             client,
             layout,
+            period_frames: frames_of(period, SAMPLE_RATE),
             info,
         })
     }
@@ -671,6 +684,18 @@ fn run_render(
     finish("playback", result, &report);
 }
 
+/// Plays until `stop`, keeping at most one engine period queued.
+///
+/// Why one period, and not the whole buffer (ADR 0015): the buffer WASAPI
+/// gives a shared stream is several periods long, and every frame queued in
+/// it is a frame of latency, since the engine plays the queue in order.
+/// Filling all the free space on each wake-up would keep the buffer full,
+/// adding its whole length to the mouth-to-ear delay. The engine takes one
+/// period per pass and wakes us right after it, so one period ready before
+/// its next pass is all it ever needs. If we wake late and it finds the
+/// queue empty, it plays a period of silence (a glitch, counted by nobody
+/// yet) and the queue starts again from one period: a late wake-up costs a
+/// click, never lasting latency.
 fn render_loop(
     stream: &Stream,
     callback: &mut OutputCallback,
@@ -696,7 +721,16 @@ fn render_loop(
             .client
             .GetBufferSize()
             .map_err(|e| error("reading the buffer size", e))?;
-        let mut mono = vec![0.0f32; buffer as usize];
+        let target = stream.period_frames.clamp(1, buffer);
+        let mut mono = vec![0.0f32; target as usize];
+        // One period of silence before starting, so the engine's first pass
+        // finds something to play (Microsoft's own samples prefill too).
+        render
+            .GetBuffer(target)
+            .map_err(|e| error("getting the playback buffer", e))?;
+        render
+            .ReleaseBuffer(target, AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)
+            .map_err(|e| error("releasing the playback buffer", e))?;
         stream
             .client
             .Start()
@@ -711,7 +745,8 @@ fn render_loop(
                 .client
                 .GetCurrentPadding()
                 .map_err(|e| error("playback", e))?;
-            let free = buffer.saturating_sub(padding);
+            // Top the queue up to one period, never more.
+            let free = target.saturating_sub(padding);
             if free == 0 {
                 continue;
             }

@@ -82,7 +82,7 @@ privately.
 The Windows backend uses WASAPI: exclusive-mode capture when the
 microphone is not used by another app, shared-mode playback with the
 smallest period `IAudioClient3` offers, so game sound keeps playing on the
-same headset.
+same headset. Playback keeps only one period queued (ADR 0015).
 
 1. Install Rust with `rustup` (the MSVC toolchain, the default), the
    "Desktop development with C++" workload of Visual Studio Build Tools,
