@@ -4,7 +4,9 @@ package vectors
 
 import (
 	"encoding/hex"
+
 	"encoding/json"
+	"github.com/lignenative/drywire/server/internal/auth"
 	"os"
 	"path/filepath"
 )
@@ -23,6 +25,9 @@ type Manifest struct {
 	ReplayWindow    []ReplayStep `json:"replay_window"`
 	Login           Login        `json:"login"`
 	Invitation      Invitation   `json:"invitation"`
+	// Origins are instance addresses and their canonical form (section
+	// 13.3); an empty canonical form means the address is refused.
+	Origins []auth.OriginCase `json:"origins"`
 }
 
 // Login is a control plane login by the sender's identity (section 13.2).

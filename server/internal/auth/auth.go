@@ -16,7 +16,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -72,16 +74,19 @@ func LoginMessage(challenge [ChallengeSize]byte, audience string) []byte {
 // CanonicalOrigin turns an instance address into the form both sides sign
 // and the invitation link holds: lowercase scheme and host, no default
 // port, no path, query, fragment or user name. "https://Voice.Example.org:443/"
-// becomes "https://voice.example.org".
+// becomes "https://voice.example.org". The host is a name of ASCII
+// letters, digits, dots and hyphens, or an IP address; the port, if any,
+// a number from 1 to 65535 without leading zeros. The Rust clients follow
+// the same rules, checked by the shared vectors' "origins".
 func CanonicalOrigin(address string) (string, error) {
-	u, err := url.Parse(address)
-	if err != nil {
-		return "", err
-	}
-	scheme := strings.ToLower(u.Scheme)
 	bad := func(why string) (string, error) {
 		return "", fmt.Errorf("instance address %q: %s", address, why)
 	}
+	u, err := url.Parse(address)
+	if err != nil {
+		return bad("not a URL")
+	}
+	scheme := strings.ToLower(u.Scheme)
 	if scheme != "https" && scheme != "http" {
 		return bad("must start with https:// or http://")
 	}
@@ -92,7 +97,25 @@ func CanonicalOrigin(address string) (string, error) {
 	if host == "" {
 		return bad("has no host")
 	}
+	if strings.HasPrefix(u.Host, "[") {
+		if ip, err := netip.ParseAddr(host); err != nil || !ip.Is6() || ip.Zone() != "" {
+			return bad("has a bad IPv6 address")
+		}
+	} else if strings.Trim(u.Hostname(), "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") != "" {
+		// Checked before lowercasing, which turns some non-ASCII
+		// letters (the Kelvin sign) into ASCII ones.
+		return bad("the host may only hold ASCII letters, digits, dots and hyphens")
+	}
 	port := u.Port()
+	if strings.HasSuffix(u.Host, ":") {
+		return bad("has a bad port")
+	}
+	if port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 || port[0] == '0' {
+			return bad("has a bad port")
+		}
+	}
 	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
 		port = ""
 	}
@@ -245,4 +268,41 @@ func (a *Auth) sweep(now time.Time) {
 			delete(a.tokens, h)
 		}
 	}
+}
+
+// OriginCase is one instance address and its canonical form, empty if it
+// must be refused.
+type OriginCase struct {
+	Input     string `json:"input"`
+	Canonical string `json:"canonical"`
+}
+
+// OriginCases are the addresses both implementations are tested on: they
+// go into the shared vectors, which the Rust clients read.
+var OriginCases = []OriginCase{
+	{"https://Voice.Example.org", "https://voice.example.org"},
+	{"HTTPS://voice.example.org:443/", "https://voice.example.org"},
+	{"https://voice.example.org:8443", "https://voice.example.org:8443"},
+	{"http://127.0.0.1:10050", "http://127.0.0.1:10050"},
+	{"http://localhost:80", "http://localhost"},
+	{"http://[::1]:10050", "http://[::1]:10050"},
+	{"https://[2001:DB8::1]", "https://[2001:db8::1]"},
+	{"https://xn--bcher-kva.example", "https://xn--bcher-kva.example"},
+	{"voice.example.org", ""},
+	{"ftp://voice.example.org", ""},
+	{"https://a@voice.example.org", ""},
+	{"https://voice.example.org/path", ""},
+	{"https://voice.example.org/?q", ""},
+	{"https://voice.example.org#f", ""},
+	{"https://", ""},
+	{"https://host:", ""},
+	{"https://host:0", ""},
+	{"https://host:0443", ""},
+	{"https://host:99999", ""},
+	{"https://host:+1", ""},
+	{"https://bücher.example", ""},
+	{"https://\u212aelvin.example", ""},
+	{"https://ho_st.example", ""},
+	{"http://[fe80::1%25en0]:10050", ""},
+	{"https://[not:an:ip:zz]", ""},
 }

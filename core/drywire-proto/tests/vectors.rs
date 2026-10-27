@@ -29,6 +29,13 @@ struct Manifest {
     replay_window: Vec<ReplayStep>,
     login: Login,
     invitation: InvitationVector,
+    origins: Vec<Origin>,
+}
+
+#[derive(Deserialize)]
+struct Origin {
+    input: String,
+    canonical: String,
 }
 
 #[derive(Deserialize)]
@@ -354,4 +361,18 @@ fn control_plane_vectors() {
         m.invitation.payload
     );
     assert_eq!(Invitation::parse(&m.invitation.link), Ok(invitation));
+}
+
+/// Instance addresses get the same canonical form as on the server
+/// (section 13.3), or are refused by both.
+#[test]
+fn origins_are_canonical_as_the_server_says() {
+    for o in load().origins {
+        let got = login::canonical_origin(&o.input);
+        if o.canonical.is_empty() {
+            assert!(got.is_err(), "{:?} accepted as {got:?}", o.input);
+        } else {
+            assert_eq!(got.as_deref(), Ok(o.canonical.as_str()), "{:?}", o.input);
+        }
+    }
 }

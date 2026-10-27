@@ -362,5 +362,107 @@
     "code": "e0e1e2e3e4e5e6e7e8e9eaebecedeeef",
     "payload": "01e0e1e2e3e4e5e6e7e8e9eaebecedeeef000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f68747470733a2f2f766f6963652e6578616d706c652e6f7267",
     "link": "https://drywire.gg/i#AeDh4uPk5ebn6Onq6-zt7u8AAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH2h0dHBzOi8vdm9pY2UuZXhhbXBsZS5vcmc"
-  }
+  },
+  "origins": [
+    {
+      "input": "https://Voice.Example.org",
+      "canonical": "https://voice.example.org"
+    },
+    {
+      "input": "HTTPS://voice.example.org:443/",
+      "canonical": "https://voice.example.org"
+    },
+    {
+      "input": "https://voice.example.org:8443",
+      "canonical": "https://voice.example.org:8443"
+    },
+    {
+      "input": "http://127.0.0.1:10050",
+      "canonical": "http://127.0.0.1:10050"
+    },
+    {
+      "input": "http://localhost:80",
+      "canonical": "http://localhost"
+    },
+    {
+      "input": "http://[::1]:10050",
+      "canonical": "http://[::1]:10050"
+    },
+    {
+      "input": "https://[2001:DB8::1]",
+      "canonical": "https://[2001:db8::1]"
+    },
+    {
+      "input": "https://xn--bcher-kva.example",
+      "canonical": "https://xn--bcher-kva.example"
+    },
+    {
+      "input": "voice.example.org",
+      "canonical": ""
+    },
+    {
+      "input": "ftp://voice.example.org",
+      "canonical": ""
+    },
+    {
+      "input": "https://a@voice.example.org",
+      "canonical": ""
+    },
+    {
+      "input": "https://voice.example.org/path",
+      "canonical": ""
+    },
+    {
+      "input": "https://voice.example.org/?q",
+      "canonical": ""
+    },
+    {
+      "input": "https://voice.example.org#f",
+      "canonical": ""
+    },
+    {
+      "input": "https://",
+      "canonical": ""
+    },
+    {
+      "input": "https://host:",
+      "canonical": ""
+    },
+    {
+      "input": "https://host:0",
+      "canonical": ""
+    },
+    {
+      "input": "https://host:0443",
+      "canonical": ""
+    },
+    {
+      "input": "https://host:99999",
+      "canonical": ""
+    },
+    {
+      "input": "https://host:+1",
+      "canonical": ""
+    },
+    {
+      "input": "https://bücher.example",
+      "canonical": ""
+    },
+    {
+      "input": "https://Kelvin.example",
+      "canonical": ""
+    },
+    {
+      "input": "https://ho_st.example",
+      "canonical": ""
+    },
+    {
+      "input": "http://[fe80::1%25en0]:10050",
+      "canonical": ""
+    },
+    {
+      "input": "https://[not:an:ip:zz]",
+      "canonical": ""
+    }
+  ]
 }

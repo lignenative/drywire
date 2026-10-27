@@ -82,6 +82,7 @@ func Build() (Manifest, map[string][]byte) {
 	link := clientref.InvitationLink(instance, code, spaceKey)
 	payload := append(append(append([]byte{clientref.InvitationVersion}, code...), spaceKey...), instance...)
 	m.Invitation = Invitation{Instance: instance, Code: code, Payload: payload, Link: link}
+	m.Origins = auth.OriginCases
 
 	files := map[string][]byte{}
 	add := func(v Vector, packet []byte) {

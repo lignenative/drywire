@@ -71,75 +71,50 @@ pub fn canonical_origin(address: &str) -> Result<String, OriginError> {
         let (host, after) = inner
             .split_once(']')
             .ok_or_else(|| bad("has an unclosed ["))?;
+        // An IPv6 address, without a zone.
+        if host.parse::<std::net::Ipv6Addr>().is_err() {
+            return Err(bad("has a bad IPv6 address"));
+        }
         let port = match after {
             "" => None,
             p => Some(p.strip_prefix(':').ok_or_else(|| bad("has a bad port"))?),
         };
         (format!("[{}]", host.to_ascii_lowercase()), port)
     } else {
-        match authority.rsplit_once(':') {
-            Some((host, port)) => (host.to_ascii_lowercase(), Some(port)),
-            None => (authority.to_ascii_lowercase(), None),
+        let (host, port) = match authority.rsplit_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        };
+        if !host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+        {
+            return Err(bad(
+                "the host may only hold ASCII letters, digits, dots and hyphens",
+            ));
         }
+        (host.to_ascii_lowercase(), port)
     };
-    if host.is_empty() || host == "[]" {
+    if host.is_empty() {
         return Err(bad("has no host"));
     }
     match port {
         None => Ok(format!("{scheme}://{host}")),
-        Some(p) if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) => {
-            Err(bad("has a bad port"))
-        }
         Some(p) => {
-            let n: u16 = p.parse().map_err(|_| bad("has a bad port"))?;
-            if n == 0 {
-                Err(bad("has a bad port"))
-            } else if p == default_port {
-                Ok(format!("{scheme}://{host}"))
-            } else {
-                Ok(format!("{scheme}://{host}:{n}"))
+            let digits = !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
+            match p.parse::<u16>() {
+                Ok(n) if digits && n != 0 && !p.starts_with('0') => {
+                    if p == default_port {
+                        Ok(format!("{scheme}://{host}"))
+                    } else {
+                        Ok(format!("{scheme}://{host}:{n}"))
+                    }
+                }
+                _ => Err(bad("has a bad port")),
             }
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn origins_are_canonical() {
-        for (input, want) in [
-            ("https://Voice.Example.org", "https://voice.example.org"),
-            (
-                "HTTPS://voice.example.org:443/",
-                "https://voice.example.org",
-            ),
-            (
-                "https://voice.example.org:8443",
-                "https://voice.example.org:8443",
-            ),
-            ("http://127.0.0.1:10050", "http://127.0.0.1:10050"),
-            ("http://localhost:80", "http://localhost"),
-            ("http://[::1]:10050", "http://[::1]:10050"),
-            ("https://[2001:DB8::1]", "https://[2001:db8::1]"),
-        ] {
-            assert_eq!(canonical_origin(input).as_deref(), Ok(want), "{input}");
-        }
-        for input in [
-            "voice.example.org",
-            "ftp://voice.example.org",
-            "https://a@voice.example.org",
-            "https://voice.example.org/path",
-            "https://voice.example.org/?q",
-            "https://voice.example.org#f",
-            "https://",
-            "https://host:",
-            "https://host:0",
-            "https://host:99999",
-            "https://host:+1",
-        ] {
-            assert!(canonical_origin(input).is_err(), "{input} accepted");
-        }
-    }
-}
+// The canonical form is tested on the shared vectors' "origins", the same
+// cases the Go server is tested on (tests/vectors.rs).

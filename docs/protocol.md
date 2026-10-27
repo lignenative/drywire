@@ -494,6 +494,9 @@ if the files on disk differ from what the generator produces.
 - `invitation`: an invitation link (section 14) to the space of
   `inputs.space_key`: `instance`, `code`, the decoded `payload` and the
   `link` itself.
+- `origins`: instance addresses (`input`) and their canonical form
+  (section 13.3), or an empty `canonical` for an address both sides must
+  refuse.
 
 The Opus frames in the vectors are arbitrary bytes, not real audio: the
 protocol carries frames without looking inside them.
@@ -564,7 +567,10 @@ proves that it holds the private key.
 An instance is named by its **canonical origin**: the scheme (`https`, or
 `http` for a loopback development server), `://`, the host in lowercase
 (an IPv6 address in brackets), and `:port` unless the port is the scheme's
-default. Nothing else: no user name, path, query or fragment.
+default. Nothing else: no user name, path, query or fragment. A host name
+holds only ASCII letters, digits, dots and hyphens (an internationalised
+name is written in its `xn--` form); an IPv6 address has no zone; a port
+is 1 to 65535 without leading zeros. Anything else is refused.
 `https://Voice.Example.org:443/` becomes `https://voice.example.org`.
 The server is configured with its own (`DRYWIRE_PUBLIC_URL`).
 
