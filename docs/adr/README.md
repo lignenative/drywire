@@ -35,3 +35,4 @@ Status: Accepted · YYYY-MM-DD
 | [0015](0015-keep-one-period-queued-for-playback.md) | Keep one period queued for playback |
 | [0016](0016-never-wait-on-the-socket-in-the-capture-callback.md) | Never wait on the socket in the capture callback |
 | [0017](0017-keep-the-audio-callbacks-free-of-allocation.md) | Keep the audio callbacks free of allocation |
+| [0018](0018-resample-macos-microphones-in-the-backend.md) | Resample macOS microphones in the backend |

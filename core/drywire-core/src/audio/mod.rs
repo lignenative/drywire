@@ -13,6 +13,9 @@
 //! | [`wasapi`] | Windows | Exclusive-mode capture when possible, shared-mode playback with the smallest `IAudioClient3` period |
 //! | [`file::FileIo`] | everywhere | No device: samples from memory, paced in real time, for tests and bots |
 //!
+//! Where the OS cannot convert a microphone's rate (Core Audio input), the
+//! backend does it with [`resample::Resampler`].
+//!
 //! The callbacks run on the backend's real-time threads. They must return
 //! quickly, and neither block, wait on a lock, nor allocate (ADR 0017); the
 //! backends keep to the same rules around them: their buffers are made
@@ -23,6 +26,7 @@ use std::fmt;
 #[cfg(target_os = "macos")]
 pub mod coreaudio;
 pub mod file;
+pub mod resample;
 #[cfg(windows)]
 pub mod wasapi;
 

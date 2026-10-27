@@ -5,11 +5,13 @@
 //! The HAL output unit is the lowest layer of Core Audio that still converts
 //! formats for us. Unlike the voice processing unit it applies no echo
 //! cancellation, gain control or noise suppression: what the microphone
-//! hears is what we get. We ask it for mono 48 kHz float on our side. On
-//! output, when the device runs at another rate, the unit resamples. On
+//! hears is what we get. We ask it for mono float on our side. On output,
+//! at 48 kHz: when the device runs at another rate, the unit resamples. On
 //! input it cannot: the HAL output unit never converts the sample rate of
-//! what it captures, so a microphone must run at 48 kHz, and `start` says
-//! how to set it when it does not.
+//! what it captures. A microphone at another rate (many USB ones run at
+//! 44.1 kHz) is captured at its own rate and converted to 48 kHz in the
+//! input callback by [`Resampler`], which adds a fraction of a millisecond
+//! and says so in the stream's reported latency.
 //!
 //! The bindings below are written by hand (ADR 0013): Core Audio is a plain
 //! C API, and the few functions, structures and constants we need are
@@ -23,6 +25,7 @@
 use std::ffi::{CStr, c_char, c_void};
 use std::ptr;
 
+use super::resample::Resampler;
 use super::{
     AudioError, AudioIo, AudioOptions, Direction, InputCallback, OutputCallback, SAMPLE_RATE,
     StreamInfo,
@@ -465,15 +468,53 @@ pub fn probe(options: AudioOptions) -> Vec<Result<StreamInfo, AudioError>> {
             let device = default_device(direction)?;
             let mut info = describe_device(device, direction)?;
             info.buffer_frames = wanted_buffer(device, direction, options)?;
+            if direction == Direction::Input
+                && let Some(resampler) = input_resampler(device, info.device_rate)?
+            {
+                note_resampler(&mut info, &resampler);
+            }
             Ok(info)
         })
         .collect()
 }
 
+/// The resampler a microphone at `rate` needs, if it does not run at
+/// 48 kHz.
+fn input_resampler(device: AudioObjectID, rate: u32) -> Result<Option<Resampler>, AudioError> {
+    if rate == SAMPLE_RATE {
+        return Ok(None);
+    }
+    Resampler::new(rate, SAMPLE_RATE).map(Some).ok_or_else(|| {
+        AudioError(format!(
+            "the microphone {:?} runs at {rate} Hz, which Drywire cannot convert to \
+             {SAMPLE_RATE} Hz: set it to 48000 Hz in Audio MIDI Setup",
+            device_name(device)
+        ))
+    })
+}
+
+/// Adds the resampler to what a stream reports: its mode, and its delay as
+/// part of the latency, in frames at the device's rate.
+fn note_resampler(info: &mut StreamInfo, resampler: &Resampler) {
+    let delay_ms = resampler.delay_us(info.device_rate) / 1000.0;
+    let frames =
+        (resampler.delay_us(info.device_rate) * f64::from(info.device_rate) / 1e6).round() as u32;
+    info.mode += &format!(
+        ", resampled from {} Hz to 48 kHz by Drywire ({delay_ms:.2} ms)",
+        info.device_rate
+    );
+    info.latency_frames += frames;
+    info.latency_parts.push(("resampler", frames));
+}
+
 /// What a callback needs, behind the pointer Core Audio hands back to it.
 struct InputState {
     unit: AudioUnit,
+    /// Samples at the device's rate.
     buffer: Vec<f32>,
+    /// For a microphone not at 48 kHz: the converter, and room for what it
+    /// makes of a full `buffer`.
+    resampler: Option<(Resampler, Vec<f32>)>,
     callback: InputCallback,
 }
 
@@ -536,10 +577,10 @@ impl Drop for Unit {
     }
 }
 
-/// Our side of every stream: float samples, packed, at 48 kHz.
-fn client_format(channels: u32) -> AudioStreamBasicDescription {
+/// Our side of every stream: float samples, packed, at `rate`.
+fn client_format(channels: u32, rate: u32) -> AudioStreamBasicDescription {
     AudioStreamBasicDescription {
-        mSampleRate: f64::from(SAMPLE_RATE),
+        mSampleRate: f64::from(rate),
         mFormatID: kAudioFormatLinearPCM,
         mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
         mBytesPerPacket: 4 * channels,
@@ -581,10 +622,17 @@ extern "C" fn input_proc(
     // buffer large enough for `frames` mono floats.
     let status =
         unsafe { AudioUnitRender(state.unit, flags, timestamp, 1, frames as u32, &mut list) };
-    if status == 0 {
-        (state.callback)(&state.buffer[..frames]);
+    if status != 0 {
+        return status;
     }
-    status
+    match &mut state.resampler {
+        None => (state.callback)(&state.buffer[..frames]),
+        Some((resampler, resampled)) => {
+            let n = resampler.process(&state.buffer[..frames], resampled);
+            (state.callback)(&resampled[..n]);
+        }
+    }
+    0
 }
 
 extern "C" fn output_proc(
@@ -672,7 +720,7 @@ impl CoreAudio {
             kAudioUnitProperty_StreamFormat,
             kAudioUnitScope_Input,
             0,
-            &client_format(OUTPUT_CHANNELS as u32),
+            &client_format(OUTPUT_CHANNELS as u32, SAMPLE_RATE),
         )?;
         unit.set(
             kAudioUnitProperty_MaximumFramesPerSlice,
@@ -714,14 +762,9 @@ impl CoreAudio {
             kAudioDevicePropertyNominalSampleRate,
             kAudioObjectPropertyScopeGlobal,
         )?;
-        if rate.round() as u32 != SAMPLE_RATE {
-            return Err(AudioError(format!(
-                "the microphone {:?} runs at {rate} Hz; Drywire captures at {SAMPLE_RATE} Hz \
-                 and Core Audio does not convert input rates: set it to 48000 Hz in \
-                 Audio MIDI Setup",
-                device_name(device)
-            )));
-        }
+        // Captured at the device's own rate: AUHAL cannot convert it.
+        let rate = rate.round() as u32;
+        let resampler = input_resampler(device, rate)?;
         let buffer = wanted_buffer(device, Direction::Input, self.options)?;
         set(
             device,
@@ -754,7 +797,7 @@ impl CoreAudio {
             kAudioUnitProperty_StreamFormat,
             kAudioUnitScope_Output,
             1,
-            &client_format(1),
+            &client_format(1, rate),
         )?;
         unit.set(
             kAudioUnitProperty_MaximumFramesPerSlice,
@@ -765,6 +808,10 @@ impl CoreAudio {
         let mut state = Box::new(InputState {
             unit: unit.0,
             buffer: vec![0.0; MAX_FRAMES],
+            resampler: resampler.map(|r| {
+                let room = r.max_output(MAX_FRAMES);
+                (r, vec![0.0; room])
+            }),
             callback,
         });
         let input = AURenderCallbackStruct {
@@ -786,7 +833,11 @@ impl CoreAudio {
         let status = unsafe { AudioOutputUnitStart(unit.0) };
         check(status, "starting the input unit")?;
         self.input_unit = Some(unit);
-        describe_device(device, Direction::Input)
+        let mut info = describe_device(device, Direction::Input)?;
+        if let Some((resampler, _)) = &self.input_state.as_ref().expect("stored above").resampler {
+            note_resampler(&mut info, resampler);
+        }
+        Ok(info)
     }
 }
 
