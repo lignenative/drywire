@@ -21,6 +21,25 @@ type Manifest struct {
 	Epochs          []Epoch      `json:"epochs"`
 	Vectors         []Vector     `json:"vectors"`
 	ReplayWindow    []ReplayStep `json:"replay_window"`
+	Login           Login        `json:"login"`
+	Invitation      Invitation   `json:"invitation"`
+}
+
+// Login is a control plane login by the sender's identity (section 13.2).
+type Login struct {
+	Audience  string `json:"audience"`
+	Challenge Hex    `json:"challenge"`
+	Message   Hex    `json:"message"`
+	Signature Hex    `json:"signature"`
+}
+
+// Invitation is an invitation link to the space of Inputs.SpaceKey
+// (section 14).
+type Invitation struct {
+	Instance string `json:"instance"`
+	Code     Hex    `json:"code"`
+	Payload  Hex    `json:"payload"`
+	Link     string `json:"link"`
 }
 
 // Inputs are the keys and secrets every vector is built from.

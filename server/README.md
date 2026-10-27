@@ -64,9 +64,10 @@ but a loopback address.
 | `internal/wire` | Encodes and decodes packets as the relay sees them: header, control packets, replay window |
 | `internal/store` | The control plane's lasting state in SQLite: identities, spaces, rooms, members, bans, invitation codes; schema migrations |
 | `internal/ledger` | The deletion ledger, replayed at every start so a restored backup cannot bring deleted data back (ADR 0019) |
+| `internal/auth` | Logs identities in: signed challenges, short-lived tokens in memory (ADR 0020) |
 | `internal/ratelimit` | The token bucket behind every rate limit |
 | `internal/api` | HTTP routes: health, version, status |
-| `internal/clientref` | Reference of what clients do above the relay (key derivation, audio encryption, payload framing, signed announcements); used only to build and check test vectors |
+| `internal/clientref` | Reference of what clients do above the relay (key derivation, audio encryption, payload framing, signed announcements, invitation links); used only to build and check test vectors |
 | `internal/vectors` | Builds, writes and reads the shared test vectors |
 | `cmd/drywire-vectors` | Writes the vectors to `core/drywire-proto/vectors/` (`make vectors`) |
 

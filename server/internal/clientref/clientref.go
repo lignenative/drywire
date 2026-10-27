@@ -1,6 +1,6 @@
 // Package clientref is a reference implementation of what clients do above
-// the relay: end-to-end key derivation, audio encryption and audio payload
-// framing (docs/protocol.md, sections 7 and 8).
+// the relay: end-to-end key derivation, audio encryption, audio payload
+// framing and invitation links (docs/protocol.md, sections 7, 8 and 14).
 //
 // The relay never imports this package: it cannot decrypt audio and must not
 // be able to. The package exists so that the Go side can produce and check
@@ -13,6 +13,7 @@ import (
 	"crypto/ed25519"
 	"crypto/hkdf"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 
 	"github.com/lignenative/drywire/server/internal/wire"
@@ -167,4 +168,26 @@ func DecodeAudioPayload(flags uint8, plaintext []byte) (AudioPayload, error) {
 		return AudioPayload{}, wire.ErrBadFraming
 	}
 	return AudioPayload{Redundant: rest[:n], Primary: rest[n:]}, nil
+}
+
+// InvitationVersion is the first byte of an invitation payload (protocol
+// section 14).
+const InvitationVersion = 1
+
+// InvitationBase is where every invitation link points, whichever instance
+// it is for: the static page in site/ (spec section 8).
+const InvitationBase = "https://drywire.gg/i#"
+
+// InvitationLink builds the link a member shares to invite someone:
+//
+//	https://drywire.gg/i#<base64url(version ‖ code (16) ‖ space_key (32) ‖ instance)>
+//
+// Everything is in the fragment, which browsers never send to a server.
+// The server never sees the space key: only clients build and read links.
+func InvitationLink(instance string, code, spaceKey []byte) string {
+	payload := []byte{InvitationVersion}
+	payload = append(payload, code...)
+	payload = append(payload, spaceKey...)
+	payload = append(payload, instance...)
+	return InvitationBase + base64.RawURLEncoding.EncodeToString(payload)
 }

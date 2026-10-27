@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 
+	"github.com/lignenative/drywire/server/internal/auth"
 	"github.com/lignenative/drywire/server/internal/clientref"
 	"github.com/lignenative/drywire/server/internal/wire"
 )
@@ -69,6 +70,18 @@ func Build() (Manifest, map[string][]byte) {
 			Signature:  ed25519.Sign(private, clientref.AnnouncementMessage(roomID, session, e, salt)),
 		})
 	}
+
+	// Control plane: a login and an invitation link, with an instance
+	// address that needs no canonicalisation.
+	const instance = "https://voice.example.org"
+	var challenge [auth.ChallengeSize]byte
+	copy(challenge[:], run(0xc0, auth.ChallengeSize))
+	login := auth.LoginMessage(challenge, instance)
+	m.Login = Login{Audience: instance, Challenge: challenge[:], Message: login, Signature: ed25519.Sign(private, login)}
+	code := run(0xe0, 16)
+	link := clientref.InvitationLink(instance, code, spaceKey)
+	payload := append(append(append([]byte{clientref.InvitationVersion}, code...), spaceKey...), instance...)
+	m.Invitation = Invitation{Instance: instance, Code: code, Payload: payload, Link: link}
 
 	files := map[string][]byte{}
 	add := func(v Vector, packet []byte) {

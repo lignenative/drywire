@@ -37,3 +37,4 @@ Status: Accepted · YYYY-MM-DD
 | [0017](0017-keep-the-audio-callbacks-free-of-allocation.md) | Keep the audio callbacks free of allocation |
 | [0018](0018-resample-macos-microphones-in-the-backend.md) | Resample macOS microphones in the backend |
 | [0019](0019-replay-a-deletion-ledger-at-every-start.md) | Replay a deletion ledger at every start |
+| [0020](0020-log-in-with-a-challenge-signed-for-one-instance.md) | Log in with a challenge signed for one instance |

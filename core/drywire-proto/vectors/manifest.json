@@ -350,5 +350,17 @@
       "sequence": 999,
       "verdict": "new"
     }
-  ]
+  ],
+  "login": {
+    "audience": "https://voice.example.org",
+    "challenge": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
+    "message": "647279776972652f6c6f67696e2f7631c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf68747470733a2f2f766f6963652e6578616d706c652e6f7267",
+    "signature": "0fb992539d845fffd1d771d6bce385893baf851f7f01ddbab4464999b5ff683994b4ecdb7d198edbac62e1f9a7f57045957aedd9de63663e640b0a80cba7c90e"
+  },
+  "invitation": {
+    "instance": "https://voice.example.org",
+    "code": "e0e1e2e3e4e5e6e7e8e9eaebecedeeef",
+    "payload": "01e0e1e2e3e4e5e6e7e8e9eaebecedeeef000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f68747470733a2f2f766f6963652e6578616d706c652e6f7267",
+    "link": "https://drywire.gg/i#AeDh4uPk5ebn6Onq6-zt7u8AAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH2h0dHBzOi8vdm9pY2UuZXhhbXBsZS5vcmc"
+  }
 }

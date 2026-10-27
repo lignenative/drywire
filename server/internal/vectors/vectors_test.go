@@ -9,6 +9,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/lignenative/drywire/server/internal/auth"
 	"github.com/lignenative/drywire/server/internal/clientref"
 	"github.com/lignenative/drywire/server/internal/wire"
 )
@@ -151,4 +152,26 @@ func equalJSON(t *testing.T, got, want Vector) bool {
 		return false
 	}
 	return true
+}
+
+// The login and the invitation link, which the server checks and clients
+// build (protocol sections 13.2 and 14).
+func TestControlPlaneVectors(t *testing.T) {
+	m, _, err := Load(Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := ed25519.NewKeyFromSeed(m.Inputs.SenderSeed).Public().(ed25519.PublicKey)
+	var challenge [auth.ChallengeSize]byte
+	copy(challenge[:], m.Login.Challenge)
+	if !bytes.Equal(auth.LoginMessage(challenge, m.Login.Audience), m.Login.Message) {
+		t.Fatal("login message differs")
+	}
+	if !ed25519.Verify(public, m.Login.Message, m.Login.Signature) {
+		t.Fatal("login signature does not verify")
+	}
+	link := clientref.InvitationLink(m.Invitation.Instance, m.Invitation.Code, m.Inputs.SpaceKey)
+	if link != m.Invitation.Link {
+		t.Fatalf("link %s, want %s", link, m.Invitation.Link)
+	}
 }

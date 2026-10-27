@@ -16,6 +16,8 @@
 //! - [`crypto`]: key derivation, audio encryption, signed announcements.
 //! - [`payload`]: the plaintext layout inside an audio packet.
 //! - [`replay`]: the window that drops duplicate audio.
+//! - [`login`]: the signed control plane login and instance addresses.
+//! - [`invite`]: invitation links.
 //!
 //! The crate does no I/O and keeps no clock: it turns bytes into values and
 //! back, so it can be tested exhaustively.
@@ -26,6 +28,8 @@ pub mod control;
 pub mod crypto;
 mod error;
 pub mod header;
+pub mod invite;
+pub mod login;
 mod parse;
 pub mod payload;
 pub mod replay;

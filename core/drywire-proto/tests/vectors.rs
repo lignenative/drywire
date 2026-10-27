@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use drywire_proto::control::{self, SECRET_SIZE};
 use drywire_proto::crypto::{self, AudioKey, KEY_SIZE, ROOM_ID_SIZE};
 use drywire_proto::header::{SALT_SIZE, VERSION};
+use drywire_proto::invite::{self, Invitation};
+use drywire_proto::login;
 use drywire_proto::payload::AudioPayload;
 use drywire_proto::replay::ReplayWindow;
 use drywire_proto::{Error, PacketType, parse};
@@ -25,6 +27,24 @@ struct Manifest {
     epochs: Vec<Epoch>,
     vectors: Vec<Value>,
     replay_window: Vec<ReplayStep>,
+    login: Login,
+    invitation: InvitationVector,
+}
+
+#[derive(Deserialize)]
+struct Login {
+    audience: String,
+    challenge: String,
+    message: String,
+    signature: String,
+}
+
+#[derive(Deserialize)]
+struct InvitationVector {
+    instance: String,
+    code: String,
+    payload: String,
+    link: String,
 }
 
 #[derive(Deserialize)]
@@ -307,4 +327,31 @@ fn encoders_reproduce_the_valid_vectors() {
             "{name}: encoder output differs"
         );
     }
+}
+
+/// The control plane login and the invitation link (sections 13.2 and 14).
+#[test]
+fn control_plane_vectors() {
+    let m = load();
+    let identity = SigningKey::from_bytes(&hex_array(&m.inputs.sender_seed));
+    let challenge = hex_array(&m.login.challenge);
+    assert_eq!(
+        to_hex(&login::login_message(&challenge, &m.login.audience)),
+        m.login.message
+    );
+    let signature = login::sign_login(&identity, &challenge, &m.login.audience);
+    assert_eq!(to_hex(&signature.to_bytes()), m.login.signature);
+
+    let invitation = Invitation {
+        instance: m.invitation.instance.clone(),
+        code: hex_array(&m.invitation.code),
+        space_key: hex_array(&m.inputs.space_key),
+    };
+    assert_eq!(invitation.to_link(), m.invitation.link);
+    let fragment = m.invitation.link.strip_prefix(invite::BASE).unwrap();
+    assert_eq!(
+        to_hex(&invite::base64url_decode(fragment).unwrap()),
+        m.invitation.payload
+    );
+    assert_eq!(Invitation::parse(&m.invitation.link), Ok(invitation));
 }
