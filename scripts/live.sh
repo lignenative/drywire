@@ -49,6 +49,7 @@ wait_for() {
 : "${DRYWIRE_UDP_ADDR:=127.0.0.1:10050}"
 : "${DRYWIRE_HTTP_ADDR:=127.0.0.1:10050}"
 DRYWIRE_ROOMS=server/rooms.dev.json DRYWIRE_UDP_ADDR="$DRYWIRE_UDP_ADDR" \
+	DRYWIRE_DB=.dev/live.db DRYWIRE_ACCESS_LOG=off \
 	DRYWIRE_HTTP_ADDR="$DRYWIRE_HTTP_ADDR" \
 	"$root/.dev/drywire-server" 2>.dev/live-relay.log &
 relay=$!

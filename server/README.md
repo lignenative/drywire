@@ -1,9 +1,10 @@
 # server
 
 `drywire-server`, the Go side of Drywire: the UDP relay that copies audio
-packets between the members of a room, and a small HTTP API. Standard
-library only. In phase 1 the rooms come from a JSON file; the control plane
-(identities, spaces, invitations) arrives in phase 2.
+packets between the members of a room, and the control plane, an HTTP API
+for identities, spaces, rooms and invitations kept in SQLite. Standard
+library only, plus `modernc.org/sqlite` (pure Go, so the binary stays
+static).
 
 ## Run it
 
@@ -24,12 +25,31 @@ curl http://127.0.0.1:10050/v1/status    # uptime, rooms, packet counters
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DRYWIRE_ROOMS` | none (`make dev` sets `rooms.dev.json`) | Rooms file |
 | `DRYWIRE_UDP_ADDR` | `127.0.0.1:10050` | Relay address |
-| `DRYWIRE_HTTP_ADDR` | `127.0.0.1:10050` | HTTP API address |
+| `DRYWIRE_HTTP_ADDR` | `127.0.0.1:10050` | Control plane address |
+| `DRYWIRE_PUBLIC_URL` | `http://` + `DRYWIRE_HTTP_ADDR` | The instance's origin as clients reach it, such as `https://voice.example.org`: logins are signed for it and invitation links carry it |
+| `DRYWIRE_PUBLIC_RELAY` | `DRYWIRE_UDP_ADDR` | The relay's address as clients reach it, such as `voice.example.org:10050` |
+| `DRYWIRE_DB` | `drywire.db` (`make dev`: `.dev/drywire.db`) | SQLite database |
+| `DRYWIRE_LEDGER` | `DRYWIRE_DB` + `.deletions` | Deletion ledger (ADR 0019); keep it out of backups |
+| `DRYWIRE_SPACE_CREATORS` | nobody (`make dev`: `*`) | Who may create spaces: `*` for anyone, or public keys in hex, comma-separated |
+| `DRYWIRE_MAX_MEMBERS` | `50` | Member limit of a new space |
+| `DRYWIRE_TLS_CERT`, `DRYWIRE_TLS_KEY` | none | Serve HTTPS (TLS 1.3) from these PEM files |
+| `DRYWIRE_TRUST_PROXY` | off | `1` behind a reverse proxy on this host: client addresses come from `X-Forwarded-For` |
+| `DRYWIRE_ACCESS_LOG` | `-` (standard output) | Access log file, or `off` |
+| `DRYWIRE_ROOMS` | none (`make dev` sets `rooms.dev.json`) | Phase 1 rooms file |
 
 If an address is taken, the server stops with an error; it never picks
-another port.
+another port. In plain HTTP the control plane only listens on a loopback
+address: tokens cross it, so it serves TLS itself or sits behind a reverse
+proxy on the same host.
+
+### Logs
+
+Application logs (standard error) never hold an address, a token, a key or
+anything a user wrote. The access log (JSON lines) is minimised as the spec
+says (section 9): client address, method and route pattern
+(`GET /v1/spaces/{space}`, never the path itself), status and duration; no
+query string, header or `Referer`. Keep it a year at most.
 
 ### The rooms file
 
@@ -66,7 +86,7 @@ but a loopback address.
 | `internal/ledger` | The deletion ledger, replayed at every start so a restored backup cannot bring deleted data back (ADR 0019) |
 | `internal/auth` | Logs identities in: signed challenges, short-lived tokens in memory (ADR 0020) |
 | `internal/ratelimit` | The token bucket behind every rate limit |
-| `internal/api` | HTTP routes: health, version, status |
+| `internal/api` | HTTP routes: health, version, status, and the control plane (login, spaces, rooms, members, bans, invitations), with per-address rate limits and the access log |
 | `internal/clientref` | Reference of what clients do above the relay (key derivation, audio encryption, payload framing, signed announcements, invitation links); used only to build and check test vectors |
 | `internal/vectors` | Builds, writes and reads the shared test vectors |
 | `cmd/drywire-vectors` | Writes the vectors to `core/drywire-proto/vectors/` (`make vectors`) |

@@ -9,6 +9,11 @@ set -eu
 cd "$(dirname "$0")/../server"
 
 : "${DRYWIRE_ROOMS:=rooms.dev.json}"
-export DRYWIRE_ROOMS
+# The database lives in .dev/ at the repository root, which git ignores.
+mkdir -p ../.dev
+: "${DRYWIRE_DB:=../.dev/drywire.db}"
+# Anyone may create a space on a development server.
+: "${DRYWIRE_SPACE_CREATORS:=*}"
+export DRYWIRE_ROOMS DRYWIRE_DB DRYWIRE_SPACE_CREATORS
 
 exec go run ./cmd/drywire-server

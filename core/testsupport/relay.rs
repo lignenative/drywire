@@ -65,6 +65,9 @@ fn server_binary() -> &'static Path {
     })
 }
 
+/// Numbers each relay a test process starts.
+static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// A running relay, stopped when dropped.
 pub struct Relay {
     child: Child,
@@ -78,8 +81,19 @@ impl Relay {
     /// Starts a relay with the development rooms.
     pub fn start() -> Relay {
         let rooms = repo_root().join("server").join("rooms.dev.json");
+        // A database of its own in a fresh directory, so tests never share
+        // or leave state.
+        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
+            "relay-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create the relay's directory");
         let mut child = Command::new(server_binary())
             .env("DRYWIRE_ROOMS", rooms)
+            .env("DRYWIRE_DB", dir.join("drywire.db"))
+            .env("DRYWIRE_ACCESS_LOG", "off")
             .env("DRYWIRE_UDP_ADDR", "127.0.0.1:0")
             .env("DRYWIRE_HTTP_ADDR", "127.0.0.1:0")
             .stderr(Stdio::piped())

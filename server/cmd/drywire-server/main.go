@@ -1,17 +1,13 @@
-// Command drywire-server runs the Drywire relay and its HTTP API.
+// Command drywire-server runs the Drywire relay and its control plane.
 //
-// Configuration comes from the environment:
-//
-//	DRYWIRE_ROOMS      path of the rooms file (required)
-//	DRYWIRE_UDP_ADDR   relay address, default 127.0.0.1:10050
-//	DRYWIRE_HTTP_ADDR  HTTP API address, default 127.0.0.1:10050
-//
-// If an address is taken, the server stops with an error: it never moves to
-// another port on its own.
+// Configuration comes from the environment (see config.go and the server
+// README). If an address is taken, the server stops with an error: it never
+// moves to another port on its own.
 package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -23,13 +19,14 @@ import (
 	"time"
 
 	"github.com/lignenative/drywire/server/internal/api"
+	"github.com/lignenative/drywire/server/internal/auth"
+	"github.com/lignenative/drywire/server/internal/ledger"
 	"github.com/lignenative/drywire/server/internal/relay"
+	"github.com/lignenative/drywire/server/internal/store"
 )
 
 // version is replaced at build time with -ldflags "-X main.version=…".
 var version = "dev"
-
-const defaultAddr = "127.0.0.1:10050"
 
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -40,24 +37,46 @@ func main() {
 }
 
 func run(log *slog.Logger) error {
-	roomsPath := os.Getenv("DRYWIRE_ROOMS")
-	if roomsPath == "" {
-		return errors.New("DRYWIRE_ROOMS is not set: point it to a rooms file (see server/rooms.dev.json)")
-	}
-	udpAddr := envOr("DRYWIRE_UDP_ADDR", defaultAddr)
-	httpAddr := envOr("DRYWIRE_HTTP_ADDR", defaultAddr)
-
-	rooms, err := relay.LoadRooms(roomsPath)
+	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
+	for _, w := range cfg.warnings {
+		log.Warn(w)
+	}
 
-	laddr, err := net.ResolveUDPAddr("udp", udpAddr)
+	// The deletion ledger first: it is replayed before anything else
+	// reads the database (ADR 0019).
+	led, err := ledger.Open(cfg.ledgerPath)
+	if err != nil {
+		return err
+	}
+	defer led.Close()
+	st, err := store.Open(cfg.dbPath, led, time.Now)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if err := maintain(context.Background(), st, led, log, true); err != nil {
+		return err
+	}
+
+	laddr, err := net.ResolveUDPAddr("udp", cfg.udpAddr)
 	if err != nil {
 		return fmt.Errorf("DRYWIRE_UDP_ADDR: %w", err)
 	}
-	if rooms.DevOnly && !laddr.IP.IsLoopback() {
-		return fmt.Errorf("%s holds public development secrets and may only be served on a loopback address, not %s", roomsPath, udpAddr)
+	r := relay.New(time.Now, log)
+	if cfg.roomsPath != "" {
+		rooms, err := relay.LoadRooms(cfg.roomsPath)
+		if err != nil {
+			return err
+		}
+		if rooms.DevOnly && !laddr.IP.IsLoopback() {
+			return fmt.Errorf("%s holds public development secrets and may only be served on a loopback address, not %s", cfg.roomsPath, cfg.udpAddr)
+		}
+		if err := rooms.AddTo(r); err != nil {
+			return err
+		}
 	}
 	udpConn, err := net.ListenUDP("udp", laddr)
 	if err != nil {
@@ -65,44 +84,83 @@ func run(log *slog.Logger) error {
 	}
 	defer udpConn.Close()
 
-	httpListener, err := net.Listen("tcp", httpAddr)
+	httpListener, err := net.Listen("tcp", cfg.httpAddr)
 	if err != nil {
 		return err
 	}
 
-	started := time.Now()
-	r := relay.New(time.Now, log)
-	if err := rooms.AddTo(r); err != nil {
-		return err
-	}
+	a := auth.New(cfg.publicURL, time.Now)
+	server := api.New(cfg.api, st, a, r, log, cfg.accessLog, time.Now)
 	httpServer := &http.Server{
-		Handler:           api.Handler(r, version, started),
+		Handler:           server.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS13},
 	}
 
 	errs := make(chan error, 2)
 	go func() { errs <- r.Serve(udpConn) }()
-	go func() { errs <- httpServer.Serve(httpListener) }()
+	go func() {
+		if cfg.tlsCert != "" {
+			errs <- httpServer.ServeTLS(httpListener, cfg.tlsCert, cfg.tlsKey)
+		} else {
+			errs <- httpServer.Serve(httpListener)
+		}
+	}()
 	log.Info("drywire-server started", "version", version, "udp", udpConn.LocalAddr().String(),
-		"http", httpListener.Addr().String(), "rooms", len(rooms.Rooms))
+		"http", httpListener.Addr().String(), "public_url", cfg.publicURL, "tls", cfg.tlsCert != "")
 
 	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	select {
-	case <-stop.Done():
-		log.Info("shutting down")
-	case err := <-errs:
-		return err
+	daily := time.NewTicker(24 * time.Hour)
+	defer daily.Stop()
+	for {
+		select {
+		case <-stop.Done():
+			log.Info("shutting down")
+			ctx, done := context.WithTimeout(context.Background(), 5*time.Second)
+			defer done()
+			return httpServer.Shutdown(ctx)
+		case err := <-errs:
+			if errors.Is(err, http.ErrServerClosed) {
+				return nil
+			}
+			return err
+		case <-daily.C:
+			if err := maintain(context.Background(), st, led, log, false); err != nil {
+				log.Error("daily maintenance failed", "error", err)
+			}
+		}
 	}
-
-	ctx, done := context.WithTimeout(context.Background(), 5*time.Second)
-	defer done()
-	return httpServer.Shutdown(ctx)
 }
 
-func envOr(name, fallback string) string {
-	if v := os.Getenv(name); v != "" {
-		return v
+// maintain applies the retention rules of spec section 9: at start it
+// replays the deletion ledger and prunes it; at start and then daily it
+// purges inactive identities and dead invitations.
+func maintain(ctx context.Context, st *store.Store, led *ledger.Ledger, log *slog.Logger, starting bool) error {
+	if starting {
+		entries, err := led.Entries()
+		if err != nil {
+			return err
+		}
+		applied, err := st.Replay(ctx, entries)
+		if err != nil {
+			return fmt.Errorf("replaying the deletion ledger: %w", err)
+		}
+		if applied > 0 {
+			log.Warn("deleted again what the database had brought back (restored backup?)", "deletions", applied)
+		}
+		if _, err := led.Prune(time.Now().Add(-ledger.Retention)); err != nil {
+			return err
+		}
 	}
-	return fallback
+	p, err := st.PurgeInactive(ctx)
+	if err != nil {
+		return err
+	}
+	if p.Identities > 0 || p.Invitations > 0 {
+		log.Info("purged", "inactive_identities", p.Identities, "dead_invitations", p.Invitations)
+	}
+	return nil
 }

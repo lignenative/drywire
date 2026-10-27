@@ -564,6 +564,60 @@ default. Nothing else: no user name, path, query or fragment.
 `https://Voice.Example.org:443/` becomes `https://voice.example.org`.
 The server is configured with its own (`DRYWIRE_PUBLIC_URL`).
 
+### 13.4 Spaces, rooms and members
+
+A space has exactly one **owner**, any number of **admins** and
+**members** (spec section 8). A member joins rooms and talks; an admin also
+creates and deletes rooms, creates and revokes invitations, removes and
+bans members; the owner also changes roles, hands the space over and
+deletes it. Someone may only remove or ban a member of a lower role. A
+space the caller is not a member of answers `404`, as if it did not exist.
+
+| Request | Who | Body → answer |
+| --- | --- | --- |
+| `GET /v1/spaces` | anyone logged in | → `[{space, role}]`, the caller's spaces |
+| `POST /v1/spaces` | the instance's space creators | `{name, room?, display_name}` → `201` space view |
+| `GET /v1/spaces/{space}` | member | → space view |
+| `DELETE /v1/spaces/{space}` | owner | → `204` |
+| `POST /v1/spaces/{space}/rooms` | admin | `{name}` → `201` room |
+| `DELETE /v1/rooms/{room}` | admin | → `204` |
+| `PATCH /v1/spaces/{space}/members/{public_key}` | owner | `{role}` → `204`; `owner` hands the space over, the old owner becomes admin |
+| `DELETE /v1/spaces/{space}/members/{public_key}` | the member themself, or a higher role | → `204`; the owner cannot leave |
+| `GET /v1/spaces/{space}/bans` | admin | → `[public_key]` |
+| `POST /v1/spaces/{space}/bans` | admin | `{public_key}` → `204`, removes a member at once |
+| `DELETE /v1/spaces/{space}/bans/{public_key}` | admin | → `204` |
+
+- A **space view** is `{space: {id, name, max_members, created_at}, role,
+  rooms: [{id, space_id, name}], members: [{public_key, name, role,
+  joined_at}]}`. A room's `id` is its `room_id` (section 8.1).
+- Names (display, space, room) are 1 to 32 characters of valid UTF-8,
+  trimmed, without control or format characters.
+- Who may create spaces is the operator's choice
+  (`DRYWIRE_SPACE_CREATORS`): an instance is not an open sign-up.
+- A space has a maximum number of members, set when it is created
+  (`DRYWIRE_MAX_MEMBERS`, 50 by default).
+- A ban names a public key and outlives the identity, so deleting an
+  identity and coming back with the same key does not lift it.
+
+### 13.5 Invitations
+
+| Request | Who | Body → answer |
+| --- | --- | --- |
+| `POST /v1/spaces/{space}/invitations` | admin | `{expires_in?, max_uses?}` → `201` `{invitation, code, instance}` |
+| `GET /v1/spaces/{space}/invitations` | admin | → the invitations that can still be used, without codes |
+| `DELETE /v1/spaces/{space}/invitations/{id}` | admin | → `204` |
+| `POST /v1/invitations/redeem` | anyone logged in | `{code, display_name}` → space view |
+
+- An invitation lasts from one minute to 30 days (`expires_in` in seconds,
+  7 days by default) for 1 to 100 uses (10 by default).
+- The `code` is returned once, at creation, and the server keeps only its
+  SHA-256. The client builds the link (section 14) from `instance`, the
+  code and the space key it holds.
+- Redeeming creates the caller's identity with `display_name` if it is
+  new, and makes it a member. A member who redeems again gets the space
+  without using up the code. An unknown, expired or used-up code all
+  answer the same `404`; a banned key gets `403`; a full space `409`.
+
 ## 14. Invitation links
 
 An invitation carries everything a new member needs: where the instance
