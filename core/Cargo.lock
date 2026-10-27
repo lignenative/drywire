@@ -176,6 +176,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "drywire-bench"
+version = "0.1.0"
+dependencies = [
+ "drywire-core",
+]
+
+[[package]]
 name = "drywire-core"
 version = "0.1.0"
 dependencies = [

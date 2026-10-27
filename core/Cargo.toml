@@ -1,7 +1,7 @@
 # The Rust workspace shared by every Drywire client. See README.md.
 [workspace]
 resolver = "3"
-members = ["drywire-proto", "drywire-core"]
+members = ["drywire-proto", "drywire-core", "drywire-bench"]
 
 [workspace.package]
 version = "0.1.0"

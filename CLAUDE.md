@@ -83,6 +83,7 @@ make test     # gofmt check, go vet and go test -race; cargo fmt, clippy and tes
 make fmt      # gofmt and cargo fmt
 make dev      # run the relay on 127.0.0.1:10050
 make vectors  # regenerate core/drywire-proto/vectors/ after a wire format change
+make bench    # replay simulated network traces against the jitter buffer
 ```
 
 `make test` must pass before every commit.

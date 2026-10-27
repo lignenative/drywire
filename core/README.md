@@ -9,6 +9,7 @@ Section 6 of [`docs/spec.md`](../docs/spec.md) says where it is going.
 | --- | --- |
 | [`drywire-proto`](drywire-proto/) | Packets, key derivation, AES-GCM, signed announcements, replay window. No I/O, no clock. |
 | [`drywire-core`](drywire-core/) | Opus (libopus, CELT only), the voice gate and the jitter buffer. No sound card, no socket. |
+| [`drywire-bench`](drywire-bench/) | Replays simulated network traces against the jitter buffer (`make bench`); its regression test runs in `make test`. |
 
 ## Run the tests
 
