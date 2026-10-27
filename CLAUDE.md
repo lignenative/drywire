@@ -51,7 +51,8 @@ fixed in the same change.
   update is needed instead of failing silently.
 - **No secret in the repository.** Configuration comes from environment
   variables and untracked files (`.env`). Development secrets that are
-  committed are labelled as public and only work on `127.0.0.1`.
+  committed live in files marked `"dev_only": true`, which the server refuses
+  to serve on anything but a loopback address.
 - **No private detail in the repository.** Examples use generic people,
   devices and hosts. Never commit a real server name, address or player.
 - **Logs stay minimal.** Application logs never contain audio, tokens, secrets
@@ -75,10 +76,11 @@ silently to another port. Each one can be moved with an environment variable.
 The Makefile is thin: each target calls a script in `scripts/`.
 
 ```sh
-make help   # list the commands
-make test   # gofmt check, go vet and go test -race; cargo fmt, clippy and test once core/ exists
-make fmt    # gofmt and cargo fmt
-make dev    # run the relay on 127.0.0.1:10050
+make help     # list the commands
+make test     # gofmt check, go vet and go test -race; cargo fmt, clippy and test once core/ exists
+make fmt      # gofmt and cargo fmt
+make dev      # run the relay on 127.0.0.1:10050
+make vectors  # regenerate core/drywire-proto/vectors/ after a wire format change
 ```
 
 `make test` must pass before every commit.

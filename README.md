@@ -34,12 +34,14 @@ The full design, its reasons and the roadmap are in
 
 | Path | What it holds |
 | --- | --- |
+| `server/` | The Go relay and its HTTP API ([`server/README.md`](server/README.md)) |
+| `core/` | The Rust core shared by every client; today only the protocol test vectors |
 | `docs/` | The specification, the protocol, and decision records (`docs/adr/`) |
 | `scripts/` | The scripts behind every `make` command |
 | `Makefile` | Entry point for every command; `make help` lists them |
 
-More directories (`server/`, `core/`, `apps/`, `site/`, `deploy/`) appear as
-each phase starts. The target layout is in section 12 of the specification.
+More directories (`apps/`, `site/`, `deploy/`) appear as each phase starts.
+The target layout is in section 12 of the specification.
 
 ## Getting started
 
@@ -51,11 +53,16 @@ You need:
 Then:
 
 ```sh
-make help   # list the commands
-make test   # run every test suite
-make fmt    # format all code
-make dev    # run the relay locally
+make help      # list the commands
+make test      # run every test suite
+make fmt       # format all code
+make dev       # run the relay locally with the development rooms
+make vectors   # regenerate the protocol test vectors after a format change
 ```
+
+`make dev` needs no setup: it serves `server/rooms.dev.json`, whose secrets
+are public and which the server only accepts on a loopback address. Check it
+with `curl http://127.0.0.1:10050/v1/status`.
 
 Local ports follow a fixed block, bound to `127.0.0.1` only:
 
