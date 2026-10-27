@@ -7,8 +7,8 @@
 //!   or no 48 kHz format fits, it falls back to shared mode, and the mode
 //!   it got is reported.
 //! - **Playback** stays in **shared mode**, because the game plays on the
-//!   same headset, with the smallest period `IAudioClient3` offers (often
-//!   2 to 3 ms instead of the classic 10 ms).
+//!   same headset, with the smallest period `IAudioClient3` offers, which
+//!   the device reports and `drywire-cli devices` shows.
 //!
 //! Both streams ask for the raw signal path (`AUDCLNT_STREAMOPTIONS_RAW`),
 //! which bypasses the driver's effects where the device allows it, and the
@@ -68,7 +68,7 @@ fn error(what: &str, e: windows::core::Error) -> AudioError {
 }
 
 /// The sample layout of a stream, read from its `WAVEFORMATEX`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Layout {
     channels: usize,
     rate: u32,
@@ -139,7 +139,7 @@ impl Layout {
                 wValidBitsPerSample: (self.width * 8) as u16,
             },
             // Front left, front right, … in order: the default layout.
-            dwChannelMask: (1u32 << self.channels) - 1,
+            dwChannelMask: u32::MAX >> (32 - self.channels.min(32)),
             SubFormat: if self.float {
                 SUBTYPE_IEEE_FLOAT
             } else {
@@ -236,17 +236,37 @@ fn device_name(device: &IMMDevice) -> String {
     }
 }
 
-/// The device's mix format: what shared mode runs with.
-fn mix_layout(client: &IAudioClient) -> Result<Layout, AudioError> {
-    // SAFETY: GetMixFormat returns a format allocated with CoTaskMemAlloc,
-    // read once and freed here.
-    unsafe {
-        let format = client
-            .GetMixFormat()
-            .map_err(|e| error("reading the mix format", e))?;
-        let layout = Layout::read(format);
-        CoTaskMemFree(Some(format as *const c_void));
-        layout
+/// The device's mix format, exactly as WASAPI returns it: shared mode
+/// accepts that format only, channel mask and valid bits included, so it is
+/// passed back as is rather than rebuilt. Freed when dropped.
+struct MixFormat {
+    format: *mut WAVEFORMATEX,
+    layout: Layout,
+}
+
+impl MixFormat {
+    fn of(client: &IAudioClient) -> Result<MixFormat, AudioError> {
+        // SAFETY: GetMixFormat returns a valid format allocated with
+        // CoTaskMemAlloc, which Drop frees.
+        unsafe {
+            let format = client
+                .GetMixFormat()
+                .map_err(|e| error("reading the mix format", e))?;
+            // Owned from here on, so an unreadable format is freed too.
+            let mut mix = MixFormat {
+                format,
+                layout: Layout::default(),
+            };
+            mix.layout = Layout::read(mix.format)?;
+            Ok(mix)
+        }
+    }
+}
+
+impl Drop for MixFormat {
+    fn drop(&mut self) {
+        // SAFETY: allocated by GetMixFormat, freed once.
+        unsafe { CoTaskMemFree(Some(self.format as *const c_void)) }
     }
 }
 
@@ -300,11 +320,11 @@ fn open_shared(
             .map_err(|e| error("activating the audio client", e))?;
         let base: IAudioClient = client.cast().map_err(|e| error("IAudioClient", e))?;
         set_properties(&base);
-        let mix = mix_layout(&base)?;
+        let mix_format = MixFormat::of(&base)?;
+        let mix = mix_format.layout;
         let flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
         let (layout, min_period, mode) = if mix.rate == SAMPLE_RATE {
-            let format = mix.to_format();
-            let format = &format as *const WAVEFORMATEXTENSIBLE as *const WAVEFORMATEX;
+            let format = mix_format.format as *const WAVEFORMATEX;
             let (mut default, mut fundamental, mut min, mut max) = (0, 0, 0, 0);
             client
                 .GetSharedModeEnginePeriod(
