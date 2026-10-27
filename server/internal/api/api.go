@@ -219,15 +219,15 @@ func (s *Server) authed(h func(http.ResponseWriter, *http.Request, caller)) http
 
 // role checks that the caller is a member of the space with at least the
 // given role, and returns its role. A space the caller is not in answers
-// 404, as if it did not exist.
+// the same 404 as an unknown id, so nothing tells the two apart.
 func (s *Server) role(w http.ResponseWriter, r *http.Request, c caller, space store.ID, least store.Role) (store.Role, bool) {
 	if c.identity == nil {
-		writeError(w, http.StatusNotFound, "no such space")
+		writeError(w, http.StatusNotFound, "not found")
 		return "", false
 	}
 	role, err := s.store.Role(r.Context(), space, c.identity.ID)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such space")
+		writeError(w, http.StatusNotFound, "not found")
 		return "", false
 	}
 	if err != nil {

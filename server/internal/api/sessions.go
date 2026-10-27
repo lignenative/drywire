@@ -75,11 +75,12 @@ func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request, c caller) {
 	}); had {
 		s.relay.RemoveSession(old.Session)
 	}
-	// A removal from the space that raced with this join would have
-	// missed the new session: check again, now that it is visible.
-	if _, err := s.store.Role(r.Context(), room.SpaceID, c.identity.ID); err != nil {
+	// A removal from the space, or the room's deletion, that raced with
+	// this join would have missed the new session: check again, now that
+	// it is visible.
+	if !s.stillIn(r, c, room) {
 		s.endSession(session, presence.Leave)
-		s.fail(w, err)
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, JoinAnswer{
@@ -137,6 +138,16 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, c caller) {
 		return
 	}
 	defer s.presence.Unsubscribe(sub)
+	// A removal that raced with the subscription would have missed it:
+	// check again, now that it is visible, and on every keepalive.
+	member := func() bool {
+		_, err := s.store.Role(r.Context(), space, c.identity.ID)
+		return err == nil
+	}
+	if !member() {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
 
 	// The server's read timeout guards request bodies; a stream that
 	// lasts hours must not inherit it.
@@ -164,6 +175,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, c caller) {
 				return
 			}
 		case <-keepalive.C:
+			if !member() {
+				return
+			}
 			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
 				return
 			}
@@ -174,6 +188,16 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, c caller) {
 			return
 		}
 	}
+}
+
+// stillIn reports whether the caller is still a member of the room's
+// space, and the room still exists.
+func (s *Server) stillIn(r *http.Request, c caller, room store.Room) bool {
+	if _, err := s.store.Role(r.Context(), room.SpaceID, c.identity.ID); err != nil {
+		return false
+	}
+	_, err := s.store.Room(r.Context(), room.ID)
+	return err == nil
 }
 
 // spaceGone is called once a space is deleted: its sessions end and its
