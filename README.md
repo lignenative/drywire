@@ -8,9 +8,10 @@ forwards packets without being able to read them.
 
 It is voice only: no text chat, no video, no screen sharing.
 
-> **Status: early development.** Phase 1 (the low-level prototype) is under
-> way. There is no app to install yet. Every latency figure in the docs is a
-> hypothesis until a measurement replaces it.
+> **Status: early development.** Phase 1 (the low-level prototype) is built
+> and phase 2 (identities, spaces, invitation links) is under way, both on
+> the command line. There is no app to install yet. Every latency figure in
+> the docs is a hypothesis until a measurement replaces it.
 
 ## How it works
 
@@ -24,6 +25,10 @@ It is voice only: no text chat, no video, no screen sharing.
   client shares one Rust core; only the interface differs per platform.
 - **The relay** (`server/`) receives each packet and copies it to the other
   people in the same room. It never decrypts or decodes audio.
+- **The control plane** (`server/`, over HTTPS) knows identities (one
+  Ed25519 key per device, no account, no password), spaces, rooms and
+  invitation codes, and hands out the UDP sessions. People join a space with
+  an invitation link whose key the server never sees.
 - **The wire format** is written down in [`docs/protocol.md`](docs/protocol.md)
   and checked by binary test vectors that the Go and Rust tests both read.
 
@@ -34,14 +39,15 @@ The full design, its reasons and the roadmap are in
 
 | Path | What it holds |
 | --- | --- |
-| `server/` | The Go relay and its HTTP API ([`server/README.md`](server/README.md)) |
-| `core/` | The Rust core shared by every client, and `drywire-cli`, the phase 1 client ([`core/README.md`](core/README.md)) |
+| `server/` | The Go relay and control plane ([`server/README.md`](server/README.md)) |
+| `core/` | The Rust core shared by every client, the control plane client, and `drywire-cli` ([`core/README.md`](core/README.md)) |
+| `site/` | The static site: for now, the invitation page ([`site/README.md`](site/README.md)) |
 | `docs/` | The specification, the protocol, and decision records (`docs/adr/`) |
 | `scripts/` | The scripts behind every `make` command |
 | `Makefile` | Entry point for every command; `make help` lists them |
 | `.github/` | Continuous integration: Linux, macOS and Windows builds and tests, license checks |
 
-More directories (`apps/`, `site/`, `deploy/`) appear as each phase starts.
+More directories (`apps/`, `deploy/`) appear as each phase starts.
 The target layout is in section 12 of the specification.
 
 ## Getting started
