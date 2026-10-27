@@ -407,10 +407,9 @@ replay window (section 8.5), and two counters reset by every accepted
 - An audio packet of epoch `tracked + 1` (modulo 256), or the first audio
   packet after a `hello`, starts a new tracked epoch with a fresh window.
 - An audio packet of any other epoch is forwarded but not counted.
-- `lost` is the number of sequences the relay expected, from the first
-  sequence of each tracked epoch up to the highest one seen, minus the
-  packets it received in that range. Late packets lower it again. It never
-  goes below zero.
+- `lost` is the number of sequences the relay expected, from the lowest to
+  the highest sequence received in each tracked epoch, minus the packets it
+  received. Late packets lower it again. It never goes below zero.
 
 ## 11. Versioning
 
