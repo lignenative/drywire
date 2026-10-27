@@ -195,6 +195,9 @@ base for every platform.
 | Android | Kotlin + Jetpack Compose |
 | Web | React + WASM core, WebTransport datagrams |
 
+JavaScript tooling is Bun: package manager, script runner and test runner.
+Vite builds and serves the React front ends. Node.js is not required.
+
 The server (Go) and the core (Rust) share no code. Their contract is
 `docs/protocol.md`, checked by binary test vectors that both test suites read.
 
@@ -515,7 +518,7 @@ logo belong to Ligne Native and are not covered by the license.
 - Allowed dependency licenses: MIT, BSD, Apache 2.0, ISC, Zlib, MPL 2.0.
   No GPL, LGPL or AGPL.
 - Checked in CI: `cargo-deny` for Rust, `go-licenses` for Go, an equivalent
-  check for npm dependencies.
+  check for JavaScript dependencies installed with Bun.
 - Root files: `LICENSE`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`,
   `CODE_OF_CONDUCT.md`, `CLAUDE.md`.
 
