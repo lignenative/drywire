@@ -12,7 +12,6 @@
 package ledger
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -32,6 +31,8 @@ const (
 	KindSpace = "space"
 	// KindMembership: one identity's membership of one space.
 	KindMembership = "membership"
+	// KindInvitation: a revoked invitation, which must not work again.
+	KindInvitation = "invitation"
 )
 
 // Retention is how long entries are kept. A backup is kept six months at
@@ -51,6 +52,8 @@ type Entry struct {
 	Identity string `json:"identity,omitempty"`
 	// Space is the space's hex id (KindSpace and KindMembership).
 	Space string `json:"space,omitempty"`
+	// Invitation is the invitation's hex id (KindInvitation).
+	Invitation string `json:"invitation,omitempty"`
 }
 
 // KeyHash is how an entry refers to an identity: the hex SHA-256 of its
@@ -83,7 +86,9 @@ func openAppend(path string) (*os.File, error) {
 
 // Append writes one entry and waits until it is on disk: the caller deletes
 // the data only after this returns, so a deletion is never lost by a crash
-// in between.
+// in between. If the deletion then fails (its transaction rolls back), the
+// entry stays, and the next replay carries out the deletion that was asked
+// for: the safe direction.
 func (l *Ledger) Append(e Entry) error {
 	line, err := json.Marshal(e)
 	if err != nil {
@@ -113,20 +118,24 @@ func (l *Ledger) read() ([]Entry, error) {
 		return nil, err
 	}
 	var entries []Entry
-	scanner := bufio.NewScanner(bytes.NewReader(raw))
-	for n := 1; scanner.Scan(); n++ {
-		if len(bytes.TrimSpace(scanner.Bytes())) == 0 {
+	lines := bytes.Split(raw, []byte("\n"))
+	for n, line := range lines {
+		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		var e Entry
-		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
-			// A line cut short by a crash during Append is the only
-			// expected damage; anything else is worth stopping for.
-			return nil, fmt.Errorf("%s line %d: %w", l.path, n, err)
+		if err := json.Unmarshal(line, &e); err != nil {
+			// A last line without its newline was cut short by a crash
+			// during Append, before its deletion happened: skip it.
+			// Damage anywhere else is worth stopping for.
+			if n == len(lines)-1 {
+				break
+			}
+			return nil, fmt.Errorf("%s line %d: %w", l.path, n+1, err)
 		}
 		entries = append(entries, e)
 	}
-	return entries, scanner.Err()
+	return entries, nil
 }
 
 // Prune drops the entries older than before. The file is rewritten beside

@@ -92,9 +92,10 @@ func (s *Store) removeMember(ctx context.Context, tx *sql.Tx, space ID, identity
 	return err
 }
 
-// removeMemberRow deletes one membership. If it was the owner's, the space
-// goes to the oldest admin, else the oldest member, else it is deleted
-// (spaceGone).
+// removeMemberRow deletes one membership, and the invitations the member
+// created in that space: someone removed must not come back with a code
+// of their own. If it was the owner's, the space goes to the oldest admin,
+// else the oldest member, else it is deleted (spaceGone).
 func (s *Store) removeMemberRow(ctx context.Context, tx *sql.Tx, space ID, identityID int64, record bool) (spaceGone bool, err error) {
 	var role Role
 	err = tx.QueryRowContext(ctx, `SELECT role FROM members WHERE space_id = ? AND identity_id = ?`,
@@ -106,6 +107,9 @@ func (s *Store) removeMemberRow(ctx context.Context, tx *sql.Tx, space ID, ident
 		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM members WHERE space_id = ? AND identity_id = ?`, space[:], identityID); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM invitations WHERE space_id = ? AND created_by = ?`, space[:], identityID); err != nil {
 		return false, err
 	}
 	if role != RoleOwner {
@@ -218,9 +222,11 @@ func (s *Store) PurgeInactive(ctx context.Context) (Purged, error) {
 // runs it at every start, so whatever the restore of an older backup
 // brought back is deleted again. It writes nothing to the ledger.
 //
-// Each deletion only applies to rows older than it: someone who deleted
-// their identity and later joined again with the same key keeps the new
-// identity.
+// Each deletion only applies to rows created before it: someone who
+// deleted their identity and later joined again with the same key keeps
+// the new identity. Times are whole seconds, so a row created in the same
+// second as the deletion counts as newer: a retry right after a leave must
+// not be undone at the next start.
 func (s *Store) Replay(ctx context.Context, entries []ledger.Entry) (applied int, err error) {
 	err = s.tx(ctx, func(tx *sql.Tx) error {
 		// Identities are recorded by the hash of their key: hash every
@@ -250,11 +256,11 @@ func (s *Store) Replay(ctx context.Context, entries []ledger.Entry) (applied int
 		for _, e := range entries {
 			switch e.Kind {
 			case ledger.KindSpace:
-				space, ok := spaceFromHex(e.Space)
+				space, ok := idFromHex(e.Space)
 				if !ok {
 					continue
 				}
-				res, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE id = ? AND created_at <= ?`, space[:], e.At)
+				res, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE id = ? AND created_at < ?`, space[:], e.At)
 				if err != nil {
 					return err
 				}
@@ -263,7 +269,7 @@ func (s *Store) Replay(ctx context.Context, entries []ledger.Entry) (applied int
 				}
 			case ledger.KindIdentity:
 				who, ok := byHash[e.Identity]
-				if !ok || who.created > e.At {
+				if !ok || who.created >= e.At {
 					continue
 				}
 				if _, err := s.deleteIdentity(ctx, tx, who.id, false); errors.Is(err, ErrNotFound) {
@@ -275,14 +281,14 @@ func (s *Store) Replay(ctx context.Context, entries []ledger.Entry) (applied int
 				applied++
 			case ledger.KindMembership:
 				who, ok := byHash[e.Identity]
-				space, okSpace := spaceFromHex(e.Space)
+				space, okSpace := idFromHex(e.Space)
 				if !ok || !okSpace {
 					continue
 				}
 				var joined int64
 				err := tx.QueryRowContext(ctx, `SELECT joined_at FROM members WHERE space_id = ? AND identity_id = ?`,
 					space[:], who.id).Scan(&joined)
-				if errors.Is(err, sql.ErrNoRows) || (err == nil && joined > e.At) {
+				if errors.Is(err, sql.ErrNoRows) || (err == nil && joined >= e.At) {
 					continue
 				}
 				if err != nil {
@@ -292,6 +298,18 @@ func (s *Store) Replay(ctx context.Context, entries []ledger.Entry) (applied int
 					return err
 				}
 				applied++
+			case ledger.KindInvitation:
+				id, ok := idFromHex(e.Invitation)
+				if !ok {
+					continue
+				}
+				res, err := tx.ExecContext(ctx, `DELETE FROM invitations WHERE id = ? AND created_at < ?`, id[:], e.At)
+				if err != nil {
+					return err
+				}
+				if n, _ := res.RowsAffected(); n > 0 {
+					applied++
+				}
 			}
 		}
 		return nil
@@ -299,7 +317,7 @@ func (s *Store) Replay(ctx context.Context, entries []ledger.Entry) (applied int
 	return applied, err
 }
 
-func spaceFromHex(s string) (ID, bool) {
+func idFromHex(s string) (ID, bool) {
 	var id ID
 	b, err := hex.DecodeString(s)
 	if err != nil || len(b) != len(id) {

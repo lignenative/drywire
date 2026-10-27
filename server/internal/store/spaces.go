@@ -225,21 +225,28 @@ func (s *Store) DeleteRoom(ctx context.Context, id ID) error {
 }
 
 // SetRole makes a member an admin or a plain member. Ownership changes
-// only through TransferOwnership.
+// only through TransferOwnership. A member who is no longer an admin loses
+// the invitations they created, which they could no longer make.
 func (s *Store) SetRole(ctx context.Context, space ID, identityID int64, role Role) error {
 	if role != RoleAdmin && role != RoleMember {
 		return errors.New("role must be admin or member")
 	}
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE members SET role = ? WHERE space_id = ? AND identity_id = ? AND role != 'owner'`,
-		role, space[:], identityID)
-	if err != nil {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE members SET role = ? WHERE space_id = ? AND identity_id = ? AND role != 'owner'`,
+			role, space[:], identityID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		if role == RoleMember {
+			_, err = tx.ExecContext(ctx, `DELETE FROM invitations WHERE space_id = ? AND created_by = ?`,
+				space[:], identityID)
+		}
 		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	})
 }
 
 // TransferOwnership makes another member the owner; the old owner becomes

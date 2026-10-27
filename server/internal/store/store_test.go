@@ -311,7 +311,8 @@ func TestInactiveIdentitiesArePurged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Identities != 1 || p.Invitations != 1 {
+	// The used-up invitation alex made for sam went with alex.
+	if p.Identities != 1 || p.Invitations != 0 {
 		t.Fatalf("purged %+v", p)
 	}
 	if _, err := s.IdentityByKey(ctx, key(1)); !errors.Is(err, ErrNotFound) {
@@ -419,5 +420,80 @@ func TestReplayDeletesAgainWhatARestoreBroughtBack(t *testing.T) {
 	}
 	if got := must[Identity](t)(live.IdentityByKey(ctx, key(2))); got.Name != "sam again" {
 		t.Fatalf("sam's new identity: %+v", got)
+	}
+}
+
+func TestARemovedAdminLosesTheirInvitations(t *testing.T) {
+	s, _, _ := testStore(t)
+	ctx := context.Background()
+	sp, _ := space(t, s)
+	sam := join(t, s, sp, key(2), "sam")
+	kim := join(t, s, sp, key(3), "kim")
+	for _, who := range []Identity{sam, kim} {
+		if err := s.SetRole(ctx, sp.ID, who.ID, RoleAdmin); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.CreateInvitation(ctx, sp.ID, sam.ID, code(70), time.Hour, 5); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateInvitation(ctx, sp.ID, kim.ID, code(71), time.Hour, 5); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveMember(ctx, sp.ID, sam.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Redeem(ctx, code(70), key(2), "sam"); !errors.Is(err, ErrInvalidCode) {
+		t.Fatalf("a removed admin came back with their own code: %v", err)
+	}
+	if err := s.SetRole(ctx, sp.ID, kim.ID, RoleMember); err != nil {
+		t.Fatal(err)
+	}
+	if invs := must[[]Invitation](t)(s.Invitations(ctx, sp.ID)); len(invs) != 0 {
+		t.Fatalf("a demoted admin's invitation survived: %+v", invs)
+	}
+}
+
+func TestReplayKeepsWhatCameBackInTheSameSecondAndRevokedLinks(t *testing.T) {
+	ctx := context.Background()
+	s, l, clock := testStore(t)
+	sp, _ := space(t, s)
+	alex := identity(t, s, key(1))
+	inv, err := s.CreateInvitation(ctx, sp.ID, alex.ID, code(80), time.Hour, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sam := join(t, s, sp, key(2), "sam")
+	backup := filepath.Join(t.TempDir(), "backup.db")
+	if _, err := s.db.Exec(`VACUUM INTO ?`, backup); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(time.Minute)
+	if err := s.RevokeInvitation(ctx, sp.ID, inv.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Sam leaves and, in the same second, joins again.
+	if err := s.RemoveMember(ctx, sp.ID, sam.ID); err != nil {
+		t.Fatal(err)
+	}
+	join(t, s, sp, key(2), "sam")
+	if n, err := s.Replay(ctx, must[[]ledger.Entry](t)(l.Entries())); err != nil || n != 0 {
+		t.Fatalf("replay on the live database applied %d, %v", n, err)
+	}
+	if _, err := s.Role(ctx, sp.ID, identity(t, s, key(2)).ID); err != nil {
+		t.Fatal("sam's new membership was undone")
+	}
+	s.Close()
+
+	restored, err := Open(backup, l, clock.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	if _, err := restored.Replay(ctx, must[[]ledger.Entry](t)(l.Entries())); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restored.Redeem(ctx, code(80), key(4), "lee"); !errors.Is(err, ErrInvalidCode) {
+		t.Fatalf("a revoked link works again after a restore: %v", err)
 	}
 }

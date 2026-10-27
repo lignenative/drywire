@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/lignenative/drywire/server/internal/ledger"
 )
 
 // CodeSize is the size of an invitation code: 128 random bits, too many to
@@ -70,16 +72,25 @@ func (s *Store) Invitations(ctx context.Context, space ID) ([]Invitation, error)
 	return out, rows.Err()
 }
 
-// RevokeInvitation deletes an invitation of the space.
+// RevokeInvitation deletes an invitation of the space. It goes through the
+// deletion ledger, so a restored backup cannot bring a revoked link back.
 func (s *Store) RevokeInvitation(ctx context.Context, space, id ID) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM invitations WHERE id = ? AND space_id = ?`, id[:], space[:])
-	if err != nil {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		var exists bool
+		if err := tx.QueryRowContext(ctx,
+			`SELECT EXISTS (SELECT 1 FROM invitations WHERE id = ? AND space_id = ?)`,
+			id[:], space[:]).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return ErrNotFound
+		}
+		if err := s.ledger.Append(ledger.Entry{At: s.unix(), Kind: ledger.KindInvitation, Invitation: id.String()}); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM invitations WHERE id = ?`, id[:])
 		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	})
 }
 
 // Redeem uses an invitation code: the holder of key joins its space as a

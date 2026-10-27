@@ -52,7 +52,7 @@ func TestEntriesSurviveAReopenAndPruneKeepsTheRecentOnes(t *testing.T) {
 	}
 }
 
-func TestADamagedLineIsReported(t *testing.T) {
+func TestALineCutByACrashIsSkippedAndOtherDamageReported(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deletions.jsonl")
 	os.WriteFile(path, []byte("{\"at\":1,\"kind\":\"space\"}\n{\"at\":"), 0o600)
 	l, err := Open(path)
@@ -60,7 +60,11 @@ func TestADamagedLineIsReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer l.Close()
+	if entries, err := l.Entries(); err != nil || len(entries) != 1 {
+		t.Fatalf("a last line cut short: %v, %v", entries, err)
+	}
+	os.WriteFile(path, []byte("{\"at\":\n{\"at\":1,\"kind\":\"space\"}\n"), 0o600)
 	if _, err := l.Entries(); err == nil {
-		t.Fatal("a cut line was accepted")
+		t.Fatal("a damaged line in the middle was accepted")
 	}
 }
