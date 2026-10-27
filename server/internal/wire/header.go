@@ -1,7 +1,8 @@
 // Package wire encodes and decodes Drywire packets as the relay sees them:
-// the 16-byte header and the control packets (hello, hello_ack, keepalive,
-// ping, pong). Audio payloads are encrypted end to end, so this package only
-// checks their size; it never looks inside them.
+// the 16-byte header, the control packets (hello, hello_ack, keepalive,
+// ping, pong) and the layout of announce. Audio payloads are encrypted end to
+// end and announcements are signed by members, so this package only checks
+// their size; it never decrypts or verifies them.
 //
 // docs/protocol.md is the normative description of everything here. Section
 // numbers in comments refer to that document.
@@ -26,6 +27,9 @@ const (
 	KeepaliveSize = HeaderSize
 	PingSize      = HeaderSize + 8 + 8 // header ‖ client time ‖ zero
 	PongSize      = HeaderSize + 8 + 4 + 4
+	SaltSize      = 32 // sender_salt carried by announce (section 8.1)
+	SignatureSize = 64 // Ed25519 signature
+	AnnounceSize  = HeaderSize + SaltSize + SignatureSize
 )
 
 // Type is the packet type (section 4).
@@ -38,6 +42,7 @@ const (
 	TypeKeepalive Type = 0x04
 	TypePing      Type = 0x05
 	TypePong      Type = 0x06
+	TypeAnnounce  Type = 0x07
 )
 
 // String returns the name used in docs/protocol.md and in the vectors.
@@ -55,6 +60,8 @@ func (t Type) String() string {
 		return "ping"
 	case TypePong:
 		return "pong"
+	case TypeAnnounce:
+		return "announce"
 	}
 	return "unknown"
 }

@@ -225,6 +225,39 @@
       }
     },
     {
+      "name": "announce",
+      "file": "announce.bin",
+      "description": "The sender publishes the salt of key epoch 0.",
+      "header": {
+        "version": 1,
+        "type": "announce",
+        "flags": 0,
+        "key_epoch": 0,
+        "session": 287454020,
+        "sequence": 0,
+        "timestamp": 0
+      },
+      "announce": {
+        "sender_salt": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+        "signature": "addd03b90025b7a52d6313bdc36e4d0bb6b320ad31cf68e106bde033c6ea74866ab0bb72b7b1f17930f4041ae0d020dadef85f3b7d9d067fe419c22f5abcb607"
+      }
+    },
+    {
+      "name": "announce-bad-signature",
+      "file": "announce-bad-signature.bin",
+      "description": "The announce vector with the first byte of its salt flipped: the signature no longer verifies.",
+      "error": "bad_signature",
+      "header": {
+        "version": 1,
+        "type": "announce",
+        "flags": 0,
+        "key_epoch": 0,
+        "session": 287454020,
+        "sequence": 0,
+        "timestamp": 0
+      }
+    },
+    {
       "name": "too-short",
       "file": "too-short.bin",
       "description": "The keepalive vector cut to 15 bytes.",

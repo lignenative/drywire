@@ -54,7 +54,7 @@ of the encryption, so nobody can change it without the receiver noticing.
 | 0 | Version | 1 | Protocol version. `1` for this document. |
 | 1 | Type | 1 | Packet type, see section 4. |
 | 2 | Flags | 1 | Bit field, see section 5. |
-| 3 | Key epoch | 1 | Which sender key encrypts an audio packet (section 8). `0` in every other type. |
+| 3 | Key epoch | 1 | Which sender key encrypts an audio packet, or which epoch an `announce` is for (section 8). `0` in every other type. |
 | 4 | Session | 4 | Identifies the sender to the relay. Assigned when joining a room. `0` is never a valid session. |
 | 8 | Sequence | 4 | Meaning depends on the type (section 6). |
 | 12 | Timestamp | 4 | Meaning depends on the type (section 6). |
@@ -79,8 +79,9 @@ part of the header may change in a future version.
 | `0x04` | `keepalive` | client | exactly 16 | — |
 | `0x05` | `ping` | client | exactly 32 | `pong` |
 | `0x06` | `pong` | relay | exactly 32 | — |
+| `0x07` | `announce` | client | exactly 112 | copied to the other members |
 
-Code `0x00` and codes `0x07` to `0xff` are not defined in version 1. A
+Code `0x00` and codes `0x08` to `0xff` are not defined in version 1. A
 receiver drops a packet with an undefined type.
 
 Control packets (every type except `audio`) have an exact size. A control
@@ -204,6 +205,21 @@ header (16) ‖ ciphertext (n) ‖ tag (16)
 The plaintext is at least one byte, so an audio packet is at least
 `16 + 1 + 16 = 33` bytes.
 
+### 6.7 `announce` — publish the salt of a key epoch
+
+```text
+header (16) ‖ sender salt (32) ‖ signature (64)
+```
+
+| Field | Value |
+| --- | --- |
+| Header | `type = 0x07`, `flags = 0`, `key epoch` = the epoch announced, `session` = the sender's session, `sequence = 0`, `timestamp = 0` |
+| Sender salt | The `sender_salt` of that epoch (section 8.1) |
+| Signature | Ed25519 signature by the sender's identity key over the announcement message of section 8.3 |
+
+The relay copies it to the other members of the room like an audio packet
+(section 10.1); receivers use it to derive the sender's key (section 8.3).
+
 ## 7. Audio payload
 
 The plaintext inside an audio packet holds one Opus frame, the **primary
@@ -280,19 +296,34 @@ The header's key epoch byte tells receivers which key to use.
 - A sender MUST start a new epoch before its audio sequence reaches 2³¹
   (`0x80000000`). At 400 packets per second that is after about 62 days, so
   in practice an epoch lasts as long as the sender stays in the room.
-- Before using an epoch, the sender publishes a **sender announcement**
-  through the control plane: `(room_id, session, epoch, sender_salt)` and its
-  Ed25519 signature over the message below. Receivers verify the signature
-  with the sender's known public key before deriving the key.
+- The sender publishes each epoch's salt in a **sender announcement**, an
+  `announce` packet (section 6.7) that the relay copies to the other members
+  of the room. It carries `sender_salt` and the sender's Ed25519 signature
+  over the message below; `session` and `epoch` come from its header, and
+  `room_id` is known to every member.
 
 ```text
 message = "drywire/sender-announce/v1" ‖ room_id (16) ‖ session (4)
           ‖ epoch (1) ‖ sender_salt (32)
 ```
 
-- A new announcement for the same `(session, epoch)` replaces the old one.
-  Receivers keep the keys of at least the current and the previous epoch of
-  each sender, so packets reordered across an epoch change still decrypt.
+- UDP may lose an announcement, so the sender sends it when the epoch
+  starts, again immediately before the first audio packet of every talk
+  spurt, and then once per second while its gate stays open. It sends the
+  first one of an epoch before any audio of that epoch.
+- A receiver verifies the signature with the public key it knows for that
+  session (from the control plane; in phase 1 from a configuration file)
+  before deriving the key. An announcement from a session with no known
+  public key, or whose signature does not verify, is dropped
+  (`bad_signature`).
+- A new announcement for the same `(session, epoch)` with a different salt
+  replaces the old one: the sender restarted. Receivers keep the keys of at
+  least the current and the previous epoch of each sender, so packets
+  reordered across an epoch change still decrypt.
+- An audio packet for a `(session, epoch)` with no key yet cannot be
+  decrypted. Receivers drop it and count it as `no_key`; they do not hold it
+  back, since holding audio would add latency and the next announcement is
+  at most one second away.
 
 ### 8.4 Encryption of an audio packet
 
@@ -348,6 +379,7 @@ they are never sent on the wire. The test vectors use the same codes.
 | `bad_mac` | relay, client | MAC of a `hello` or `hello_ack` does not verify |
 | `bad_tag` | receiver | AES-GCM decryption fails |
 | `bad_framing` | receiver | Audio payload breaks the rules of section 7 |
+| `bad_signature` | receiver | Signature of an `announce` does not verify, or its session has no known public key |
 
 Checks run in the order of this table: a 10-byte datagram is `too_short` even
 though its version byte is also wrong.
@@ -370,6 +402,9 @@ though its version byte is also wrong.
    - `audio`: count it (section 10.4), drop it if it is a duplicate, else send
      the unchanged datagram to the bound address of every other bound session
      in the same room.
+   - `announce`: send the unchanged datagram to the same addresses as audio.
+     It is not counted as audio, and the relay does not verify its signature,
+     which needs the members' public keys.
    - `hello_ack` and `pong` come only from the relay: drop.
 
 Every accepted datagram refreshes the session's last-seen time.
@@ -380,8 +415,8 @@ Every accepted datagram refreshes the session's last-seen time.
   `hello`, that it holds the session secret.
 - A reply (`hello_ack`, `pong`) is never larger than the packet that caused
   it: both are exactly the size of their request.
-- Audio goes only to bound addresses of the same room, so a forged source
-  address cannot turn the relay against a third party.
+- Audio and announcements go only to bound addresses of the same room, so a
+  forged source address cannot turn the relay against a third party.
 
 ### 10.3 Limits and timeouts
 
@@ -445,8 +480,8 @@ if the files on disk differ from what the generator produces.
   `sender_key`, and the announcement `signature`.
 - `vectors`: one entry per file with `name`, `file`, `description`, and
   either `error` (one of the codes of section 9, for an invalid packet) or the
-  expected decoded fields: `header`, plus `hello`, `ping`, `pong` or `audio`
-  depending on the type.
+  expected decoded fields: `header`, plus `hello`, `ping`, `pong`, `audio` or
+  `announce` depending on the type.
 - `replay_window`: a sequence of steps (`sequence`, expected `verdict`)
   applied in order to one fresh window.
 

@@ -132,6 +132,15 @@ func Build() (Manifest, map[string][]byte) {
 		Description: "Decrypts, but its redundant length goes past the end of the plaintext.",
 		Error:       string(wire.ErrBadFraming)}, badFraming)
 
+	// Announcements: the first one a sender sends in a room, and the same
+	// packet with one salt byte changed, which breaks the signature.
+	announce := clientref.NewAnnounce(private, roomID, session, 0, m.Epochs[0].SenderSalt)
+	add(Vector{Name: "announce", Description: "The sender publishes the salt of key epoch 0.",
+		Announce: &AnnounceFields{SenderSalt: m.Epochs[0].SenderSalt, Signature: m.Epochs[0].Signature}}, announce)
+	add(Vector{Name: "announce-bad-signature",
+		Description: "The announce vector with the first byte of its salt flipped: the signature no longer verifies.",
+		Error:       string(wire.ErrBadSignature)}, flip(announce, wire.HeaderSize))
+
 	// Packets that fail before any key is needed.
 	tooLarge := wire.Header{Version: wire.Version, Type: wire.TypeAudio, Session: session}.Bytes()
 	tooLarge = append(tooLarge, make([]byte, wire.MaxPacketSize+1-wire.HeaderSize)...)

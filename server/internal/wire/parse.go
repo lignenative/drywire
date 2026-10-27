@@ -17,8 +17,9 @@ const (
 	ErrBadLength          Error = "bad_length"
 	ErrZeroSession        Error = "zero_session"
 	ErrBadMAC             Error = "bad_mac"
-	ErrBadTag             Error = "bad_tag"     // receivers only, see package clientref
-	ErrBadFraming         Error = "bad_framing" // receivers only, see package clientref
+	ErrBadTag             Error = "bad_tag"       // receivers only, see package clientref
+	ErrBadFraming         Error = "bad_framing"   // receivers only, see package clientref
+	ErrBadSignature       Error = "bad_signature" // receivers only, see package clientref
 )
 
 // Parse checks a datagram's size and header and returns the decoded header.
@@ -35,7 +36,7 @@ func Parse(packet []byte) (Header, error) {
 	if !slices.Contains(SupportedVersions, h.Version) {
 		return Header{}, ErrUnsupportedVersion
 	}
-	if h.Type < TypeAudio || h.Type > TypePong {
+	if h.Type < TypeAudio || h.Type > TypeAnnounce {
 		return Header{}, ErrUnknownType
 	}
 	if !sizeIsValid(h.Type, len(packet)) {
@@ -61,6 +62,8 @@ func sizeIsValid(t Type, size int) bool {
 		return size == PingSize
 	case TypePong:
 		return size == PongSize
+	case TypeAnnounce:
+		return size == AnnounceSize
 	}
 	return false
 }

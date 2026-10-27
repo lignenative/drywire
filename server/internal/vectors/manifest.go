@@ -47,15 +47,16 @@ type Epoch struct {
 // decoded fields of its type; an invalid one has Error, and Header too when
 // the header itself is valid.
 type Vector struct {
-	Name        string        `json:"name"`
-	File        string        `json:"file"`
-	Description string        `json:"description"`
-	Error       string        `json:"error,omitempty"`
-	Header      *HeaderFields `json:"header,omitempty"`
-	Hello       *HelloFields  `json:"hello,omitempty"`
-	Ping        *PingFields   `json:"ping,omitempty"`
-	Pong        *PongFields   `json:"pong,omitempty"`
-	Audio       *AudioFields  `json:"audio,omitempty"`
+	Name        string          `json:"name"`
+	File        string          `json:"file"`
+	Description string          `json:"description"`
+	Error       string          `json:"error,omitempty"`
+	Header      *HeaderFields   `json:"header,omitempty"`
+	Hello       *HelloFields    `json:"hello,omitempty"`
+	Ping        *PingFields     `json:"ping,omitempty"`
+	Pong        *PongFields     `json:"pong,omitempty"`
+	Audio       *AudioFields    `json:"audio,omitempty"`
+	Announce    *AnnounceFields `json:"announce,omitempty"`
 }
 
 type HeaderFields struct {
@@ -88,6 +89,12 @@ type AudioFields struct {
 	Plaintext      Hex `json:"plaintext"`
 	RedundantFrame Hex `json:"redundant_frame,omitempty"`
 	PrimaryFrame   Hex `json:"primary_frame"`
+}
+
+// AnnounceFields are the contents of an announce whose signature verified.
+type AnnounceFields struct {
+	SenderSalt Hex `json:"sender_salt"`
+	Signature  Hex `json:"signature"`
 }
 
 // ReplayStep is one call to a replay window and the verdict it must return.

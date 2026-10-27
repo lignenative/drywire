@@ -146,6 +146,34 @@ func TestAudioReachesTheOtherMembersOfTheRoom(t *testing.T) {
 	}
 }
 
+func TestAnnouncementsReachTheRoomWithoutCountingAsAudio(t *testing.T) {
+	r, _ := newTestRelay(t)
+	for s := uint32(1); s <= 4; s++ {
+		bind(t, r, s, addr(int(s)), 1)
+	}
+
+	// The relay cannot check the signature, so any bytes will do here.
+	packet := wire.NewAnnounce(1, 0, make([]byte, wire.SaltSize), make([]byte, wire.SignatureSize))
+	for range 2 { // repeated announcements are forwarded too, not deduplicated
+		out := r.Handle(packet, addr(1))
+		got := destinations(out)
+		if len(got) != 2 || got[0] != addr(2) || got[1] != addr(3) {
+			t.Fatalf("announce from session 1 went to %v, want [%v %v]", got, addr(2), addr(3))
+		}
+		if !bytes.Equal(out[0].Data, packet) {
+			t.Fatal("the relay changed the announce it forwarded")
+		}
+	}
+	if out := r.Handle(packet, addr(9)); out != nil {
+		t.Fatal("an announce from an unbound address was forwarded")
+	}
+
+	pong := wire.DecodePong(r.Handle(wire.NewPing(1, 1, 0), addr(1))[0].Data)
+	if pong.AudioReceived != 0 || pong.AudioLost != 0 {
+		t.Fatalf("announcements were counted as audio: %+v", pong)
+	}
+}
+
 func TestUnboundMembersReceiveNothing(t *testing.T) {
 	r, _ := newTestRelay(t)
 	bind(t, r, 1, addr(1), 1)

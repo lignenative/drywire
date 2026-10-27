@@ -73,7 +73,7 @@ func TestVectorsDecode(t *testing.T) {
 
 	for _, v := range m.Vectors {
 		t.Run(v.Name, func(t *testing.T) {
-			got, err := decode(files[v.File], in.SessionSecret, senderKeys)
+			got, err := decode(files[v.File], in, senderKeys)
 			if v.Error != "" {
 				if err == nil || err.Error() != v.Error {
 					t.Fatalf("error = %v, want %s", err, v.Error)
@@ -100,7 +100,7 @@ func TestVectorsDecode(t *testing.T) {
 
 // decode turns a packet into the Vector fields a receiver can read from it,
 // stopping at the first error.
-func decode(packet, secret []byte, senderKeys map[uint8][]byte) (Vector, error) {
+func decode(packet []byte, in Inputs, senderKeys map[uint8][]byte) (Vector, error) {
 	var v Vector
 	h, err := wire.Parse(packet)
 	if err != nil {
@@ -109,7 +109,7 @@ func decode(packet, secret []byte, senderKeys map[uint8][]byte) (Vector, error) 
 	v.Header = headerFields(h)
 	switch h.Type {
 	case wire.TypeHello, wire.TypeHelloAck:
-		counter, err := wire.VerifyHandshake(packet, secret)
+		counter, err := wire.VerifyHandshake(packet, in.SessionSecret)
 		if err != nil {
 			return v, err
 		}
@@ -129,6 +129,13 @@ func decode(packet, secret []byte, senderKeys map[uint8][]byte) (Vector, error) 
 			return v, err
 		}
 		v.Audio = &AudioFields{Plaintext: plaintext, RedundantFrame: p.Redundant, PrimaryFrame: p.Primary}
+	case wire.TypeAnnounce:
+		salt, err := clientref.VerifyAnnounce(ed25519.PublicKey(in.SenderPublicKey), in.RoomID, packet)
+		if err != nil {
+			return v, err
+		}
+		_, signature := wire.AnnounceFields(packet)
+		v.Announce = &AnnounceFields{SenderSalt: salt, Signature: signature}
 	}
 	return v, nil
 }

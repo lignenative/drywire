@@ -229,7 +229,7 @@ section is the starting point; `docs/protocol.md` is the normative version.
 | Field | Size | Purpose |
 | --- | --- | --- |
 | Version | 1 byte | Protocol version |
-| Type | 1 byte | `audio`, `hello`, `hello_ack`, `keepalive`, `ping`, `pong` |
+| Type | 1 byte | `audio`, `hello`, `hello_ack`, `keepalive`, `ping`, `pong`, `announce` |
 | Flags | 1 byte | Redundant frame present, last frame of a talk spurt |
 | Key epoch | 1 byte | Which sender key encrypts this packet (see section 8) |
 | Session | 4 bytes | Assigned by the server when joining a room; identifies the sender to the relay |
@@ -330,8 +330,9 @@ sender_key  = HKDF(room_key,  salt = sender_salt,
 - Each sender draws a fresh random 32-byte `sender_salt` every time it joins a
   room, and whenever it starts a new key epoch.
 - It signs `(room_id, session, epoch, sender_salt)` with its identity key and
-  publishes it through the control plane. Other members verify the signature
-  before using the key.
+  sends it in an `announce` packet that the relay copies to the room
+  (ADR 0007). Other members verify the signature with the public key the
+  control plane gave them before using the key.
 - The nonce is the 32-bit sequence number, zero-padded to 96 bits. A sender
   starts a new epoch, with a new salt, long before the sequence number wraps.
 - **Why this design**: AES-GCM breaks completely if a key and nonce pair is

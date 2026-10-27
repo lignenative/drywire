@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"slices"
 	"testing"
 	"time"
 
@@ -133,7 +134,7 @@ func TestRelayWithSharedVectors(t *testing.T) {
 	sender.send(file("hello"))
 	sender.expectNothing("replayed hello")
 
-	for _, name := range []string{"audio", "audio-redundant", "audio-epoch-1-end-of-spurt"} {
+	for _, name := range []string{"announce", "audio", "audio-redundant", "audio-epoch-1-end-of-spurt"} {
 		sender.send(file(name))
 		other.expect(file(name), "forwarded "+name)
 		sender.expectNothing("own audio echoed back: " + name)
@@ -153,10 +154,11 @@ func TestRelayWithSharedVectors(t *testing.T) {
 	}
 
 	// Invalid packets never get an answer and are never forwarded. The
-	// audio vectors that only receivers can reject (bad tag, bad framing)
-	// are forwarded like any other audio: the relay cannot tell.
+	// vectors that only receivers can reject (bad tag, bad framing, bad
+	// signature) are forwarded like any other: the relay cannot tell.
+	receiverOnly := []string{string(wire.ErrBadTag), string(wire.ErrBadFraming), string(wire.ErrBadSignature)}
 	for _, v := range m.Vectors {
-		if v.Error == "" || v.Error == string(wire.ErrBadTag) || v.Error == string(wire.ErrBadFraming) {
+		if v.Error == "" || slices.Contains(receiverOnly, v.Error) {
 			continue
 		}
 		sender.send(files[v.File])

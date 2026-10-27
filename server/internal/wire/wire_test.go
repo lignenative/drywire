@@ -48,7 +48,7 @@ func TestParseErrors(t *testing.T) {
 		{"version 0", withByte(0, 0), ErrUnsupportedVersion},
 		{"version 2", withByte(0, 2), ErrUnsupportedVersion},
 		{"type 0", withByte(1, 0), ErrUnknownType},
-		{"type 7", withByte(1, 7), ErrUnknownType},
+		{"type 8", withByte(1, 8), ErrUnknownType},
 		{"keepalive with a payload", append(bytes.Clone(keepalive), 0), ErrBadLength},
 		{"audio without payload", audio(MinAudioSize - 1), ErrBadLength},
 		{"session 0", NewKeepalive(0), ErrZeroSession},

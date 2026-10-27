@@ -215,16 +215,26 @@ func (r *Relay) Handle(packet []byte, from netip.AddrPort) []Datagram {
 		if s.uplink.record(h.KeyEpoch, h.Sequence) {
 			return r.drop(DropDuplicate)
 		}
-		var out []Datagram
-		for _, m := range s.room.members {
-			if m != s && m.bound {
-				out = append(out, Datagram{To: m.addr, Data: packet})
-			}
-		}
-		return r.send(out...)
+		return r.send(r.toRoom(s, packet)...)
+	case wire.TypeAnnounce:
+		// Signed by the sender for the other members; the relay cannot and
+		// does not verify it (section 6.7).
+		return r.send(r.toRoom(s, packet)...)
 	default: // hello_ack and pong are only ever sent by the relay
 		return r.drop(DropRelayOnlyType)
 	}
+}
+
+// toRoom addresses an unchanged copy of packet to every other bound member
+// of the sender's room.
+func (r *Relay) toRoom(s *session, packet []byte) []Datagram {
+	var out []Datagram
+	for _, m := range s.room.members {
+		if m != s && m.bound {
+			out = append(out, Datagram{To: m.addr, Data: packet})
+		}
+	}
+	return out
 }
 
 // hello verifies a hello and, if it is valid and newer than the last one,

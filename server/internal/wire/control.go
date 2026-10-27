@@ -97,3 +97,19 @@ func DecodePong(packet []byte) Pong {
 		AudioLost:     binary.BigEndian.Uint32(p[12:16]),
 	}
 }
+
+// NewAnnounce builds the packet that publishes the salt of a key epoch
+// (section 6.7). The signature is made by the sender's identity key, which
+// the relay never sees; see clientref.SignAnnouncement.
+func NewAnnounce(session uint32, epoch uint8, salt, signature []byte) []byte {
+	b := make([]byte, 0, AnnounceSize)
+	b = Header{Version: Version, Type: TypeAnnounce, KeyEpoch: epoch, Session: session}.AppendTo(b)
+	b = append(b, salt...)
+	return append(b, signature...)
+}
+
+// AnnounceFields returns the salt and the signature of an announce that
+// Parse accepted. Both point into packet.
+func AnnounceFields(packet []byte) (salt, signature []byte) {
+	return packet[HeaderSize : HeaderSize+SaltSize], packet[HeaderSize+SaltSize:]
+}

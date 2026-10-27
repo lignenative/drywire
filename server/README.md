@@ -60,11 +60,11 @@ but a loopback address.
 | Package | What it does |
 | --- | --- |
 | `cmd/drywire-server` | Reads the environment, opens the sockets, runs the relay and the HTTP API |
-| `internal/relay` | The data plane: binding sessions, forwarding audio, rate limits, loss counting |
+| `internal/relay` | The data plane: binding sessions, forwarding audio and announcements, rate limits, loss counting |
 | `internal/wire` | Encodes and decodes packets as the relay sees them: header, control packets, replay window |
 | `internal/ratelimit` | The token bucket behind every rate limit |
 | `internal/api` | HTTP routes: health, version, status |
-| `internal/clientref` | Reference of what clients do above the relay (key derivation, audio encryption, payload framing); used only to build and check test vectors |
+| `internal/clientref` | Reference of what clients do above the relay (key derivation, audio encryption, payload framing, signed announcements); used only to build and check test vectors |
 | `internal/vectors` | Builds, writes and reads the shared test vectors |
 | `cmd/drywire-vectors` | Writes the vectors to `core/drywire-proto/vectors/` (`make vectors`) |
 

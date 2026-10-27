@@ -52,13 +52,32 @@ func mustHKDF(secret, salt []byte, info string) []byte {
 }
 
 // AnnouncementMessage is what a sender signs to publish the salt of a key
-// epoch (section 8.3).
+// epoch (section 8.3). The room ID binds the signature to one room, even
+// though it never travels on the wire.
 func AnnouncementMessage(roomID []byte, session uint32, epoch uint8, senderSalt []byte) []byte {
 	m := []byte(announceInfo)
 	m = append(m, roomID...)
 	m = binary.BigEndian.AppendUint32(m, session)
 	m = append(m, epoch)
 	return append(m, senderSalt...)
+}
+
+// NewAnnounce builds a signed announce packet for one key epoch (section 6.7).
+func NewAnnounce(private ed25519.PrivateKey, roomID []byte, session uint32, epoch uint8, senderSalt []byte) []byte {
+	signature := ed25519.Sign(private, AnnouncementMessage(roomID, session, epoch, senderSalt))
+	return wire.NewAnnounce(session, epoch, senderSalt, signature)
+}
+
+// VerifyAnnounce checks the signature of an announce that wire.Parse
+// accepted, with the public key the receiver knows for its session, and
+// returns the announced salt.
+func VerifyAnnounce(public ed25519.PublicKey, roomID []byte, packet []byte) ([]byte, error) {
+	h, _ := wire.Parse(packet)
+	salt, signature := wire.AnnounceFields(packet)
+	if !ed25519.Verify(public, AnnouncementMessage(roomID, h.Session, h.KeyEpoch, salt), signature) {
+		return nil, wire.ErrBadSignature
+	}
+	return salt, nil
 }
 
 // Nonce returns the AES-GCM nonce of an audio packet: its sequence number,
