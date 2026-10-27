@@ -18,3 +18,5 @@ Status: Accepted · YYYY-MM-DD
 
 | Number | Decision |
 | --- | --- |
+| [0001](0001-size-replies-to-their-requests.md) | Size every reply to its request |
+| [0002](0002-restart-the-audio-sequence-per-key-epoch.md) | Restart the audio sequence at each key epoch |
