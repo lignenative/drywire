@@ -9,10 +9,14 @@
 //!   sound card.
 //! - [`link`]: `hello`, `ping` and `keepalive` with the relay.
 //!
-//! None of these touches a sound card or a socket; the platform backends and
-//! the network loop are built on top. The wire format and the encryption
-//! live in `drywire-proto`.
+//! None of these touches a sound card or a socket. On top of them:
+//!
+//! - [`audio`]: the audio I/O trait and one backend per operating system.
+//! - [`wav`]: reading and writing WAV files, for headless runs.
+//!
+//! The wire format and the encryption live in `drywire-proto`.
 
+pub mod audio;
 pub mod config;
 pub mod gate;
 pub mod inbound;
@@ -21,3 +25,4 @@ pub mod link;
 pub mod mixer;
 pub mod opus;
 pub mod sender;
+pub mod wav;
