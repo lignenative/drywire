@@ -548,7 +548,11 @@ proves that it holds the private key.
   the same `401`, which says nothing about why.
 - The token goes in every other request as `Authorization: Bearer <token>`.
   It is valid for one hour; on a `401` the client logs in again. Tokens are
-  kept in the server's memory only, so a restart logs everyone out.
+  kept in the server's memory only, so a restart logs everyone out. An
+  identity holds at most 4 tokens: a fifth login ends the oldest.
+- Requests are rate-limited per client address (per /64 for IPv6); a
+  challenge or a login costs five requests. A server that cannot take more
+  logins answers `503` with `Retry-After`.
 - Logging in records the time on the identity: identities that have not
   logged in for 12 months are purged (spec section 9).
 - A key the server does not know yet can log in. Its identity, with a

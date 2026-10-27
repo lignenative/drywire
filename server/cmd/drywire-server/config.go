@@ -35,7 +35,8 @@ const defaultAddr = "127.0.0.1:10050"
 //	DRYWIRE_TLS_CERT and DRYWIRE_TLS_KEY
 //	                        serve HTTPS (TLS 1.3) from these PEM files
 //	DRYWIRE_TRUST_PROXY     1 behind a reverse proxy on this host: the
-//	                        client address comes from X-Forwarded-For
+//	                        client address comes from X-Forwarded-For, when
+//	                        the connection comes from this machine
 //	DRYWIRE_ACCESS_LOG      access log file, - for standard output (the
 //	                        default), off for none
 type config struct {

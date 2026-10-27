@@ -143,3 +143,27 @@ func TestCanonicalOrigin(t *testing.T) {
 		}
 	}
 }
+
+func TestAnIdentityHoldsFewTokens(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
+	a := New(audience, clock.now)
+	private, key := identity()
+	var tokens []string
+	for range tokensPerKey + 1 {
+		clock.advance(time.Second)
+		c, _ := a.Challenge()
+		tok, _, err := a.Login(key, c, ed25519.Sign(private, LoginMessage(c, audience)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		tokens = append(tokens, tok)
+	}
+	if _, ok := a.Check(tokens[0]); ok {
+		t.Fatal("the oldest token survived one login too many")
+	}
+	for _, tok := range tokens[1:] {
+		if _, ok := a.Check(tok); !ok {
+			t.Fatal("a recent token was dropped")
+		}
+	}
+}

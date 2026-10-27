@@ -48,6 +48,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	copy(challenge[:], raw)
 	token, expires, err := s.auth.Login(req.PublicKey, challenge, sig)
+	if errors.Is(err, auth.ErrBusy) {
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return

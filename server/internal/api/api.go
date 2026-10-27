@@ -31,8 +31,13 @@ import (
 const (
 	// maxBody is the largest request body read.
 	maxBody = 64 << 10
-	// Requests per second per client IP address, and the burst allowed.
+	// Requests per second per client address, and the burst allowed. An
+	// IPv6 client is counted per /64, the block one subscriber gets.
 	ipRate, ipBurst = 20, 60
+	// loginCost is what a challenge or a login spends from that budget:
+	// four a second at most, enough for any client, and too few for one
+	// network to fill the challenge pool or mint tokens in bulk.
+	loginCost = 5
 	// maxTrackedIPs bounds the limiter's memory, as in the relay.
 	maxTrackedIPs = 4096
 
@@ -298,9 +303,17 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 
 // clientIP is the address the request came from: the peer, or behind a
 // trusted reverse proxy the last X-Forwarded-For entry, which that proxy
-// wrote (earlier entries come from the client and prove nothing).
+// wrote (earlier entries come from the client and prove nothing). The
+// header is only believed from a proxy on this machine: from anyone else
+// it would be a forged address.
 func (s *Server) clientIP(r *http.Request) netip.Addr {
-	if s.cfg.TrustProxy {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return netip.Addr{}
+	}
+	peer, _ := netip.ParseAddr(host)
+	peer = peer.Unmap()
+	if s.cfg.TrustProxy && peer.IsLoopback() {
 		if fwd := r.Header.Values("X-Forwarded-For"); len(fwd) > 0 {
 			hops := strings.Split(fwd[len(fwd)-1], ",")
 			if ip, err := netip.ParseAddr(strings.TrimSpace(hops[len(hops)-1])); err == nil {
@@ -308,18 +321,28 @@ func (s *Server) clientIP(r *http.Request) netip.Addr {
 			}
 		}
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return netip.Addr{}
+	return peer
+}
+
+// rateKey is what the rate limit counts by: the address, or its /64 for
+// IPv6, since one subscriber holds a whole /64.
+func rateKey(ip netip.Addr) netip.Addr {
+	if ip.Is6() {
+		if p, err := ip.Prefix(64); err == nil {
+			return p.Addr()
+		}
 	}
-	ip, _ := netip.ParseAddr(host)
-	return ip.Unmap()
+	return ip
 }
 
 // limited refuses requests beyond ipRate per client address.
 func (s *Server) limited(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.allow(s.clientIP(r)) {
+		cost := 1.0
+		if strings.HasPrefix(r.URL.Path, "/v1/auth/") {
+			cost = loginCost
+		}
+		if !s.allow(rateKey(s.clientIP(r)), cost) {
 			w.Header().Set("Retry-After", "1")
 			writeError(w, http.StatusTooManyRequests, "too many requests, slow down")
 			return
@@ -328,7 +351,7 @@ func (s *Server) limited(h http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) allow(ip netip.Addr) bool {
+func (s *Server) allow(ip netip.Addr, cost float64) bool {
 	s.limitMu.Lock()
 	defer s.limitMu.Unlock()
 	now := s.now()
@@ -343,13 +366,13 @@ func (s *Server) allow(ip netip.Addr) bool {
 	b, ok := s.ips[ip]
 	if !ok {
 		if len(s.ips) >= maxTrackedIPs {
-			return s.overflow.Allow(now, 1)
+			return s.overflow.Allow(now, cost)
 		}
 		fresh := ratelimit.New(ipRate, ipBurst, now)
 		b = &fresh
 		s.ips[ip] = b
 	}
-	return b.Allow(now, 1)
+	return b.Allow(now, cost)
 }
 
 // statusWriter remembers the status a handler wrote, for the access log.

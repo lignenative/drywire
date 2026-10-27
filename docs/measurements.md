@@ -66,6 +66,32 @@ The steady values move by up to 2.5 ms from run to run: the file device
 and the echo bot pace their 2.5 and 5 ms periods with sleeps, and where
 their ticks fall relative to each other changes from run to run.
 
+## 2026-10-28 — software path, phase 1 against phase 2
+
+Phase 2's exit criterion asks for latency within 1 ms of phase 1. The
+control plane is not on the audio path, but the slice changed the mixer
+(tracks in a reusable list instead of a map) and the call (members added
+and removed while it runs), so the same path was measured again.
+
+- Setup: as above, same machine, both built in release and run back to
+  back: phase 1 at commit 0818ff3 (configuration files) and phase 2 at
+  commit "Describe the control plane and the site in the README" (space,
+  invitation link and session from the control plane). Ten 50 ms bursts
+  of a 1 kHz tone, 600 ms apart, `--duration 8`; three runs per frame
+  size, alternating phase 1 and phase 2; sam echoes at 5 ms frames.
+- Measured: delay between the start of each burst in alex's input and the
+  start of its echo in alex's output (first sample above 0.05).
+
+| Alex's frames | First burst, phase 1 | First burst, phase 2 | Bursts 2 to 10, phase 1 | Bursts 2 to 10, phase 2 |
+| --- | --- | --- | --- | --- |
+| 2.5 ms | 20.0 ms | 20.0 ms | median 17.0 ms (16.5 to 18.5) | median 17.0 ms (16.5 to 17.5) |
+| 5 ms | 25.0 to 27.5 ms | 25.0 to 27.5 ms | median 21.5 ms (20.5 to 22.5) | median 22.0 ms (21.5 to 23.5) |
+| 10 ms | 35.0 to 37.5 ms | 37.5 ms | median 32.0 ms (31.5 to 33.0) | median 32.0 ms (31.5 to 33.5) |
+
+The medians agree within 0.5 ms, less than the run-to-run spread of the
+file devices' sleeps. On this software path, phase 2 is within 1 ms of
+phase 1; the physical measurement of the exit criterion is still to do.
+
 ## 2026-10-27 — what Core Audio reports on the development Mac
 
 Reported by the OS through `drywire-cli devices`, not measured. Built-in

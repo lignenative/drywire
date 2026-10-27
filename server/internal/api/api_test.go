@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -157,6 +158,9 @@ func (c *client) must(want int, method, path string, body, out any) {
 
 func (c *client) login() *client {
 	c.h.t.Helper()
+	// Every test client shares 127.0.0.1, and logins spend its rate
+	// budget: a second lets it refill.
+	c.h.clock.advance(time.Second)
 	var ch struct {
 		Challenge string `json:"challenge"`
 	}
@@ -427,5 +431,33 @@ func TestTheClientAddressComesFromATrustedProxyOnly(t *testing.T) {
 	s.cfg.TrustProxy = true
 	if got := s.clientIP(r).String(); got != "198.51.100.7" {
 		t.Fatalf("trusted: %s (the last entry is the one the proxy wrote)", got)
+	}
+	// From a peer that is not this machine, the header is a forgery.
+	r.RemoteAddr = "192.0.2.4:5000"
+	if got := s.clientIP(r).String(); got != "192.0.2.4" {
+		t.Fatalf("remote peer: %s", got)
+	}
+}
+
+func TestIPv6ClientsAreCountedPerSlash64(t *testing.T) {
+	a := rateKey(netip.MustParseAddr("2001:db8:1:2:aaaa::1"))
+	b := rateKey(netip.MustParseAddr("2001:db8:1:2:bbbb::9"))
+	c := rateKey(netip.MustParseAddr("2001:db8:1:3::1"))
+	if a != b || a == c {
+		t.Fatalf("%v %v %v", a, b, c)
+	}
+	if v4 := netip.MustParseAddr("192.0.2.1"); rateKey(v4) != v4 {
+		t.Fatal("IPv4 is counted per address")
+	}
+}
+
+func TestLoginsArePacedHarder(t *testing.T) {
+	h := newHarness(t, Config{})
+	c := h.client(1)
+	for range ipBurst / loginCost {
+		c.must(200, "POST", "/v1/auth/challenge", nil, nil)
+	}
+	if status := c.do("POST", "/v1/auth/challenge", nil, nil); status != http.StatusTooManyRequests {
+		t.Fatalf("challenge over the budget: %d", status)
 	}
 }

@@ -35,6 +35,11 @@ const (
 
 	// maxChallenges bounds the memory unanswered challenges can take.
 	maxChallenges = 10_000
+	// maxTokens bounds the valid tokens, and tokensPerKey those of one
+	// identity: logging in again drops its oldest token. Anyone can log in
+	// with a fresh key, so neither may grow without limit.
+	maxTokens     = 100_000
+	tokensPerKey  = 4
 	sweepInterval = 10 * time.Second
 )
 
@@ -116,6 +121,7 @@ type Auth struct {
 
 type token struct {
 	key     store.Key
+	issued  time.Time
 	expires time.Time
 }
 
@@ -165,11 +171,16 @@ func (a *Auth) Login(key store.Key, challenge [ChallengeSize]byte, signature []b
 		!ed25519.Verify(ed25519.PublicKey(key[:]), LoginMessage(challenge, a.audience), signature) {
 		return "", time.Time{}, ErrDenied
 	}
+	a.sweep(now)
+	a.dropOldest(key)
+	if len(a.tokens) >= maxTokens {
+		return "", time.Time{}, ErrBusy
+	}
 	var raw [32]byte
 	rand.Read(raw[:])
 	t := hex.EncodeToString(raw[:])
 	until := now.Add(TokenLifetime)
-	a.tokens[sha256.Sum256([]byte(t))] = token{key: key, expires: until}
+	a.tokens[sha256.Sum256([]byte(t))] = token{key: key, issued: now, expires: until}
 	return t, until, nil
 }
 
@@ -182,6 +193,29 @@ func (a *Auth) Check(t string) (store.Key, bool) {
 		return store.Key{}, false
 	}
 	return tok.key, true
+}
+
+// dropOldest makes room for one more token of key, ending its oldest
+// tokens beyond tokensPerKey - 1.
+func (a *Auth) dropOldest(key store.Key) {
+	for {
+		var oldest [sha256.Size]byte
+		count := 0
+		var at time.Time
+		for h, tok := range a.tokens {
+			if tok.key != key {
+				continue
+			}
+			count++
+			if at.IsZero() || tok.issued.Before(at) {
+				oldest, at = h, tok.issued
+			}
+		}
+		if count < tokensPerKey {
+			return
+		}
+		delete(a.tokens, oldest)
+	}
 }
 
 // Revoke ends every token of an identity, when it is deleted.
