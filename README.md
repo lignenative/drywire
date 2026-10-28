@@ -43,11 +43,12 @@ The full design, its reasons and the roadmap are in
 | `core/` | The Rust core shared by every client, the control plane client, and `drywire-cli` ([`core/README.md`](core/README.md)) |
 | `site/` | The static site: for now, the invitation page ([`site/README.md`](site/README.md)) |
 | `docs/` | The specification, the protocol, and decision records (`docs/adr/`) |
+| `deploy/` | Running a real instance: image, Compose, systemd unit, deployment guide ([`deploy/README.md`](deploy/README.md)) |
 | `scripts/` | The scripts behind every `make` command |
 | `Makefile` | Entry point for every command; `make help` lists them |
 | `.github/` | Continuous integration: Linux, macOS and Windows builds and tests, license checks |
 
-More directories (`apps/`, `deploy/`) appear as each phase starts.
+More directories (`apps/`) appear as each phase starts.
 The target layout is in section 12 of the specification.
 
 ## Getting started
@@ -76,6 +77,10 @@ make bench     # replay simulated network traces against the jitter buffer
 create a space. Check it with `curl http://127.0.0.1:10050/v1/status`, then
 create a space and an invitation link with `drywire-cli` (see
 [`server/README.md`](server/README.md)).
+
+To run a real instance for your team, behind TLS, see
+[`deploy/README.md`](deploy/README.md): `make deploy`, `make status`,
+`make logs`, `make backup` and `make restore` operate it over SSH.
 
 Local ports follow a fixed block, bound to `127.0.0.1` only:
 

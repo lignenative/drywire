@@ -85,6 +85,8 @@ make dev      # run the relay on 127.0.0.1:10050
 make live     # live call on this Mac: you, an echo bot, a local relay
 make vectors  # regenerate core/drywire-proto/vectors/ after a wire format change
 make bench    # replay simulated network traces against the jitter buffer
+make deploy   # build the server, send it to HOST (.env), start it: deploy/README.md
+make status   # make logs, make backup, make restore: operate that instance
 ```
 
 `make test` must pass before every commit.

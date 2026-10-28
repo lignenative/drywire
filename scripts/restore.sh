@@ -16,6 +16,10 @@ command -v age >/dev/null 2>&1 ||
 	fail "age is not installed (https://age-encryption.org): brew install age, or apt install age"
 [ -n "${BACKUP_IDENTITY:-}" ] ||
 	fail "BACKUP_IDENTITY is not set in .env: the age identity file that decrypts the backups; see deploy/README.md, \"Backups\""
+# make passes .env's values as written: expand a leading ~ here.
+case $BACKUP_IDENTITY in
+"~/"*) BACKUP_IDENTITY=$HOME/${BACKUP_IDENTITY#"~/"} ;;
+esac
 [ -r "$BACKUP_IDENTITY" ] || fail "cannot read BACKUP_IDENTITY ($BACKUP_IDENTITY)"
 
 file=${FILE:-}

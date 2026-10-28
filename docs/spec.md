@@ -619,9 +619,14 @@ help` lists them.
   pulls from GitHub.
 - Drywire owns `/srv/drywire` on the host and touches nothing else, so it
   can share a server with other services.
+- The container runs on the host's network, so that nothing sits between
+  the relay and the network (ADR 0026).
 - The control plane listens on a local port behind the host's reverse proxy,
   which terminates TLS. The UDP port is opened in the host firewall and, if
   any, the provider's firewall.
+- Backups are snapshots taken while the server runs and encrypted with age
+  on the operator's machine (ADR 0025, ADR 0026). The guide is
+  `deploy/README.md`.
 
 ## 14. Phases and exit criteria
 
