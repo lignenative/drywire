@@ -695,7 +695,7 @@ impl CoreAudio {
     }
 
     /// Starts playback alone, on the default output device. [`AudioIo::start`]
-    /// calls it; `drywire-cli devices --play-silence` uses it to check the
+    /// calls it; `drywire devices --play-silence` uses it to check the
     /// output path without opening the microphone.
     pub fn start_output(&mut self, callback: OutputCallback) -> Result<StreamInfo, AudioError> {
         if self.output_unit.is_some() {

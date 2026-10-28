@@ -638,7 +638,7 @@ phase ends on a measurable criterion.
    chain, and the network paths (`mtr` to the relay from each player's
    connection). **Exit**: results in `docs/baseline.md`.
 1. **Low-level prototype.** UDP relay with rooms and the authenticated
-   `hello` from a config file (ADR 0004), Rust core, `drywire-cli` on Windows
+   `hello` from a config file (ADR 0004), Rust core, `drywire` on Windows
    and macOS, all three frame sizes, voice gate, `drywire-bench`. Audio is
    encrypted end to end from the start, with keys from a config file
    (ADR 0006). **Exit**: two CLIs talk through the relay with a median below

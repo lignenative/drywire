@@ -167,7 +167,7 @@ impl Home {
                  an invitation link (join --link)"
                     .into(),
             ),
-            ([], Some(w)) => Err(format!("no space named {w:?}: see `drywire-cli spaces`")),
+            ([], Some(w)) => Err(format!("no space named {w:?}: see `drywire spaces`")),
             (_, _) => Err("several spaces match: name one with --space (its name or id)".into()),
         }
     }

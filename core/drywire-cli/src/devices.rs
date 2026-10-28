@@ -1,4 +1,4 @@
-//! `drywire-cli devices`: what the default audio devices report. No sound
+//! `drywire devices`: what the default audio devices report. No sound
 //! plays. On macOS no stream is opened, so macOS does not ask for the
 //! microphone. On Windows each stream is initialized as `join` would, read
 //! and released without starting: WASAPI only reports periods and

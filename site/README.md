@@ -11,7 +11,7 @@ Every invitation link points here, whichever instance it is for:
 `https://drywire.gg/i#<payload>` (protocol section 14). The page reads the
 fragment in the browser, shows which instance the invitation is for, and
 offers to open it in the Drywire app (`drywire://i#…`) or with
-`drywire-cli join --link`.
+`drywire join --link`.
 
 What it never does, and how that is enforced:
 

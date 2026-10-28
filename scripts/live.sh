@@ -10,7 +10,7 @@
 # with speakers, the bot's echo reaches the microphone again and loops.
 #
 # macOS asks once for microphone access for your terminal. Extra arguments
-# go to drywire-cli join, for example: make live ARGS="--frame 2.5".
+# go to drywire join, for example: make live ARGS="--frame 2.5".
 # Ctrl-C stops everything.
 set -eu
 
@@ -19,10 +19,10 @@ PATH="$PATH:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin"
 root=$(pwd)
 mkdir -p .dev
 
-echo "==> building the relay and drywire-cli (release)"
+echo "==> building the relay and drywire (release)"
 (cd server && go build -o "$root/.dev/drywire-server" ./cmd/drywire-server)
 (cd core && cargo build --release -p drywire-cli)
-cli="$root/core/target/release/drywire-cli"
+cli="$root/core/target/release/drywire"
 # Fresh state for every run: this directory belongs to this script.
 live="$root/.dev/live"
 rm -rf "$live"

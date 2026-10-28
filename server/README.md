@@ -82,9 +82,9 @@ cargo run -p drywire-cli -- invite      # prints an https://drywire.gg/i#… lin
 cargo run -p drywire-cli -- join        # talk
 ```
 
-Someone else joins with `drywire-cli join --link '<link>'`. On a real
+Someone else joins with `drywire join --link '<link>'`. On a real
 instance, only the identities listed in `DRYWIRE_SPACE_CREATORS` create
-spaces: `drywire-cli identity` prints a device's key.
+spaces: `drywire identity` prints a device's key.
 
 ## Code
 

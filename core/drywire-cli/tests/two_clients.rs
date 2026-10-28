@@ -1,4 +1,4 @@
-//! Two `drywire-cli` processes talk through the real server, headless: WAV
+//! Two `drywire` processes talk through the real server, headless: WAV
 //! files instead of a microphone and speakers, so no test ever opens a
 //! sound card or asks for microphone permission.
 //!
@@ -31,7 +31,7 @@ const TONES: [f32; 3] = [440.0, 660.0, 990.0];
 const BURST_MS: usize = 300;
 
 fn cli(args: &[&str]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_drywire-cli"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_drywire"));
     command
         .args(args)
         .stdout(Stdio::piped())

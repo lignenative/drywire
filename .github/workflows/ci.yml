@@ -43,7 +43,7 @@ jobs:
 
   # The real Windows build: libopus with MSVC and CMake, the WASAPI
   # backend linked, and the tests run. A hosted runner has no sound card,
-  # so `drywire-cli devices` only shows that WASAPI answers without
+  # so `drywire devices` only shows that WASAPI answers without
   # crashing; its output is informative, not checked. The release
   # binaries are kept as a workflow artifact, "drywire-windows", to
   # download from the run's page and try on a Windows PC.
@@ -68,10 +68,10 @@ jobs:
       - name: cargo build --release -p drywire-cli
         working-directory: core
         run: cargo build --release -p drywire-cli
-      - name: drywire-cli devices
+      - name: drywire devices
         working-directory: core
         continue-on-error: true
-        run: .\target\release\drywire-cli.exe devices
+        run: .\target\release\drywire.exe devices
       - name: go build drywire-server
         working-directory: server
         run: go build -o drywire-server.exe ./cmd/drywire-server
@@ -79,7 +79,7 @@ jobs:
         with:
           name: drywire-windows
           path: |
-            core/target/release/drywire-cli.exe
+            core/target/release/drywire.exe
             server/drywire-server.exe
           if-no-files-found: error
 

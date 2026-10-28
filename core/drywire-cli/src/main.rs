@@ -1,4 +1,4 @@
-//! `drywire-cli`, the command-line client: it creates spaces and
+//! `drywire`, the command-line client: it creates spaces and
 //! invitation links on a Drywire instance, joins a room, captures, sends,
 //! receives, mixes and plays, and prints what the network and the jitter
 //! buffers are doing. See README.md.
@@ -12,7 +12,7 @@ mod join;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-Usage: drywire-cli <command> [options]
+Usage: drywire <command> [options]
 
 Commands:
   identity          Print this device's public key (made on first use)
@@ -103,8 +103,8 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
-            eprintln!("drywire-cli: {message}");
-            eprintln!("Run `drywire-cli help` for the options.");
+            eprintln!("drywire: {message}");
+            eprintln!("Run `drywire help` for the options.");
             ExitCode::FAILURE
         }
     }

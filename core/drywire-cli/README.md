@@ -1,8 +1,9 @@
 # drywire-cli
 
-The command-line client. It creates spaces and invitation links on a
-Drywire instance, joins a room, captures, sends, receives, mixes and plays,
-and prints every second what the network and the jitter buffers are doing.
+The `drywire` command, Drywire's command-line client. It creates spaces
+and invitation links on a Drywire instance, joins a room, captures, sends,
+receives, mixes and plays, and prints every second what the network and
+the jitter buffers are doing.
 It is how we measure Drywire before any app exists (spec section 14).
 
 ## Try it on one Mac
@@ -26,38 +27,38 @@ make live ARGS="--frame 2.5"
 ## A team on a real instance
 
 The owner of the space, once (their key must be in the instance's
-`DRYWIRE_SPACE_CREATORS`, see `drywire-cli identity`):
+`DRYWIRE_SPACE_CREATORS`, see `drywire identity`):
 
 ```sh
-drywire-cli create-space --instance https://voice.example.org --name Team --display-name alex
-drywire-cli invite --uses 5            # prints https://drywire.gg/i#…
+drywire create-space --instance https://voice.example.org --name Team --display-name alex
+drywire invite --uses 5            # prints https://drywire.gg/i#…
 ```
 
 Everyone else, with the link they were sent privately:
 
 ```sh
-drywire-cli join --link 'https://drywire.gg/i#…' --display-name sam
+drywire join --link 'https://drywire.gg/i#…' --display-name sam
 ```
 
-From then on, `drywire-cli join` is enough (`--space` and `--room` choose
+From then on, `drywire join` is enough (`--space` and `--room` choose
 when there are several). People who join or leave the room are added to or
 removed from the call as it runs.
 
 ## Commands
 
 ```sh
-drywire-cli identity                 # this device's public key
-drywire-cli create-space --instance URL --name NAME
-drywire-cli invite [--space NAME] [--uses N] [--days D]
-drywire-cli accept LINK              # become a member without joining yet
-drywire-cli spaces                   # the spaces this device knows
-drywire-cli join [--space NAME] [--room NAME] [--link LINK] [options]
-drywire-cli rename NAME              # your display name
-drywire-cli export                   # what the instances store about you
-drywire-cli leave-space [--space NAME]
-drywire-cli delete-identity          # delete yourself from the instances
-drywire-cli devices [--play-silence] # what the sound card gives
-drywire-cli help                     # every option
+drywire identity                 # this device's public key
+drywire create-space --instance URL --name NAME
+drywire invite [--space NAME] [--uses N] [--days D]
+drywire accept LINK              # become a member without joining yet
+drywire spaces                   # the spaces this device knows
+drywire join [--space NAME] [--room NAME] [--link LINK] [options]
+drywire rename NAME              # your display name
+drywire export                   # what the instances store about you
+drywire leave-space [--space NAME]
+drywire delete-identity          # delete yourself from the instances
+drywire devices [--play-silence] # what the sound card gives
+drywire help                     # every option
 ```
 
 `join` prints a line per second:
@@ -118,8 +119,8 @@ same headset. Playback keeps only one period queued (ADR 0015).
    ```powershell
    cd core
    cargo build --release -p drywire-cli
-   .\target\release\drywire-cli.exe devices
-   .\target\release\drywire-cli.exe join --link "https://drywire.gg/i#..." --display-name sam
+   .\target\release\drywire.exe devices
+   .\target\release\drywire.exe join --link "https://drywire.gg/i#..." --display-name sam
    ```
 
 3. Windows may ask to allow the program through the firewall: it only

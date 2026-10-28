@@ -12,7 +12,7 @@ and decoding, twice (there and back). Not covered: the sound card, the
 operating system's audio stack, a real network.
 
 - Setup: MacBook Pro (Apple silicon), macOS, one machine. Relay
-  `drywire-server` dev build on `127.0.0.1:10050`. Two `drywire-cli`
+  `drywire-server` dev build on `127.0.0.1:10050`. Two `drywire`
   release builds in file mode (`make live` with
   `ARGS="--input click.wav --output echo.wav --frame F"`): alex sends
   50 ms tone bursts at frame size F, sam is the echo bot at 5 ms frames.
@@ -94,7 +94,7 @@ phase 1; the physical measurement of the exit criterion is still to do.
 
 ## 2026-10-27 — what Core Audio reports on the development Mac
 
-Reported by the OS through `drywire-cli devices`, not measured. Built-in
+Reported by the OS through `drywire devices`, not measured. Built-in
 devices of a MacBook Pro (Apple silicon), 48 kHz.
 
 | Device | Smallest buffer | Reported latency beyond the buffer |

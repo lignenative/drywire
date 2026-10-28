@@ -46,7 +46,7 @@ pub fn create_space(args: Account) -> Result<(), String> {
         &space_key,
     ))?;
     println!(
-        "Created {} on {} with the room {}. Invite people with: drywire-cli invite --space {:?}",
+        "Created {} on {} with the room {}. Invite people with: drywire invite --space {:?}",
         printable(&view.space.name),
         client.instance(),
         printable(&view.rooms[0].name),
@@ -97,7 +97,7 @@ pub fn accept(args: Account) -> Result<(), String> {
     let link = args.value.unwrap_or_default();
     let space = accept_link(&home, &link, &args.display_name)?;
     println!(
-        "You are a member of {} on {}. Talk with: drywire-cli join --space {:?}",
+        "You are a member of {} on {}. Talk with: drywire join --space {:?}",
         space.name, space.instance, space.name
     );
     Ok(())

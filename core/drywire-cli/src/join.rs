@@ -1,4 +1,4 @@
-//! `drywire-cli join`: one client in a call, on the sound card or on files.
+//! `drywire join`: one client in a call, on the sound card or on files.
 //!
 //! It asks the control plane for a session in a room, starts the call on
 //! the relay it names, and follows the space's events: members who join

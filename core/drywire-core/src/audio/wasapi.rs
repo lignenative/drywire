@@ -8,7 +8,7 @@
 //!   it got is reported.
 //! - **Playback** stays in **shared mode**, because the game plays on the
 //!   same headset, with the smallest period `IAudioClient3` offers, which
-//!   the device reports and `drywire-cli devices` shows. Each wake-up tops
+//!   the device reports and `drywire devices` shows. Each wake-up tops
 //!   the queue up to **one period**, never the whole buffer (ADR 0015).
 //!
 //! Both streams ask for the raw signal path (`AUDCLNT_STREAMOPTIONS_RAW`),

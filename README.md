@@ -40,7 +40,7 @@ The full design, its reasons and the roadmap are in
 | Path | What it holds |
 | --- | --- |
 | `server/` | The Go relay and control plane ([`server/README.md`](server/README.md)) |
-| `core/` | The Rust core shared by every client, the control plane client, and `drywire-cli` ([`core/README.md`](core/README.md)) |
+| `core/` | The Rust core shared by every client, the control plane client, and `drywire` ([`core/README.md`](core/README.md)) |
 | `site/` | The static site: for now, the invitation page ([`site/README.md`](site/README.md)) |
 | `docs/` | The specification, the protocol, and decision records (`docs/adr/`) |
 | `deploy/` | Running a real instance: image, Compose, systemd unit, deployment guide ([`deploy/README.md`](deploy/README.md)) |
@@ -75,7 +75,7 @@ make bench     # replay simulated network traces against the jitter buffer
 
 `make dev` needs no setup: it keeps its database in `.dev/` and lets anyone
 create a space. Check it with `curl http://127.0.0.1:10050/v1/status`, then
-create a space and an invitation link with `drywire-cli` (see
+create a space and an invitation link with `drywire` (see
 [`server/README.md`](server/README.md)).
 
 To run a real instance for your team, behind TLS, see

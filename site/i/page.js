@@ -61,7 +61,7 @@ if (result.error) {
   $("open").textContent = text.open;
   $("open").href = "drywire://i#" + fragment;
   $("cli").textContent = text.cli;
-  $("command").textContent = "drywire-cli join --link '" + link + "'";
+  $("command").textContent = "drywire join --link '" + link + "'";
   $("copy").textContent = text.copy;
   $("copy").addEventListener("click", async () => {
     await navigator.clipboard.writeText($("command").textContent);

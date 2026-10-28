@@ -38,7 +38,7 @@ On **the host**:
 
 On **your machine**: Go (the version in `server/go.mod`), rsync, curl, and
 [age](https://age-encryption.org) for the backups (`brew install age`, or
-`apt install age`). `drywire-cli` to create the first space: see
+`apt install age`). `drywire` to create the first space: see
 [`core/drywire-cli/README.md`](../core/drywire-cli/README.md).
 
 ## First deployment
@@ -64,7 +64,7 @@ On **your machine**: Go (the version in `server/go.mod`), rsync, curl, and
    DRYWIRE_SPACE_CREATORS=<your key>
    ```
 
-   Your key is what `drywire-cli identity` prints on the device you will
+   Your key is what `drywire identity` prints on the device you will
    create the first space from. Only the keys listed here can create
    spaces; anyone you invite can still join.
 
@@ -239,8 +239,8 @@ anyone.
 From the device whose key is in `DRYWIRE_SPACE_CREATORS`:
 
 ```sh
-drywire-cli create-space --instance https://voice.example.org --name Team --display-name alex
-drywire-cli invite --uses 5 --days 7
+drywire create-space --instance https://voice.example.org --name Team --display-name alex
+drywire invite --uses 5 --days 7
 ```
 
 `invite` prints a link (`https://drywire.gg/i#…`). The part after `#`
@@ -248,10 +248,10 @@ holds the space's key: the server never sees it, so share the link
 privately. Each teammate then joins and talks with:
 
 ```sh
-drywire-cli join --link '<the link>' --display-name sam
+drywire join --link '<the link>' --display-name sam
 ```
 
-Later, `drywire-cli join` alone takes them back to the space. `make status`
+Later, `drywire join` alone takes them back to the space. `make status`
 shows the rooms in use and the packet counters.
 
 ## Updating
@@ -402,7 +402,7 @@ cd .dev/try && docker compose -f compose.yaml -f compose.local.yaml up --build -
 curl http://127.0.0.1:10050/v1/status
 ```
 
-(`GOARCH=amd64` on an Intel machine.) Then use `drywire-cli` with
+(`GOARCH=amd64` on an Intel machine.) Then use `drywire` with
 `--instance http://127.0.0.1:10050` as with `make dev`, and finish with
 `docker compose -f compose.yaml -f compose.local.yaml down -v`.
 

@@ -2,7 +2,7 @@
 
 The Rust workspace shared by every Drywire client: the wire protocol, the
 end-to-end encryption, Opus, the voice gate and the jitter buffer. Native
-apps link it; `drywire-cli` is the first program built on it.
+apps link it; `drywire` is the first program built on it.
 Section 6 of [`docs/spec.md`](../docs/spec.md) says where it is going.
 
 | Crate | What it does |
@@ -10,7 +10,7 @@ Section 6 of [`docs/spec.md`](../docs/spec.md) says where it is going.
 | [`drywire-proto`](drywire-proto/) | Packets, key derivation, AES-GCM, signed announcements, replay window; the control plane login message and invitation links. No I/O, no clock. |
 | [`drywire-core`](drywire-core/) | Opus (libopus, CELT only), the voice gate, the jitter buffer, and the client pipeline built on them: call parameters, sender, receiver, mixer, relay link; the audio I/O trait with the Core Audio and WASAPI backends; a call wired to a UDP socket. |
 | [`drywire-control`](drywire-control/) | The control plane client: login with the device's identity, spaces, invitations, joining a room, presence events (HTTPS through ureq and rustls). |
-| [`drywire-cli`](drywire-cli/) | The command-line client: creates spaces and invitation links, joins a room, talks, prints the statistics; WAV files instead of a sound card for headless tests. |
+| [`drywire-cli`](drywire-cli/) | The `drywire` command-line client: creates spaces and invitation links, joins a room, talks, prints the statistics; WAV files instead of a sound card for headless tests. |
 | [`drywire-bench`](drywire-bench/) | Replays simulated network traces against the jitter buffer (`make bench`); its regression test runs in `make test`. |
 
 ## Run the tests
