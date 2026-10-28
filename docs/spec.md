@@ -540,8 +540,8 @@ drywire/
     drywire-bench/    Network simulation, latency measurement
     drywire-control/  Control plane client: login, spaces, invitations, presence
     drywire-cli/      Command-line client
+  desktop/            Tauri v2 + React (Windows, Linux), ADR 0030
   apps/
-    desktop/          Tauri v2 + React (Windows, Linux)
     apple/            SwiftUI (iOS, macOS)
     android/          Kotlin + Compose
     web/              Web client

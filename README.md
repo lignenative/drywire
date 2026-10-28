@@ -8,10 +8,11 @@ forwards packets without being able to read them.
 
 It is voice only: no text chat, no video, no screen sharing.
 
-> **Status: early development.** Phase 1 (the low-level prototype) is built
-> and phase 2 (identities, spaces, invitation links) is under way, both on
-> the command line. There is no app to install yet. Every latency figure in
-> the docs is a hypothesis until a measurement replaces it.
+> **Status: early development.** Phases 1 and 2 (the low-level prototype,
+> then identities, spaces and invitation links) are built, on the command
+> line. Phase 3, the Windows app, is under way in `desktop/`; there is no
+> release to install yet. Every latency figure in the docs is a hypothesis
+> until a measurement replaces it.
 
 ## How it works
 
@@ -41,6 +42,7 @@ The full design, its reasons and the roadmap are in
 | --- | --- |
 | `server/` | The Go relay and control plane ([`server/README.md`](server/README.md)) |
 | `core/` | The Rust core shared by every client, the control plane client, and `drywire` ([`core/README.md`](core/README.md)) |
+| `desktop/` | The desktop app for Windows: Tauri v2 and React ([`desktop/README.md`](desktop/README.md)) |
 | `site/` | The static site: for now, the invitation page ([`site/README.md`](site/README.md)) |
 | `docs/` | The specification, the protocol, and decision records (`docs/adr/`) |
 | `deploy/` | Running a real instance: image, Compose, systemd unit, deployment guide ([`deploy/README.md`](deploy/README.md)) |
@@ -48,7 +50,8 @@ The full design, its reasons and the roadmap are in
 | `Makefile` | Entry point for every command; `make help` lists them |
 | `.github/` | Continuous integration: Linux, macOS and Windows builds and tests, license checks |
 
-More directories (`apps/`) appear as each phase starts.
+More directories (`apps/` for the mobile and web clients) appear as each
+phase starts.
 The target layout is in section 12 of the specification.
 
 ## Getting started

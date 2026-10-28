@@ -1,0 +1,3 @@
+# Bun's installs and Vite's build output.
+node_modules/
+dist/

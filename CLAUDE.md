@@ -33,7 +33,10 @@ fixed in the same change.
 - Rust core: every new crate is checked against the list above; `cargo deny`
   (`core/deny.toml`) enforces it in CI, and in `make test` when installed.
 - JavaScript: Bun is the package manager, script runner and test runner.
-  Node.js is not used.
+  Node.js is not used. `scripts/js-licenses.ts` checks the license of
+  every installed package, in CI and in `make test`.
+- The desktop app's Rust crate (`desktop/src-tauri/`) is a workspace of
+  its own with its own `deny.toml` (ADR 0030).
 
 ## Conventions
 
@@ -71,7 +74,7 @@ silently to another port. Each one can be moved with an environment variable.
 | --- | --- | --- |
 | 10050/tcp | Server HTTP API | `DRYWIRE_HTTP_ADDR` |
 | 10050/udp | Relay | `DRYWIRE_UDP_ADDR` |
-| 10051 | Vite dev server, desktop UI (later) | `DEV_PORT` |
+| 10051 | Vite dev server, desktop UI | `DEV_PORT` |
 | 10052 | Project site preview (later) | `SITE_PORT` |
 | 10057 | Vite dev server, web client (later) | `WEB_PORT` |
 
@@ -81,10 +84,12 @@ The Makefile is thin: each target calls a script in `scripts/`.
 
 ```sh
 make help     # list the commands
-make test     # gofmt, go vet, go test -race, go-licenses; cargo fmt, clippy, test; Windows clippy; cargo deny
+make test     # gofmt, go vet, go test -race, go-licenses; cargo fmt, clippy, test; Windows clippy; cargo deny;
+              # desktop: typecheck, bun test, JS licenses, then cargo fmt, clippy, test, deny
 make fmt      # gofmt and cargo fmt
 make dev      # run the relay on 127.0.0.1:10050
 make live     # live call on this Mac: you, an echo bot, a local relay
+make desktop  # the desktop app in development: Vite on 127.0.0.1:10051
 make vectors  # regenerate core/drywire-proto/vectors/ after a wire format change
 make bench    # replay simulated network traces against the jitter buffer
 make deploy   # build the server, send it to HOST (.env), start it: deploy/README.md

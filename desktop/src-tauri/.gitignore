@@ -1,0 +1,3 @@
+# Cargo's output, and the schemas Tauri generates at every build.
+/target/
+/gen/schemas/

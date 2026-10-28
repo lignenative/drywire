@@ -1,0 +1,124 @@
+//! The whole app, without its window, against the real server: what the
+//! interface does when someone pastes an invitation link, lists their
+//! spaces, joins a room and leaves.
+//!
+//! Sound cards are replaced by in-memory devices (`FileIo`), so no test
+//! opens a real one or asks for the microphone.
+
+#[path = "../../../core/testsupport/relay.rs"]
+mod relay;
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use drywire_control::Client;
+use drywire_core::audio::AudioIo;
+use drywire_core::audio::file::{FileIo, Source};
+use drywire_desktop::app::{Desktop, Devices};
+use drywire_desktop::session::CallView;
+use drywire_desktop::store::Store;
+use drywire_proto::crypto::SigningKey;
+use relay::Relay;
+
+/// A device that plays nothing and records nothing worth keeping.
+fn quiet_devices() -> Devices {
+    Arc::new(|| {
+        Box::new(|| {
+            Ok(Box::new(FileIo::new(Source::Samples(Vec::new()), 120, None)) as Box<dyn AudioIo>)
+        })
+    })
+}
+
+fn temp_dir(name: &str) -> PathBuf {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("desktop-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+fn desktop(name: &str) -> Desktop {
+    Desktop::new(Store::open(&temp_dir(name)).unwrap(), quiet_devices())
+}
+
+/// Polls the call until `done` says so, or fails after five seconds.
+fn wait_for(desktop: &Desktop, what: &str, done: impl Fn(&CallView) -> bool) -> CallView {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let view = desktop.call().expect("in a call");
+        if done(&view) {
+            return view;
+        }
+        assert!(Instant::now() < deadline, "{what}: {view:#?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn names(view: &CallView) -> Vec<&str> {
+    view.participants.iter().map(|p| p.name.as_str()).collect()
+}
+
+#[test]
+fn members_join_by_link_and_meet_in_a_room() {
+    let relay = Relay::start();
+    let space_key = [0x5a; 32];
+
+    // The owner made a space with another tool, and invites two people.
+    let owner = Client::new(&relay.instance(), SigningKey::from_bytes(&[0xa1; 32])).unwrap();
+    let space = owner.create_space("Team", "general", "owner").unwrap();
+    let link = || {
+        let (invitation, _) = owner
+            .invite(&space.space.id, &space_key, None, Some(1))
+            .unwrap();
+        invitation.to_link()
+    };
+
+    // Sam's app: a device key, then the link.
+    let sam = desktop("sam");
+    let key = sam.public_key().unwrap();
+    assert_eq!(key.len(), 64);
+    assert_eq!(sam.public_key().unwrap(), key, "the identity is kept");
+    let err = sam
+        .accept("https://voice.example.org/i/#nope", "sam")
+        .unwrap_err();
+    assert_eq!(err.code, "invalid_link");
+    let accepted = sam.accept(&link(), "sam").unwrap();
+    assert_eq!(accepted.name, "Team");
+
+    let spaces = sam.spaces().unwrap();
+    assert_eq!(spaces.len(), 1);
+    assert_eq!(spaces[0].role, "member");
+    assert!(spaces[0].error.is_none());
+    let (instance, space_id) = (&spaces[0].instance, &spaces[0].id);
+    let room = spaces[0].rooms[0].clone();
+    assert_eq!(room.name, "general");
+
+    // Sam joins first, alone.
+    let view = sam.join(instance, space_id, &room.id).unwrap();
+    assert_eq!(view.room_name, "general");
+    assert_eq!(names(&view), ["sam"]);
+    assert!(view.participants[0].me);
+    assert_eq!(view.devices.len(), 2, "both streams are shown");
+    wait_for(&sam, "the relay answers pings", |v| {
+        v.bound && v.rtt_ms.is_some()
+    });
+
+    // Alex's app joins the same room: each sees the other.
+    let alex = desktop("alex");
+    alex.accept(&link(), "alex").unwrap();
+    alex.join(instance, space_id, &room.id).unwrap();
+    let view = wait_for(&sam, "alex arrives", |v| v.participants.len() == 2);
+    assert_eq!(names(&view), ["sam", "alex"], "this device first");
+    let view = wait_for(&alex, "alex sees sam", |v| v.participants.len() == 2);
+    assert_eq!(names(&view), ["alex", "sam"]);
+
+    // Alex leaves: Sam sees them go.
+    alex.leave();
+    assert!(alex.call().is_none());
+    wait_for(&sam, "alex leaves", |v| v.participants.len() == 1);
+
+    sam.leave();
+    assert!(sam.call().is_none());
+    let status = relay.status();
+    assert_eq!(status["sessions"], 0, "both sessions were freed: {status}");
+}

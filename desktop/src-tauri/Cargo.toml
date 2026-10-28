@@ -1,0 +1,56 @@
+# The desktop app's Rust side: Tauri v2 around drywire-core and
+# drywire-control. A workspace of its own, apart from core/ (ADR 0030).
+[package]
+name = "drywire-desktop"
+description = "Drywire's desktop app for Windows, and later Linux"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/lignenative/drywire"
+publish = false
+
+# Never `drywire`: that is the command-line client's binary (ADR 0029).
+# Only the product name and the installer say "Drywire".
+[[bin]]
+name = "drywire-desktop"
+path = "src/main.rs"
+
+# Everything but the window lives in the library, so the integration
+# tests drive the app without a window.
+[lib]
+name = "drywire_desktop"
+path = "src/lib.rs"
+
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+# Every dependency is checked against the allowed licenses in CLAUDE.md
+# (cargo deny, deny.toml). Versions are pinned to a minor release.
+[dependencies]
+# With libopus built from source, as the CLI does (ADR 0009).
+drywire-core = { path = "../../core/drywire-core" }
+drywire-control = { path = "../../core/drywire-control" }
+drywire-proto = { path = "../../core/drywire-proto" }
+getrandom = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2.12", features = [] }
+
+# Windows only: DPAPI protects the identity and the space keys (ADR 0031).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+] }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[dev-dependencies]
+# The integration tests start the real server (core/testsupport/relay.rs).
+serde_json = "1.0"

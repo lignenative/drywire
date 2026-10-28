@@ -84,3 +84,35 @@ if [ -f "$root/scripts/js-licenses.test.ts" ]; then
 		echo "note: scripts tests skipped; install Bun (https://bun.sh)"
 	fi
 fi
+
+if [ -f "$root/desktop/package.json" ]; then
+	echo "==> desktop (Bun)"
+	cd "$root/desktop"
+	if has_bun; then
+		PATH="$PATH:$HOME/.bun/bin"
+		bun install --frozen-lockfile
+		bun run typecheck
+		bun test
+		# The licenses of every JavaScript package installed (CLAUDE.md).
+		cd "$root"
+		bun scripts/js-licenses.ts desktop
+	else
+		echo "note: desktop interface skipped; install Bun (https://bun.sh)"
+	fi
+
+	# The Tauri crate is a workspace of its own (ADR 0030). On Linux it
+	# needs the WebKitGTK headers (desktop/README.md).
+	cd "$root/desktop/src-tauri"
+	if [ "$(uname -s)" = Linux ] && ! pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
+		echo "note: desktop app skipped; install libwebkit2gtk-4.1-dev (desktop/README.md)"
+	else
+		echo "==> desktop (Rust)"
+		cargo fmt --check
+		cargo clippy --all-targets -- -D warnings
+		cargo test
+		if command -v cargo-deny >/dev/null 2>&1; then
+			echo "==> desktop (cargo deny)"
+			cargo deny --log-level error check licenses bans sources
+		fi
+	fi
+fi

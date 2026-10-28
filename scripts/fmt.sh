@@ -19,3 +19,9 @@ if [ -f "$root/core/Cargo.toml" ]; then
 	cd "$root/core"
 	cargo fmt
 fi
+
+if [ -f "$root/desktop/src-tauri/Cargo.toml" ]; then
+	echo "==> desktop (cargo fmt)"
+	cd "$root/desktop/src-tauri"
+	cargo fmt
+fi

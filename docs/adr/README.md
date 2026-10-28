@@ -47,3 +47,5 @@ Status: Accepted · YYYY-MM-DD
 | [0027](0027-let-a-proxy-on-a-private-network-reach-the-control-plane.md) | Let a proxy on a private network reach the control plane |
 | [0028](0028-serve-the-relay-on-udp-30050-in-production.md) | Serve the relay on UDP 30050 in production |
 | [0029](0029-name-the-command-line-client-drywire.md) | Name the command-line client `drywire` |
+| [0030](0030-build-the-desktop-app-in-its-own-cargo-workspace.md) | Build the desktop app in its own Cargo workspace |
+| [0031](0031-protect-the-desktop-identity-with-dpapi.md) | Protect the desktop app's identity with DPAPI |

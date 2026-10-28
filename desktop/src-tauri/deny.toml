@@ -1,0 +1,53 @@
+# cargo-deny configuration for the desktop app: the license rules of
+# CLAUDE.md, the same as core/deny.toml, on every crate Tauri pulls in,
+# for the systems the app is built for. Run `cargo deny check` from
+# desktop/src-tauri/ (make test and CI do).
+
+[graph]
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
+
+[licenses]
+# CLAUDE.md, "Dependencies and licenses". A crate offering a choice
+# ("MIT OR Apache-2.0 OR LGPL-2.1-or-later") passes when one of its
+# options is on this list.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.9
+# Apache 2.0 with LLVM's exception, which only adds a permission (no
+# attribution needed in compiled code). target-lexicon reaches the
+# build of the Linux GTK bindings through system-deps; ADR 0030.
+exceptions = [
+    { allow = ["Apache-2.0 WITH LLVM-exception"], crate = "target-lexicon" },
+]
+
+[licenses.private]
+# Our own crates are MIT and never published.
+ignore = true
+
+[bans]
+# Tauri brings several versions of some crates (windows-sys, for one);
+# they are reported, not refused.
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+[advisories]
+yanked = "deny"
