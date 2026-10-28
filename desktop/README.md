@@ -27,8 +27,13 @@ mobile ones it adds).
   device create spaces.
 - Accepts an invitation link, and lists the spaces it knows with their
   rooms.
-- Joins a room on the default sound card, shows who is there and the ping
-  to the relay, and leaves.
+- Joins a room on the default sound card, and leaves.
+- In a call, the compact widget (spec section 10): the instance and the
+  ping to the relay, the room, everyone in it with a speaking light, the
+  microphone's level meter with the voice gate's threshold on it, a mute
+  button, the gate's threshold, and each person's volume from 0 to 200 %,
+  with their jitter buffer and recent loss. The gate and the volumes are
+  remembered (`settings.json`, by public key for volumes); mute is not.
 
 The interface is in English and French; it follows the system's language
 and can be switched in the header.
@@ -106,3 +111,6 @@ run. What only a person on a Windows PC can check:
       teammate sees you go at once.
 - [ ] **Devices.** "Audio devices" shows WASAPI and small buffers; a
       Bluetooth headset is flagged.
+- [ ] **Widget.** The meter moves with your voice and turns green above the
+      gate's mark; muting stops your teammate hearing you within a word;
+      a teammate at 200 % is clearly louder, at 0 % silent.

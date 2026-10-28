@@ -15,19 +15,29 @@ use std::time::{Duration, Instant};
 use drywire_control::Client;
 use drywire_core::audio::AudioIo;
 use drywire_core::audio::file::{FileIo, Source};
+use drywire_core::opus::SAMPLE_RATE;
 use drywire_desktop::app::{Desktop, Devices};
 use drywire_desktop::session::CallView;
 use drywire_desktop::store::Store;
 use drywire_proto::crypto::SigningKey;
 use relay::Relay;
 
-/// A device that plays nothing and records nothing worth keeping.
-fn quiet_devices() -> Devices {
-    Arc::new(|| {
-        Box::new(|| {
-            Ok(Box::new(FileIo::new(Source::Samples(Vec::new()), 120, None)) as Box<dyn AudioIo>)
+/// Devices whose microphone hears `samples`, then silence.
+fn devices(samples: Vec<f32>) -> Devices {
+    Arc::new(move || {
+        let samples = samples.clone();
+        Box::new(move || {
+            Ok(Box::new(FileIo::new(Source::Samples(samples), 120, None)) as Box<dyn AudioIo>)
         })
     })
+}
+
+/// Ten seconds of a 440 Hz tone at −13.5 dBFS: someone talking.
+fn voice() -> Vec<f32> {
+    let rate = SAMPLE_RATE as f32;
+    (0..10 * SAMPLE_RATE as usize)
+        .map(|i| 0.3 * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / rate).sin())
+        .collect()
 }
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -37,8 +47,8 @@ fn temp_dir(name: &str) -> PathBuf {
     dir
 }
 
-fn desktop(name: &str) -> Desktop {
-    Desktop::new(Store::open(&temp_dir(name)).unwrap(), quiet_devices())
+fn desktop(name: &str, devices: Devices) -> Desktop {
+    Desktop::new(Store::open(&temp_dir(name)).unwrap(), devices)
 }
 
 /// Polls the call until `done` says so, or fails after five seconds.
@@ -74,7 +84,7 @@ fn members_join_by_link_and_meet_in_a_room() {
     };
 
     // Sam's app: a device key, then the link.
-    let sam = desktop("sam");
+    let sam = desktop("sam", devices(Vec::new()));
     let key = sam.public_key().unwrap();
     assert_eq!(key.len(), 64);
     assert_eq!(sam.public_key().unwrap(), key, "the identity is kept");
@@ -104,7 +114,7 @@ fn members_join_by_link_and_meet_in_a_room() {
     });
 
     // Alex's app joins the same room: each sees the other.
-    let alex = desktop("alex");
+    let alex = desktop("alex", devices(voice()));
     alex.accept(&link(), "alex").unwrap();
     alex.join(instance, space_id, &room.id).unwrap();
     let view = wait_for(&sam, "alex arrives", |v| v.participants.len() == 2);
@@ -112,13 +122,44 @@ fn members_join_by_link_and_meet_in_a_room() {
     let view = wait_for(&alex, "alex sees sam", |v| v.participants.len() == 2);
     assert_eq!(names(&view), ["alex", "sam"]);
 
+    // Alex talks: their meter moves, and Sam sees them speak.
+    wait_for(&alex, "alex's meter", |v| {
+        v.input_dbfs > -20.0 && v.participants[0].speaking
+    });
+    let view = wait_for(&sam, "sam hears alex", |v| v.participants[1].speaking);
+    let alex_key = view.participants[1].public_key.clone();
+
+    // Sam turns Alex up; Alex mutes, and Sam sees them stop.
+    sam.set_volume(&alex_key, 1.5).unwrap();
+    wait_for(&sam, "alex louder", |v| v.participants[1].volume == 1.5);
+    alex.set_muted(true);
+    let view = alex.call().unwrap();
+    assert!(view.muted);
+    let view = wait_for(&sam, "alex muted", |v| !v.participants[1].speaking);
+    assert!(view.participants[1].buffer_ms.is_some(), "{view:#?}");
+    wait_for(&sam, "loss measured", |v| {
+        v.participants[1].loss_pct.is_some()
+    });
+    alex.set_gate(-30.0).unwrap();
+    assert_eq!(alex.call().unwrap().gate_dbfs, -30.0);
+    alex.set_gate(-500.0).unwrap();
+    assert_eq!(alex.call().unwrap().gate_dbfs, -80.0, "clamped");
+
     // Alex leaves: Sam sees them go.
     alex.leave();
     assert!(alex.call().is_none());
     wait_for(&sam, "alex leaves", |v| v.participants.len() == 1);
 
+    // Volumes follow the person into the next call.
     sam.leave();
     assert!(sam.call().is_none());
+    alex.join(instance, space_id, &room.id).unwrap();
+    sam.join(instance, space_id, &room.id).unwrap();
+    wait_for(&sam, "alex keeps their volume", |v| {
+        v.participants.len() == 2 && v.participants[1].volume == 1.5
+    });
+    alex.leave();
+    sam.leave();
     let status = relay.status();
     assert_eq!(status["sessions"], 0, "both sessions were freed: {status}");
 }

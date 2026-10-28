@@ -10,7 +10,7 @@ use drywire_proto::invite::Invitation;
 use serde::Serialize;
 
 use crate::error::AppError;
-use crate::session::{CallView, DeviceFactory, JoinRequest, Session, printable};
+use crate::session::{CallView, DeviceFactory, JoinRequest, Session, clamp_gate, printable};
 use crate::store::{KnownSpace, Store};
 
 /// Makes the factory that opens the sound card for each call.
@@ -150,6 +150,7 @@ impl Desktop {
             space_name: known.name.clone(),
             space_key: known.space_key().map_err(AppError::storage)?,
             room_id,
+            settings: self.store.settings(),
         };
         // The next join replaces this device's session on the server, so
         // there is no need to tell it we left.
@@ -168,6 +169,51 @@ impl Desktop {
         if let Some(session) = self.take_session() {
             session.end(true);
         }
+    }
+
+    /// Mutes or unmutes the microphone of the call, if one runs. Mute is
+    /// not remembered: every call starts unmuted.
+    pub fn set_muted(&self, muted: bool) {
+        if let Some(session) = self.session.lock().expect("not poisoned").as_ref() {
+            session.set_muted(muted);
+        }
+    }
+
+    /// Moves the voice gate's threshold, now and for the next calls.
+    pub fn set_gate(&self, open_dbfs: f32) -> Result<(), AppError> {
+        let open_dbfs = clamp_gate(open_dbfs);
+        let mut settings = self.store.settings();
+        settings.gate_open_dbfs = open_dbfs;
+        self.store
+            .save_settings(&settings)
+            .map_err(AppError::storage)?;
+        if let Some(session) = self.session.lock().expect("not poisoned").as_ref() {
+            session.set_gate(open_dbfs);
+        }
+        Ok(())
+    }
+
+    /// Plays a person (by the hex of their public key) at `volume`, from 0
+    /// to 2 (200 %), now and in every later call.
+    pub fn set_volume(&self, public_key: &str, volume: f32) -> Result<(), AppError> {
+        let volume = if volume.is_nan() {
+            1.0
+        } else {
+            volume.clamp(0.0, drywire_core::mixer::MAX_VOLUME)
+        };
+        let mut settings = self.store.settings();
+        if volume == 1.0 {
+            settings.volumes.remove(public_key);
+        } else {
+            settings.volumes.insert(public_key.to_string(), volume);
+        }
+        self.store
+            .save_settings(&settings)
+            .map_err(AppError::storage)?;
+        if let Some(session) = self.session.lock().expect("not poisoned").as_ref() {
+            session.set_volume(public_key, volume);
+        }
+        Ok(())
     }
 
     /// What the interface shows about the call, if one runs.

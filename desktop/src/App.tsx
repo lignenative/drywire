@@ -8,7 +8,7 @@ import { LANGUAGES } from "./i18n";
 import { useLanguage } from "./lang";
 
 /** How often the call's numbers are read while in a room. */
-const POLL_MS = 200;
+const POLL_MS = 100;
 
 export function App() {
   const { lang, setLang, t } = useLanguage();

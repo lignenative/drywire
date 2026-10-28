@@ -11,7 +11,11 @@
 //! them can speak as this device and hear its spaces. The desktop app has
 //! an identity of its own, apart from the command-line client's, whose
 //! files are not protected.
+//!
+//! - `settings.json`: the person's preferences ([`Settings`]), in plain
+//!   JSON: nothing in it is secret.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use drywire_control::{Hex, Id, from_hex, to_hex};
@@ -50,6 +54,28 @@ impl KnownSpace {
         from_hex(&self.space_key)
             .and_then(|b| b.try_into().ok())
             .ok_or_else(|| format!("the key of space {} is damaged", self.name))
+    }
+}
+
+/// The person's preferences. Fields added later take their default when
+/// an older file lacks them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Settings {
+    /// The level, in dBFS, at which the voice gate opens; it closes 6 dB
+    /// lower.
+    pub gate_open_dbfs: f32,
+    /// The volume of each person other than 1 (100 %), by the hex of their
+    /// public key: it follows them from room to room.
+    pub volumes: BTreeMap<String, f32>,
+}
+
+impl Default for Settings {
+    fn default() -> Settings {
+        Settings {
+            gate_open_dbfs: drywire_core::gate::GateConfig::default().open_dbfs,
+            volumes: BTreeMap::new(),
+        }
     }
 }
 
@@ -109,6 +135,21 @@ impl Store {
             .into_iter()
             .find(|s| s.instance == instance && s.space_id == *space_id)
             .ok_or_else(|| "this device does not know that space".to_string())
+    }
+
+    /// The preferences; the defaults if none were saved, or if the file is
+    /// damaged: a preference is never worth refusing to start.
+    pub fn settings(&self) -> Settings {
+        std::fs::read_to_string(self.dir.join("settings.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+
+    /// Saves the preferences.
+    pub fn save_settings(&self, settings: &Settings) -> Result<(), String> {
+        let text = serde_json::to_string_pretty(settings).expect("serializable") + "\n";
+        write_private(&self.dir.join("settings.json"), &text)
     }
 
     /// Remembers a space, replacing what was known of it.
@@ -204,6 +245,24 @@ mod tests {
             assert_eq!(mode(&dir.join("identity.json")), 0o600);
             assert_eq!(mode(&dir), 0o700);
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn settings_survive_and_default_when_missing_or_damaged() {
+        let (dir, store) = temp_store("settings");
+        assert_eq!(store.settings(), Settings::default());
+        let settings = Settings {
+            gate_open_dbfs: -52.0,
+            volumes: [("ab".repeat(32), 1.5)].into(),
+        };
+        store.save_settings(&settings).unwrap();
+        assert_eq!(store.settings(), settings);
+        std::fs::write(dir.join("settings.json"), "{ not json").unwrap();
+        assert_eq!(store.settings(), Settings::default());
+        // A file from an older version, without the newer fields.
+        std::fs::write(dir.join("settings.json"), r#"{"gateOpenDbfs": -45}"#).unwrap();
+        assert_eq!(store.settings().gate_open_dbfs, -45.0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

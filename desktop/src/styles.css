@@ -239,8 +239,17 @@ button.wide {
   background: var(--muted);
 }
 
-.dot.live {
+.dot.live,
+.ping.good .dot {
   background: var(--accent);
+}
+
+.ping.fair .dot {
+  background: var(--warn);
+}
+
+.ping.poor .dot {
+  background: var(--danger);
 }
 
 .banner {
@@ -264,10 +273,90 @@ button.wide {
 
 .person {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   padding: 4px 6px;
   border-radius: 6px;
+}
+
+.person .figures {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.volume {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding-left: 18px;
+}
+
+.volume input,
+.gate input {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.value {
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.mic {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.meter {
+  position: relative;
+  flex: 1;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.meter .level {
+  height: 100%;
+  background: var(--muted);
+  transition: width 60ms linear;
+}
+
+.meter .level.open {
+  background: var(--accent);
+}
+
+.meter .threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--warn);
+}
+
+.mic.muted .meter .level {
+  background: var(--line);
+}
+
+.mute {
+  min-width: 112px;
+}
+
+.mute.on {
+  color: #fff;
+  background: var(--danger);
+}
+
+.muted-label {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .person .name {

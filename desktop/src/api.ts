@@ -28,6 +28,10 @@ export interface Participant {
   publicKey: string;
   me: boolean;
   speaking: boolean;
+  /** 1 is 100 %, 2 the most. */
+  volume: number;
+  bufferMs: number | null;
+  lossPct: number | null;
 }
 
 export interface DeviceView {
@@ -48,6 +52,11 @@ export interface CallView {
   ended: string | null;
   bound: boolean;
   rttMs: number | null;
+  muted: boolean;
+  /** The microphone's level for the meter, from -90 dBFS up. */
+  inputDbfs: number;
+  gateDbfs: number;
+  uplinkLossPct: number;
   participants: Participant[];
   devices: DeviceView[];
 }
@@ -71,4 +80,8 @@ export const api = {
     invoke<CallView>("join_room", { instance, spaceId, roomId }),
   leaveRoom: () => invoke<void>("leave_room"),
   callStatus: () => invoke<CallView | null>("call_status"),
+  setMuted: (muted: boolean) => invoke<void>("set_muted", { muted }),
+  setGate: (openDbfs: number) => invoke<void>("set_gate", { openDbfs }),
+  setVolume: (publicKey: string, volume: number) =>
+    invoke<void>("set_volume", { publicKey, volume }),
 };

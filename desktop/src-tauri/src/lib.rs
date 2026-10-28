@@ -56,6 +56,9 @@ pub fn run() {
             commands::join_room,
             commands::leave_room,
             commands::call_status,
+            commands::set_muted,
+            commands::set_gate,
+            commands::set_volume,
         ])
         .build(tauri::generate_context!())
         .expect("Drywire could not start");

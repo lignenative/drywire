@@ -47,6 +47,28 @@ pub fn leave_room(desktop: State<'_, Desktop>) {
     desktop.leave();
 }
 
+/// Mutes or unmutes the microphone.
+#[tauri::command]
+pub fn set_muted(desktop: State<'_, Desktop>, muted: bool) {
+    desktop.set_muted(muted);
+}
+
+/// Moves the voice gate's threshold, in dBFS.
+#[tauri::command(async)]
+pub fn set_gate(desktop: State<'_, Desktop>, open_dbfs: f32) -> Result<(), AppError> {
+    desktop.set_gate(open_dbfs)
+}
+
+/// Plays a person at a volume from 0 to 2.
+#[tauri::command(async)]
+pub fn set_volume(
+    desktop: State<'_, Desktop>,
+    public_key: String,
+    volume: f32,
+) -> Result<(), AppError> {
+    desktop.set_volume(&public_key, volume)
+}
+
 /// The call, as the interface shows it; polled a few times a second.
 #[tauri::command]
 pub fn call_status(desktop: State<'_, Desktop>) -> Option<CallView> {
