@@ -55,6 +55,11 @@ pub struct TrackStats {
 /// The loudest volume a sender can be played at: 200 % (spec section 10).
 pub const MAX_VOLUME: f32 = 2.0;
 
+/// How far the gain moves per sample towards a new volume: a change of 1
+/// (100 %) takes 5 ms. A step at once would click, at every move of a
+/// volume slider.
+const GAIN_STEP: f32 = 1.0 / 240.0;
+
 /// One sender's playback.
 struct Track {
     /// The sender's session, or [`FREE`] for a track nobody uses.
@@ -72,8 +77,10 @@ struct Track {
     decode_errors: u64,
     /// Whether the frame being played is voice, not idle silence.
     speaking: bool,
-    /// What every sample is multiplied by.
+    /// The volume asked for.
     volume: f32,
+    /// What every sample is multiplied by: `volume`, or on its way there.
+    gain: f32,
 }
 
 /// The session of a free track: 0 is never a valid session (protocol
@@ -94,6 +101,7 @@ impl Track {
             decode_errors: 0,
             speaking: false,
             volume: 1.0,
+            gain: 1.0,
         })
     }
 
@@ -110,6 +118,7 @@ impl Track {
         self.decode_errors = 0;
         self.speaking = false;
         self.volume = 1.0;
+        self.gain = 1.0;
     }
 
     fn push(&mut self, now_us: u64, arrival: Arrival, min_target_us: u64) {
@@ -150,7 +159,15 @@ impl Track {
                 .iter_mut()
                 .zip(&self.pcm[self.played..self.played + n])
             {
-                *o += s * self.volume;
+                if self.gain != self.volume {
+                    let gap = self.volume - self.gain;
+                    self.gain = if gap.abs() <= GAIN_STEP {
+                        self.volume
+                    } else {
+                        self.gain + GAIN_STEP.copysign(gap)
+                    };
+                }
+                *o += s * self.gain;
             }
             self.played += n;
             i += n;
@@ -310,7 +327,10 @@ impl Mixer {
                         self.tracks.len() - 1
                     }
                 };
-                self.tracks[i].volume = self.volume_of(session);
+                // A new sender starts at their volume, with no glide.
+                let volume = self.volume_of(session);
+                self.tracks[i].volume = volume;
+                self.tracks[i].gain = volume;
                 i
             }
         };
@@ -509,6 +529,29 @@ mod tests {
             }
         }
         (energy, during, after)
+    }
+
+    #[test]
+    fn a_new_volume_glides_in_instead_of_clicking() {
+        // A track in the middle of a frame of constant samples, turned up
+        // from 100 % to 200 %.
+        let mut track = Track::new(1).unwrap();
+        track.frame = Some(FrameSize::Ms10);
+        track.pcm.resize(FrameSize::Ms10.samples(), 0.5);
+        track.volume = 2.0;
+        let mut out = vec![0.0f32; 300];
+        track.render(0, &mut out);
+        // Out: 0.5 × the gain, which climbs 1/240 per sample to 2.
+        let steps = out.windows(2).map(|w| w[1] - w[0]);
+        assert!(
+            steps
+                .clone()
+                .all(|d| (0.0..=0.5 * GAIN_STEP + 1e-6).contains(&d)),
+            "{out:?}"
+        );
+        assert!(out[0] < 0.51, "no jump at the start: {}", out[0]);
+        assert_eq!(out[299], 1.0, "there after 5 ms");
+        assert_eq!(track.gain, 2.0);
     }
 
     #[test]

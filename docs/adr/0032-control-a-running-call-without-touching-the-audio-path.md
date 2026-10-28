@@ -27,11 +27,12 @@ may slow down.
   unmuted call never alters a sample.
 - **Volumes travel like membership changes**: from any thread to the
   network thread (`CallMembers::set_volume`), then through the existing
-  wait-free ring to playback, which multiplies the track's samples. The
-  mixer keeps the volumes apart from the tracks, in room reserved
-  before the call starts, so a volume set before a member's first frame
-  applies when their track is assigned, and setting one never grows a
-  list.
+  wait-free ring to playback, which multiplies the track's samples,
+  gliding to a new volume over a few milliseconds so a slider never
+  clicks. The mixer keeps the volumes apart from the tracks, in room
+  reserved before the call starts, so a volume set before a member's
+  first frame applies when their track is assigned, and setting one
+  never grows a list.
 - **"Speaking" is the track's own state**: whether its last tick played
   voice (decoded or concealed) rather than idle silence. It reaches the
   app in the statistics the playback callback already publishes.
