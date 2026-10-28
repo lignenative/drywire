@@ -207,6 +207,9 @@ fn the_audio_callbacks_never_allocate() {
     assert_eq!(mic.gate(), (-45.0, -50.0));
     let track = heard.expect("alex's track, while alex was a member");
     assert_eq!(track.session, alex_seat.session);
+    // Set at 300 ms, read at 1.1 s: it went through the network thread
+    // and the ring to playback.
+    assert_eq!(track.volume, 1.5, "{track:?}");
     assert!(track.jitter.received > 0, "{track:?}");
     assert!(track.jitter.played > 0, "{track:?}");
     // Once alex left, their track was free again. `remove_member` only

@@ -642,6 +642,11 @@ impl Capture {
                 self.shared.last_sent_us.store(now, Ordering::Relaxed);
             }
         }
+        if muted {
+            // The start of the next frame, captured while muted: silence it
+            // now, or an unmute before the frame completes would send it.
+            self.pending.fill(0.0);
+        }
         if let Ok(mut stats) = self.shared.stats.try_lock() {
             self.publish(&mut stats);
         }
@@ -749,4 +754,89 @@ fn playback_callback(
         next_stats_us: 0,
     };
     Box::new(move |out: &mut [f32]| playback.render(out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::opus::FrameSize;
+    use crate::sender::SenderConfig;
+    use drywire_proto::crypto::SigningKey;
+
+    /// A capture callback whose packets go to a local socket nobody reads.
+    fn capture() -> Capture {
+        let sink = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.connect(sink.local_addr().unwrap()).unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let config = SenderConfig::new(FrameSize::Ms5);
+        let gate = pack_gate(config.gate.open_dbfs, config.gate.close_dbfs);
+        let sender = Sender::new(
+            SigningKey::from_bytes(&[1; 32]),
+            7,
+            [2; 16],
+            &[3; 32],
+            config,
+        )
+        .unwrap();
+        Capture {
+            socket: Arc::new(socket),
+            shared: Arc::new(Shared {
+                started: Instant::now(),
+                stop: AtomicBool::new(false),
+                last_sent_us: AtomicU64::new(0),
+                muted: AtomicBool::new(false),
+                gate: AtomicU64::new(gate),
+                input_peak: AtomicU32::new(0),
+                stats: Mutex::new(CallStats::default()),
+            }),
+            sender,
+            gate,
+            pending: Vec::with_capacity(FrameSize::Ms5.samples()),
+            packets: Packets::new(),
+            send_dropped: 0,
+            send_errors: 0,
+        }
+    }
+
+    /// Whether a frame begun with 100 samples of loud tone, under `muted`,
+    /// then finished with silence after an unmute, opens the gate.
+    fn tone_then_unmute_opens_the_gate(muted: bool) -> bool {
+        let mut c = capture();
+        // 100 samples: not a whole 240-sample frame, as with most sound
+        // cards, whose buffers are not a multiple of the frame.
+        let tone: Vec<f32> = (0..100).map(|i| 0.5 * (i as f32 * 0.3).sin()).collect();
+        c.shared.muted.store(muted, Ordering::Relaxed);
+        c.process(&tone);
+        c.shared.muted.store(false, Ordering::Relaxed);
+        c.process(&[0.0; 140]);
+        c.sender.stats().spurts > 0
+    }
+
+    #[test]
+    fn a_new_gate_reaches_the_sender_during_the_call() {
+        // A steady tone at about -42 dBFS: under the default gate (opens at
+        // -40), over one retuned to open at -45.
+        let quiet: Vec<f32> = (0..240).map(|i| 0.0112 * (i as f32 * 0.3).sin()).collect();
+        let mut c = capture();
+        for _ in 0..20 {
+            c.process(&quiet);
+        }
+        assert_eq!(c.sender.stats().spurts, 0, "the default gate stays shut");
+        c.shared
+            .gate
+            .store(pack_gate(-45.0, -50.0), Ordering::Relaxed);
+        for _ in 0..20 {
+            c.process(&quiet);
+        }
+        assert_eq!(c.sender.stats().spurts, 1, "the retuned gate opens");
+    }
+
+    #[test]
+    fn nothing_captured_while_muted_is_sent_after_an_unmute() {
+        // The tone alone is loud enough to open the gate...
+        assert!(tone_then_unmute_opens_the_gate(false));
+        // ...but not once it was captured while muted.
+        assert!(!tone_then_unmute_opens_the_gate(true));
+    }
 }
