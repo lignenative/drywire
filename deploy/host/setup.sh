@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 
 addr=$(sed -n 's/^DRYWIRE_UDP_ADDR=//p' instance.env | tail -n 1)
 port=${addr##*:}
-port=${port:-10050}
+port=${port:-30050}
 
 if ! command -v ufw >/dev/null 2>&1; then
 	echo "no ufw on this host: open $port/udp in its firewall yourself"

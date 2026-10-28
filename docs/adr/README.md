@@ -45,3 +45,4 @@ Status: Accepted · YYYY-MM-DD
 | [0025](0025-give-the-server-binary-its-own-maintenance-commands.md) | Give the server binary its own maintenance commands |
 | [0026](0026-run-the-server-in-a-scratch-image-on-the-host-network.md) | Run the server in a scratch image on the host network |
 | [0027](0027-let-a-proxy-on-a-private-network-reach-the-control-plane.md) | Let a proxy on a private network reach the control plane |
+| [0028](0028-serve-the-relay-on-udp-30050-in-production.md) | Serve the relay on UDP 30050 in production |

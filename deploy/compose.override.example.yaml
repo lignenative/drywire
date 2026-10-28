@@ -23,7 +23,7 @@ services:
     network_mode: !reset null
     networks: [proxy]
     ports:
-      - "10050:10050/udp" # the relay; the same port as DRYWIRE_UDP_ADDR
+      - "30050:30050/udp" # the relay; the same port as DRYWIRE_UDP_ADDR
 
 networks:
   proxy:

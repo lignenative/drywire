@@ -11,7 +11,7 @@ from your own machine with `make`.
  make backup ◀──snapshot, encrypted here with age──               │
                                                                     │ host network
  clients ──HTTPS 443──▶ reverse proxy (Caddy, nginx) ──▶ 127.0.0.1:10050/tcp
- clients ──UDP──────────────────────────────────────────▶ :10050/udp (relay)
+ clients ──UDP──────────────────────────────────────────▶ :30050/udp (relay)
 ```
 
 - Your machine is the reference. `make deploy` builds the server here and
@@ -57,7 +57,7 @@ On **your machine**: Go (the version in `server/go.mod`), rsync, curl, and
 
    ```sh
    DRYWIRE_PUBLIC_URL=https://voice.example.org
-   DRYWIRE_PUBLIC_RELAY=voice.example.org:10050
+   DRYWIRE_PUBLIC_RELAY=voice.example.org:30050
    DRYWIRE_SPACE_CREATORS=<your key>
    ```
 
@@ -179,23 +179,26 @@ control plane in plain HTTP, so keep it to applications you trust.
 ## Firewall
 
 Clients need two ports on the host: the proxy's **443/tcp** (and 80/tcp if
-your ACME client uses the HTTP challenge), and the relay's **10050/udp**,
-or whatever port `DRYWIRE_UDP_ADDR` names. The control plane's 10050/tcp
-stays closed: it only listens on `127.0.0.1`.
+your ACME client uses the HTTP challenge), and the relay's **30050/udp**,
+or whatever port `DRYWIRE_UDP_ADDR` names
+([ADR 0028](../docs/adr/0028-serve-the-relay-on-udp-30050-in-production.md):
+10050 is the development port). The control plane's 10050/tcp stays
+closed: nothing outside the host, or the proxy's Docker network, reaches
+it.
 
 With **ufw**, `make deploy` opens the relay port itself (and only that);
 the equivalent by hand:
 
 ```sh
 sudo ufw allow 443/tcp comment 'https'
-sudo ufw allow 10050/udp comment 'drywire relay'
+sudo ufw allow 30050/udp comment 'drywire relay'
 ```
 
 With **nftables**, in the `input` chain of your `inet filter` table:
 
 ```nft
 tcp dport 443 accept
-udp dport 10050 accept
+udp dport 30050 accept
 ```
 
 Because the server runs on the host's network, these rules really decide
