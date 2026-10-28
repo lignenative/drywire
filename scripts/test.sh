@@ -10,6 +10,10 @@ cd "$(dirname "$0")/.."
 PATH="$PATH:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin"
 root=$(pwd)
 
+has_bun() {
+	command -v bun >/dev/null 2>&1 || [ -x "$HOME/.bun/bin/bun" ]
+}
+
 if [ -f server/go.mod ]; then
 	echo "==> server (Go)"
 	cd "$root/server"
@@ -64,9 +68,19 @@ fi
 if [ -f "$root/site/i/invite.test.js" ]; then
 	echo "==> site (Bun)"
 	cd "$root/site"
-	if command -v bun >/dev/null 2>&1 || [ -x "$HOME/.bun/bin/bun" ]; then
+	if has_bun; then
 		PATH="$PATH:$HOME/.bun/bin" bun test
 	else
 		echo "note: site tests skipped; install Bun (https://bun.sh)"
+	fi
+fi
+
+if [ -f "$root/scripts/js-licenses.test.ts" ]; then
+	echo "==> scripts (Bun)"
+	cd "$root"
+	if has_bun; then
+		PATH="$PATH:$HOME/.bun/bin" bun test ./scripts
+	else
+		echo "note: scripts tests skipped; install Bun (https://bun.sh)"
 	fi
 fi
