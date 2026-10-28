@@ -62,10 +62,11 @@ type Config struct {
 	AnyoneCreates bool
 	// MaxMembers is the member limit of a new space.
 	MaxMembers int
-	// TrustProxy takes the client's address from the last
-	// X-Forwarded-For entry, for a server behind a reverse proxy on this
-	// host. Off, the peer's address is used.
-	TrustProxy bool
+	// TrustedProxies are where the reverse proxies in front of the server
+	// connect from: a request from an address in one of them names its
+	// client in the last X-Forwarded-For entry. Empty, the peer's address
+	// is always the client's.
+	TrustedProxies []netip.Prefix
 }
 
 // Server is the HTTP API. Create it with New.
@@ -304,8 +305,8 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 // clientIP is the address the request came from: the peer, or behind a
 // trusted reverse proxy the last X-Forwarded-For entry, which that proxy
 // wrote (earlier entries come from the client and prove nothing). The
-// header is only believed from a proxy on this machine: from anyone else
-// it would be a forged address.
+// header is only believed from a trusted proxy's address: from anyone
+// else it would be a forged address.
 func (s *Server) clientIP(r *http.Request) netip.Addr {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -313,7 +314,7 @@ func (s *Server) clientIP(r *http.Request) netip.Addr {
 	}
 	peer, _ := netip.ParseAddr(host)
 	peer = peer.Unmap()
-	if s.cfg.TrustProxy && peer.IsLoopback() {
+	if s.fromProxy(peer) {
 		if fwd := r.Header.Values("X-Forwarded-For"); len(fwd) > 0 {
 			hops := strings.Split(fwd[len(fwd)-1], ",")
 			if ip, err := netip.ParseAddr(strings.TrimSpace(hops[len(hops)-1])); err == nil {
@@ -322,6 +323,16 @@ func (s *Server) clientIP(r *http.Request) netip.Addr {
 		}
 	}
 	return peer
+}
+
+// fromProxy tells whether peer is one of the trusted reverse proxies.
+func (s *Server) fromProxy(peer netip.Addr) bool {
+	for _, p := range s.cfg.TrustedProxies {
+		if p.Contains(peer) {
+			return true
+		}
+	}
+	return false
 }
 
 // rateKey is what the rate limit counts by: the address, or its /64 for

@@ -83,6 +83,9 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	if cfg.proxyOnly {
+		httpListener = proxyOnly{Listener: httpListener, allowed: cfg.api.TrustedProxies}
+	}
 	// Defaults that depend on the ports really bound (":0" in tests).
 	if err := cfg.setPublicAddresses(httpListener.Addr().String(), udpConn.LocalAddr().String()); err != nil {
 		return err

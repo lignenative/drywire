@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -34,9 +35,11 @@ const defaultAddr = "127.0.0.1:10050"
 //	DRYWIRE_MAX_MEMBERS     member limit of a new space, default 50
 //	DRYWIRE_TLS_CERT and DRYWIRE_TLS_KEY
 //	                        serve HTTPS (TLS 1.3) from these PEM files
-//	DRYWIRE_TRUST_PROXY     1 behind a reverse proxy on this host: the
-//	                        client address comes from X-Forwarded-For, when
-//	                        the connection comes from this machine
+//	DRYWIRE_TRUST_PROXY     where the reverse proxy in front connects
+//	                        from: 1 for this host's loopback, or private
+//	                        networks such as 172.18.0.0/16 (comma-separated)
+//	                        for a proxy in a Docker network. Its requests
+//	                        name their client in X-Forwarded-For
 //	DRYWIRE_ACCESS_LOG      access log file, - for standard output (the
 //	                        default), off for none
 type config struct {
@@ -44,9 +47,13 @@ type config struct {
 	publicURL          string // set by setPublicAddresses
 	dbPath, ledgerPath string
 	tlsCert, tlsKey    string
-	accessLog          *slog.Logger
-	api                api.Config
-	warnings           []string
+	// proxyOnly: plain HTTP on a private network, so the control plane
+	// accepts connections from the trusted proxies only (proxyOnly in
+	// listener.go).
+	proxyOnly bool
+	accessLog *slog.Logger
+	api       api.Config
+	warnings  []string
 }
 
 func envOr(name, fallback string) string {
@@ -69,22 +76,31 @@ func loadConfig() (config, error) {
 		return c, errors.New("set both DRYWIRE_TLS_CERT and DRYWIRE_TLS_KEY, or neither")
 	}
 
+	c.api = api.Config{
+		ServerVersion: version,
+		RelayAddr:     os.Getenv("DRYWIRE_PUBLIC_RELAY"),
+		MaxMembers:    50,
+	}
+	proxies, err := trustedProxies(os.Getenv("DRYWIRE_TRUST_PROXY"))
+	if err != nil {
+		return c, fmt.Errorf("DRYWIRE_TRUST_PROXY: %w", err)
+	}
+	c.api.TrustedProxies = proxies
+
 	// Bearer tokens and session secrets cross this connection: in plain
-	// HTTP it must not leave the machine (a reverse proxy on this host
-	// terminates TLS in front of it).
+	// HTTP it must stay between the server and the reverse proxy that
+	// terminates TLS in front of it. That is this machine's loopback, or a
+	// private network the operator named in DRYWIRE_TRUST_PROXY (a proxy
+	// in a Docker network), from which alone connections are accepted.
 	host, _, err := net.SplitHostPort(c.httpAddr)
 	if err != nil {
 		return c, fmt.Errorf("DRYWIRE_HTTP_ADDR: %w", err)
 	}
 	if ip, err := netip.ParseAddr(host); c.tlsCert == "" && (err != nil || !ip.IsLoopback()) {
-		return c, fmt.Errorf("DRYWIRE_HTTP_ADDR %s is not a loopback address: serve TLS (DRYWIRE_TLS_CERT and DRYWIRE_TLS_KEY) or put a reverse proxy on this host in front of 127.0.0.1", c.httpAddr)
-	}
-
-	c.api = api.Config{
-		ServerVersion: version,
-		RelayAddr:     os.Getenv("DRYWIRE_PUBLIC_RELAY"),
-		MaxMembers:    50,
-		TrustProxy:    os.Getenv("DRYWIRE_TRUST_PROXY") == "1",
+		if !slices.ContainsFunc(proxies, func(p netip.Prefix) bool { return !p.Addr().IsLoopback() }) {
+			return c, fmt.Errorf("DRYWIRE_HTTP_ADDR %s is not a loopback address: serve TLS (DRYWIRE_TLS_CERT and DRYWIRE_TLS_KEY), put a reverse proxy on this host in front of 127.0.0.1, or name the private network of the proxy in DRYWIRE_TRUST_PROXY", c.httpAddr)
+		}
+		c.proxyOnly = true
 	}
 	if v := os.Getenv("DRYWIRE_MAX_MEMBERS"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -121,6 +137,52 @@ func loadConfig() (config, error) {
 		c.accessLog = slog.New(slog.NewJSONHandler(io.Writer(f), nil))
 	}
 	return c, nil
+}
+
+// privateNetworks are the address blocks a trusted proxy may sit in:
+// loopback, and the private ranges of RFC 1918 and RFC 4193, where Docker
+// and other local networks live.
+var privateNetworks = []netip.Prefix{
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("::1/128"),
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("fc00::/7"),
+}
+
+// trustedProxies reads DRYWIRE_TRUST_PROXY: empty for no proxy, 1 for a
+// proxy on this host's loopback, or comma-separated private networks or
+// addresses for a proxy elsewhere on a private network; loopback is then
+// trusted too, for the health check. A public network is refused: its
+// X-Forwarded-For could come from anyone there.
+func trustedProxies(v string) ([]netip.Prefix, error) {
+	switch v = strings.TrimSpace(v); v {
+	case "", "0":
+		return nil, nil
+	case "1":
+		return privateNetworks[:2], nil
+	}
+	proxies := slices.Clone(privateNetworks[:2])
+	for _, s := range strings.Split(v, ",") {
+		s = strings.TrimSpace(s)
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			a, aerr := netip.ParseAddr(s)
+			if aerr != nil {
+				return nil, fmt.Errorf("%q is neither 1, a network such as 172.18.0.0/16, nor an address", s)
+			}
+			p = netip.PrefixFrom(a, a.BitLen())
+		}
+		p = p.Masked()
+		if !slices.ContainsFunc(privateNetworks, func(n netip.Prefix) bool {
+			return n.Bits() <= p.Bits() && n.Contains(p.Addr())
+		}) {
+			return nil, fmt.Errorf("%s is not a private network (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7)", p)
+		}
+		proxies = append(proxies, p)
+	}
+	return proxies, nil
 }
 
 // setPublicAddresses fills in the public URL and relay address, which

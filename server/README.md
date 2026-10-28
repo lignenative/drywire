@@ -35,13 +35,15 @@ curl http://127.0.0.1:10050/v1/status    # uptime, rooms, packet counters
 | `DRYWIRE_SPACE_CREATORS` | nobody (`make dev`: `*`) | Who may create spaces: `*` for anyone, or public keys in hex, comma-separated |
 | `DRYWIRE_MAX_MEMBERS` | `50` | Member limit of a new space |
 | `DRYWIRE_TLS_CERT`, `DRYWIRE_TLS_KEY` | none | Serve HTTPS (TLS 1.3) from these PEM files |
-| `DRYWIRE_TRUST_PROXY` | off | `1` behind a reverse proxy on this host: client addresses come from `X-Forwarded-For` |
+| `DRYWIRE_TRUST_PROXY` | off | Where the reverse proxy connects from: `1` for this host's loopback, or private networks such as `172.18.0.0/16` for a proxy in a Docker network. Its requests name their client in `X-Forwarded-For` |
 | `DRYWIRE_ACCESS_LOG` | `-` (standard output) | Access log file, or `off` |
 
 If an address is taken, the server stops with an error; it never picks
-another port. In plain HTTP the control plane only listens on a loopback
-address: tokens cross it, so it serves TLS itself or sits behind a reverse
-proxy on the same host.
+another port. Tokens cross the control plane's connections, so it serves
+TLS itself or sits behind a reverse proxy that does: in plain HTTP it
+listens on a loopback address only, unless `DRYWIRE_TRUST_PROXY` names
+the private network of the proxy, and then it accepts connections from
+that network and loopback alone (ADR 0027).
 
 ### Maintenance commands
 

@@ -428,11 +428,16 @@ func TestTheClientAddressComesFromATrustedProxyOnly(t *testing.T) {
 	if got := s.clientIP(r).String(); got != "127.0.0.1" {
 		t.Fatalf("untrusted: %s", got)
 	}
-	s.cfg.TrustProxy = true
+	s.cfg.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("172.18.0.0/16")}
 	if got := s.clientIP(r).String(); got != "198.51.100.7" {
 		t.Fatalf("trusted: %s (the last entry is the one the proxy wrote)", got)
 	}
-	// From a peer that is not this machine, the header is a forgery.
+	// A proxy in a Docker network.
+	r.RemoteAddr = "172.18.0.5:5000"
+	if got := s.clientIP(r).String(); got != "198.51.100.7" {
+		t.Fatalf("trusted, on a private network: %s", got)
+	}
+	// From a peer that is not a trusted proxy, the header is a forgery.
 	r.RemoteAddr = "192.0.2.4:5000"
 	if got := s.clientIP(r).String(); got != "192.0.2.4" {
 		t.Fatalf("remote peer: %s", got)
