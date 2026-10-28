@@ -177,12 +177,21 @@ fn the_audio_callbacks_never_allocate() {
     // depends on how this machine paced the loop, so only "some" is
     // checked; the allocation count above is exact either way.
     drop((alex_capture, alex_playback, sam_capture, sam_playback));
-    let (alex, sam) = (alex.stats(), sam.stats());
-    assert!(alex.sender.audio > 100, "{:?}", alex.sender);
+    let sent = alex.stats().sender;
+    assert!(sent.audio > 100, "{sent:?}");
     let track = heard.expect("alex's track, while alex was a member");
     assert_eq!(track.session, alex_seat.session);
     assert!(track.jitter.received > 0, "{track:?}");
     assert!(track.jitter.played > 0, "{track:?}");
-    // Once alex left, their track was free again.
-    assert!(sam.tracks.is_empty(), "{:?}", sam.tracks);
+    // Once alex left, their track was free again. `remove_member` only
+    // queues the change: the network thread applies it and then publishes
+    // the stats, so on a loaded machine the very next snapshot can still
+    // show the track. Wait for it; the deadline only stops a hang, it is
+    // not a timing assertion.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !sam.stats().tracks.is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let left = sam.stats().tracks;
+    assert!(left.is_empty(), "{left:?}");
 }
