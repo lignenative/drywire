@@ -2,11 +2,13 @@
 # Open the relay's UDP port in the host firewall, if the host uses ufw.
 # Runs as root through sudo on every deploy; idempotent.
 #
-# The server runs on the host's own network (compose.yaml), so the
-# firewall really decides what is reachable: unlike a published Docker
-# port, nothing goes around it. The control plane needs no rule: it only
-# listens on 127.0.0.1, and the reverse proxy's ports are the proxy's
-# business.
+# On the host's own network (compose.yaml alone), the firewall really
+# decides what is reachable, so this rule is what opens the relay. In a
+# proxy's Docker network (compose.proxy.yaml), Docker publishes the port
+# with its own iptables rule, which goes around ufw: the relay is open
+# either way, and this rule only keeps `ufw status` truthful. The control
+# plane needs no rule: it is never published, and the reverse proxy's
+# ports are the proxy's business.
 set -eu
 
 cd "$(dirname "$0")/.."
