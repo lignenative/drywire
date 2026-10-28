@@ -1,0 +1,51 @@
+# Try the deployment on this machine before sending it to a host:
+#
+#   docker compose -f compose.yaml -f compose.local.yaml up --build
+#
+# (from a directory holding these files and the drywire-server binary
+# built for Linux; README.md, "Try it locally", does it step by step.)
+#
+# Docker Desktop on macOS and Windows has no host network by default, so
+# this override gives the server a small "host" of its own: Caddy's
+# container, on Docker's bridge, plays the host with its reverse proxy, and
+# the server joins its network namespace. Caddy then reaches the control
+# plane on 127.0.0.1, exactly as on a real host, and the development ports
+# are published on this machine's 127.0.0.1 only. The server can stop and
+# start again (make restore does) without taking the network down with it.
+# TLS is left out; clients accept plain http from 127.0.0.1 only.
+services:
+  drywire:
+    network_mode: service:proxy
+    depends_on: [proxy]
+    # No instance.env: these settings replace it.
+    env_file: !reset []
+    environment:
+      DRYWIRE_PUBLIC_URL: http://127.0.0.1:10050
+      DRYWIRE_PUBLIC_RELAY: 127.0.0.1:10050
+      DRYWIRE_SPACE_CREATORS: "*"
+      DRYWIRE_HTTP_ADDR: 127.0.0.1:10050
+      DRYWIRE_UDP_ADDR: ":10050"
+      DRYWIRE_TRUST_PROXY: "1"
+
+  proxy:
+    image: caddy:2.11.2-alpine
+    container_name: drywire-proxy
+    ports:
+      - "127.0.0.1:10050:8080/tcp" # Caddy, which forwards to the control plane
+      - "127.0.0.1:10050:10050/udp" # the relay, in the same namespace
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+
+configs:
+  caddyfile:
+    content: |
+      {
+        admin off
+        auto_https off
+      }
+      :8080 {
+        reverse_proxy 127.0.0.1:10050 {
+          flush_interval -1
+        }
+      }

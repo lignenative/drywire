@@ -43,3 +43,4 @@ Status: Accepted · YYYY-MM-DD
 | [0023](0023-hand-playback-a-ready-track-for-a-new-member.md) | Hand playback a ready track for a member who joins mid-call |
 | [0024](0024-replace-the-phase-1-files-with-the-control-plane.md) | Replace the phase 1 files with the control plane |
 | [0025](0025-give-the-server-binary-its-own-maintenance-commands.md) | Give the server binary its own maintenance commands |
+| [0026](0026-run-the-server-in-a-scratch-image-on-the-host-network.md) | Run the server in a scratch image on the host network |

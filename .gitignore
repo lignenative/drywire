@@ -22,3 +22,7 @@ node_modules/
 .idea/
 .vscode/
 *.swp
+
+# Deployment: an instance's settings and its backups.
+deploy/instance.env
+/backups/

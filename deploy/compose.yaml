@@ -1,0 +1,57 @@
+# Drywire on a Docker host: one container, drywire-server, built from the
+# binary scripts/deploy.sh sends beside this file. See README.md.
+#
+# Conventions, as in the homelab repositories this follows:
+# - the project is `drywire`, its container `drywire`;
+# - all state (database and deletion ledger) is in the one volume `data`,
+#   `drywire_data` on the host, which make backup and make restore use.
+name: drywire
+
+services:
+  drywire:
+    build: .
+    image: drywire-server:local
+    container_name: drywire
+    restart: unless-stopped
+    # The host's own network, not Docker's bridge (ADR 0026):
+    # - audio packets reach the relay with no NAT or proxy in the way,
+    #   the lowest latency the host can give;
+    # - the relay sees each client's real address and port;
+    # - the control plane listens on the host's 127.0.0.1, where only the
+    #   reverse proxy on the same host reaches it, and DRYWIRE_TRUST_PROXY
+    #   can tell that proxy apart from the rest of the world.
+    # Ports are therefore not "published": the server binds the addresses
+    # in instance.env (DRYWIRE_HTTP_ADDR, DRYWIRE_UDP_ADDR) directly, and
+    # the host firewall decides what is reachable.
+    network_mode: host
+    # The instance's settings: public URL, relay address, space creators.
+    # Copied from instance.env.example, never committed.
+    env_file: instance.env
+    volumes:
+      - data:/data
+    # Nothing to write but /data, no privilege to keep or gain.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    # The binary checks itself: the image has no curl (ADR 0025). Every
+    # second while it starts, so make deploy knows at once; then every
+    # 30 seconds.
+    healthcheck:
+      test: ["CMD", "/drywire-server", "health"]
+      start_period: 30s
+      start_interval: 1s
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    # Application and access logs go to standard output. Rotation bounds
+    # what the host keeps; see "Logs" in README.md for the retention rule.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  data:
