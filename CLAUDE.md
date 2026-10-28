@@ -23,7 +23,8 @@ fixed in the same change.
 
 - Allowed licenses: MIT, BSD, Apache 2.0, ISC, Zlib, MPL 2.0, and Unicode-3.0
   for the Unicode tables that `unicode-ident` brings to every proc macro
-  (ADR 0008).
+  (ADR 0008). Apache 2.0 with the LLVM exception, which only adds a
+  permission, for `target-lexicon` in the desktop app's build (ADR 0030).
 - Forbidden: GPL, LGPL, AGPL, and anything without a clear license.
 - Go server: standard library only, except `modernc.org/sqlite` (control
   plane) and `quic-go` (web client), both accepted in the spec. Any other
