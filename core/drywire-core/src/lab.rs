@@ -283,9 +283,18 @@ mod tests {
 
     #[test]
     fn a_loopback_hears_its_clicks_back() {
-        // The echo device captures what it played one period earlier: a
-        // device with almost no latency of its own.
-        let (test, input, output) = Loopback::new();
+        // The echo device captures what it played one period (2.5 ms)
+        // earlier; four more periods on the way to the loopback make a
+        // device of about 12.5 ms, as a real one is never instant. With
+        // no latency at all, a late wake-up followed by an early one
+        // would make the echo look older than its click, and the
+        // loopback rightly ignores such an echo.
+        let (test, mut hear, output) = Loopback::new();
+        let mut late = std::collections::VecDeque::from(vec![vec![0.0f32; 120]; 4]);
+        let input = Box::new(move |samples: &[f32]| {
+            late.push_back(samples.to_vec());
+            hear(&late.pop_front().expect("four buffers"));
+        }) as InputCallback;
         let mut device = FileIo::new(Source::Echo, 120, None);
         device.start(input, output).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -295,8 +304,10 @@ mod tests {
         device.stop();
         let delays = test.delays_ms();
         assert!(delays.len() >= 3, "{delays:?} of {} clicks", test.clicks());
+        // Timed on a real clock, so only roughly: the exact delay is
+        // checked on a simulated clock below.
         let median = test.median_ms().unwrap();
-        assert!(median < 50.0, "{delays:?}");
+        assert!((5.0..50.0).contains(&median), "{delays:?}");
     }
 
     /// Runs a loopback test for `seconds` on a simulated device whose
