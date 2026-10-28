@@ -56,6 +56,11 @@ fn us_per_samples(samples: usize) -> u64 {
     samples as u64 * 1_000_000 / u64::from(SAMPLE_RATE)
 }
 
+/// The samples captured in `us` microseconds, rounded up.
+fn samples_in_us(us: u64) -> usize {
+    (us * u64::from(SAMPLE_RATE)).div_ceil(1_000_000) as usize
+}
+
 struct LoopbackShared {
     started: Instant,
     /// When the click waiting to be heard was written, in microseconds
@@ -92,71 +97,13 @@ impl Loopback {
             let shared = Arc::clone(&shared);
             let mut position = 0usize;
             Box::new(move |out: &mut [f32]| {
-                let now = shared.now_us();
-                for (j, sample) in out.iter_mut().enumerate() {
-                    let n = position + j;
-                    let phase = n % CLICK_EVERY;
-                    *sample = if n >= CLICK_EVERY && phase < CLICK_LEN {
-                        if phase == 0 {
-                            // Written now, j samples into this buffer.
-                            let at = now + us_per_samples(j);
-                            shared.emitted_us.store(at, Ordering::Relaxed);
-                            shared.clicks.fetch_add(1, Ordering::Relaxed);
-                        }
-                        if (phase / CLICK_HALF_PERIOD).is_multiple_of(2) {
-                            CLICK_AMPLITUDE
-                        } else {
-                            -CLICK_AMPLITUDE
-                        }
-                    } else {
-                        0.0
-                    };
-                }
-                position += out.len();
+                play_clicks(&shared, &mut position, out, shared.now_us());
             }) as OutputCallback
         };
-
         let input = {
             let shared = Arc::clone(&shared);
-            Box::new(move |samples: &[f32]| {
-                let emitted = shared.emitted_us.load(Ordering::Relaxed);
-                if emitted == NONE {
-                    return;
-                }
-                let now = shared.now_us();
-                // The last sample was captured just now; the others before.
-                let heard = samples
-                    .iter()
-                    .position(|x| x.abs() > DETECT_THRESHOLD)
-                    .map(|i| now.saturating_sub(us_per_samples(samples.len() - i)));
-                match heard {
-                    Some(at) => {
-                        // Only the click still waiting: a new one written
-                        // meanwhile keeps its own time.
-                        if shared
-                            .emitted_us
-                            .compare_exchange(emitted, NONE, Ordering::Relaxed, Ordering::Relaxed)
-                            .is_ok()
-                        {
-                            let delay = at.saturating_sub(emitted);
-                            let i = shared.count.load(Ordering::Relaxed);
-                            if delay <= MAX_DELAY_US && i < MAX_MEASUREMENTS {
-                                shared.delays_us[i].store(delay, Ordering::Relaxed);
-                                shared.count.store(i + 1, Ordering::Release);
-                            }
-                        }
-                    }
-                    None if now.saturating_sub(emitted) > MAX_DELAY_US => {
-                        let _ = shared.emitted_us.compare_exchange(
-                            emitted,
-                            NONE,
-                            Ordering::Relaxed,
-                            Ordering::Relaxed,
-                        );
-                    }
-                    None => {}
-                }
-            }) as InputCallback
+            Box::new(move |samples: &[f32]| hear_clicks(&shared, samples, shared.now_us()))
+                as InputCallback
         };
         (Loopback(shared), input, output)
     }
@@ -183,6 +130,77 @@ impl Loopback {
         }
         delays.sort_by(f64::total_cmp);
         Some(delays[delays.len() / 2])
+    }
+}
+
+/// The output callback's work: clicks every [`CLICK_EVERY`] samples,
+/// silence between them. `position` counts the samples played so far;
+/// `now` is when this buffer starts to play.
+fn play_clicks(shared: &LoopbackShared, position: &mut usize, out: &mut [f32], now: u64) {
+    for (j, sample) in out.iter_mut().enumerate() {
+        let n = *position + j;
+        let phase = n % CLICK_EVERY;
+        *sample = if n >= CLICK_EVERY && phase < CLICK_LEN {
+            if phase == 0 {
+                // Written now, j samples into this buffer.
+                let at = now + us_per_samples(j);
+                shared.emitted_us.store(at, Ordering::Relaxed);
+                shared.clicks.fetch_add(1, Ordering::Relaxed);
+            }
+            if (phase / CLICK_HALF_PERIOD).is_multiple_of(2) {
+                CLICK_AMPLITUDE
+            } else {
+                -CLICK_AMPLITUDE
+            }
+        } else {
+            0.0
+        };
+    }
+    *position += out.len();
+}
+
+/// The input callback's work: records the delay of the click waiting to
+/// be heard, if this buffer holds it. `now` is when its last sample was
+/// captured; the others came before, one sample period apart.
+fn hear_clicks(shared: &LoopbackShared, samples: &[f32], now: u64) {
+    let emitted = shared.emitted_us.load(Ordering::Relaxed);
+    if emitted == NONE {
+        return;
+    }
+    // Only what was captured after the click was written can be its echo:
+    // a knock or a word just before it would read as a delay of zero.
+    let since = now.saturating_sub(emitted);
+    let first = samples.len().saturating_sub(samples_in_us(since));
+    let heard = samples[first..]
+        .iter()
+        .position(|x| x.abs() > DETECT_THRESHOLD)
+        .map(|i| now.saturating_sub(us_per_samples(samples.len() - first - i)));
+    match heard {
+        Some(at) => {
+            // Only the click still waiting: a new one written meanwhile
+            // keeps its own time.
+            if shared
+                .emitted_us
+                .compare_exchange(emitted, NONE, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                let delay = at.saturating_sub(emitted);
+                let i = shared.count.load(Ordering::Relaxed);
+                if delay <= MAX_DELAY_US && i < MAX_MEASUREMENTS {
+                    shared.delays_us[i].store(delay, Ordering::Relaxed);
+                    shared.count.store(i + 1, Ordering::Release);
+                }
+            }
+        }
+        None if since > MAX_DELAY_US => {
+            let _ = shared.emitted_us.compare_exchange(
+                emitted,
+                NONE,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
+        }
+        None => {}
     }
 }
 
@@ -279,6 +297,69 @@ mod tests {
         assert!(delays.len() >= 3, "{delays:?} of {} clicks", test.clicks());
         let median = test.median_ms().unwrap();
         assert!(median < 50.0, "{delays:?}");
+    }
+
+    /// Runs a loopback test for `seconds` on a simulated device whose
+    /// microphone hears the output `delay` samples late, in 5 ms buffers,
+    /// on a clock the test sets. `knock` adds a loud sample to the input
+    /// just before each click is written. Returns the median, in µs.
+    fn simulated_median_us(delay: usize, knock: bool, seconds: usize) -> u64 {
+        let (test, _, _) = Loopback::new();
+        let shared = &test.0;
+        let period = 240;
+        let mut position = 0;
+        let mut played = Vec::new();
+        let mut out = vec![0.0f32; period];
+        for k in 0..seconds * 200 {
+            let now = k as u64 * 5_000;
+            play_clicks(shared, &mut position, &mut out, now);
+            played.extend_from_slice(&out);
+            // Captured between now - 5 ms and now: samples (k-1)·240 to
+            // k·240 of the device's time, which heard what was played
+            // `delay` samples earlier.
+            let mut heard: Vec<f32> = (0..period)
+                .map(|i| {
+                    let t = (k * period + i).checked_sub(period + delay);
+                    t.map_or(0.0, |t| played[t])
+                })
+                .collect();
+            if knock && k > 0 && (k * period).is_multiple_of(CLICK_EVERY) {
+                // 1 ms before this buffer's click.
+                heard[period - 48] = 0.9;
+            }
+            hear_clicks(shared, &heard, now);
+        }
+        assert!(
+            test.delays_ms().len() >= seconds * 2 - 2,
+            "{:?}",
+            test.delays_ms()
+        );
+        let mut delays: Vec<u64> = (0..shared.count.load(Ordering::Acquire))
+            .map(|i| shared.delays_us[i].load(Ordering::Relaxed))
+            .collect();
+        delays.sort();
+        delays[delays.len() / 2]
+    }
+
+    #[test]
+    fn a_loopback_measures_the_delay_the_device_adds() {
+        // 0, one buffer, and a delay that is not a whole number of buffers.
+        for delay in [0, 240, 517, 4_800] {
+            let expected = us_per_samples(delay);
+            let median = simulated_median_us(delay, false, 3);
+            assert!(
+                median.abs_diff(expected) <= 21,
+                "{delay} samples: {median} µs, not {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sound_before_the_click_is_not_its_echo() {
+        // Without the rule, the knock 1 ms before each click would be
+        // taken for it, at a delay of 0.
+        let median = simulated_median_us(517, true, 3);
+        assert!(median.abs_diff(us_per_samples(517)) <= 21, "{median} µs");
     }
 
     #[test]

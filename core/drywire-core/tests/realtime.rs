@@ -230,14 +230,20 @@ fn the_lab_callbacks_never_allocate() {
     let (loopback, mut heard, mut play) = Loopback::new();
     let (levels, mut record, mut silence) = LevelRecorder::new(100);
     let mut out = vec![0.0f32; 240];
-    let mut echo = vec![0.0f32; 240];
+    // What the microphone hears: the output of two periods ago. The test
+    // paces itself like a sound card, at least 5 ms a period, so the echo
+    // always comes after its click, as on a real device; the loopback
+    // ignores anything heard before a click was written.
+    let mut echoes = [vec![0.0f32; 240], vec![0.0f32; 240]];
     let mut calls = 0;
-    // Three clicks' worth, each period's output captured back at once.
-    for _ in 0..(3 * CLICK_EVERY / 240) {
+    // Three clicks' worth.
+    for k in 0..(3 * CLICK_EVERY / 240) {
+        std::thread::sleep(Duration::from_millis(5));
+        let echo = &mut echoes[k % 2];
+        calls += as_callback(|| heard(echo));
+        calls += as_callback(|| record(echo));
         calls += as_callback(|| play(&mut out));
         echo.copy_from_slice(&out);
-        calls += as_callback(|| heard(&echo));
-        calls += as_callback(|| record(&echo));
         calls += as_callback(|| silence(&mut out));
     }
     assert_eq!(calls, 0, "a lab callback used the allocator");
