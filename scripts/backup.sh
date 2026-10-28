@@ -7,7 +7,7 @@
 # the matching identity, kept off the server, can decrypt it.
 #
 # Backups are kept 6 months at most (spec section 9): older ones in
-# backups/ are deleted on every run. The deletion ledger is not in a
+# backups/, by the date in their name, are deleted on every run. The deletion ledger is not in a
 # backup (ADR 0019); make restore replays it.
 set -eu
 
@@ -42,8 +42,13 @@ echo "==> snapshot of the database on $HOST, encrypted to $name"
 mv "$name.partial" "$name"
 echo "saved $name ($(wc -c <"$name" | tr -d ' ') bytes)"
 
-old=$(find "$backups" -name 'drywire-*.db.age' -mtime +180)
-if [ -n "$old" ]; then
-	echo "$old" | while IFS= read -r f; do rm -f "$f"; done
-	echo "deleted $(echo "$old" | wc -l | tr -d ' ') backup(s) older than 6 months"
-fi
+cutoff=$(backup_cutoff)
+deleted=0
+for f in "$backups"/drywire-*.db.age; do
+	d=$(backup_date "$f")
+	if [ -n "$d" ] && [ "$d" -lt "$cutoff" ]; then
+		rm -f "$f"
+		deleted=$((deleted + 1))
+	fi
+done
+[ "$deleted" -eq 0 ] || echo "deleted $deleted backup(s) older than 6 months"

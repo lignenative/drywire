@@ -37,3 +37,22 @@ fail() {
 	echo "drywire: $*" >&2
 	exit 1
 }
+
+# Backups are kept 6 months at most (spec section 9). Their date is the
+# one in their name, drywire-YYYYMMDD-HHMMSS.db.age, which a copy or a
+# restore from another disk cannot change, unlike a file's time.
+
+# backup_cutoff: the date, as YYYYMMDD, before which a backup is too old.
+backup_cutoff() {
+	date -u -v-180d +%Y%m%d 2>/dev/null || date -u -d '180 days ago' +%Y%m%d
+}
+
+# backup_date FILE: the date in a backup's name, as YYYYMMDD, or nothing.
+backup_date() {
+	d=${1##*/}
+	d=${d#drywire-}
+	d=${d%%-*}
+	case $d in
+	[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) echo "$d" ;;
+	esac
+}

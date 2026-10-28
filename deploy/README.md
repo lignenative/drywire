@@ -315,27 +315,43 @@ Bans are not replayed: bans made since the backup are lost
 After a restore, revoke the invitations that matter.
 
 **Moving to a new host:** deploy there, copy the old host's deletion
-ledger into the new volume while the server is stopped, then restore. On
-the old host, `docker compose cp drywire:/data/drywire.deletions -` writes
-it (as a tar stream); on the new one, `docker compose stop drywire`, then
-`docker compose cp - drywire:/data/` reads it back. Without the ledger,
-`restore` warns that deletions since the backup cannot be replayed.
+ledger into the new volume while the server is stopped, then restore.
+In `/srv/drywire` on the old host, `docker compose cp
+drywire:/data/drywire.deletions - > ledger.tar` writes it as a tar
+stream; copy that file over, then on the new one `docker compose stop
+drywire` and `docker compose cp -a - drywire:/data/ < ledger.tar` (`-a`
+keeps the file owned by the server's user, who must be able to read it).
+Then `make restore`. If the ledger is missing or empty, `restore` warns
+that deletions made since the backup could not be replayed.
+
+**Old backups:** `make restore` refuses a backup older than 6 months, by
+the date in its name. It is past its retention, and past what the ledger
+remembers (7 months): what was deleted long ago could come back.
 
 Practise a restore now and then on a test server: `make deploy` and
 `make restore` with another `HOST`.
 
 ## Logs
 
-The server writes two kinds of lines to standard output: its application
-log, which never holds an address, a token, a key or anything a user
-wrote, and the access log (JSON lines: client address, method, route
-pattern, status, duration; spec section 9). Docker keeps them in rotating
-files, 3 × 10 MB at most, deleted when the container is recreated.
+The server writes two kinds of lines: its application log on standard
+error, which never holds an address, a token, a key or anything a user
+wrote, and the access log on standard output (JSON lines: client
+address, method, route pattern, status, duration; spec section 9).
+Docker keeps both in rotating files, 3 × 10 MB at most, and deletes them
+when the container is recreated, which every deploy that changes the
+server or its settings does.
 
-The access log may be kept **one year at most**. The size limit keeps it
-far shorter on an instance in use; on a very quiet one, check now and then
-that nothing older than a year remains (`make logs` shows the oldest lines
-first), or set `DRYWIRE_ACCESS_LOG` to a file you rotate yourself.
+The access log may be kept **one year at most**, and these limits keep
+it far shorter. To see how far back it goes:
+
+```sh
+ssh voice-host 'cd /srv/drywire && docker compose logs --no-log-prefix drywire | head -n 3'
+```
+
+The flip side is that a deploy also erases the trail an incident
+investigation would need (spec section 9). If that matters for your
+instance, set `DRYWIRE_ACCESS_LOG` to a file in `/data` and rotate it
+yourself, keeping a year at most.
 
 ## Without Docker
 
@@ -348,16 +364,24 @@ file). Build the binary on your machine and copy it over:
 cd server && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o drywire-server ./cmd/drywire-server
 ```
 
-The `make` targets drive the Docker deployment only. With systemd:
+The `make` targets drive the Docker deployment only. With systemd, from
+bash or zsh on your machine (`pipefail`, so that a failed `ssh` is not
+saved as an empty backup):
 
 ```sh
+set -o pipefail
 ssh voice-host 'sudo systemctl status drywire'
 ssh voice-host 'journalctl -u drywire -f'
+
+# Back up: the snapshot, encrypted here.
+name=backups/drywire-$(date -u +%Y%m%d-%H%M%S).db.age
 ssh voice-host 'sudo -u drywire DRYWIRE_DB=/var/lib/drywire/drywire.db /usr/local/bin/drywire-server backup' \
-  | age -r age1... -o backups/drywire-$(date -u +%Y%m%d-%H%M%S).db.age
+  | age -r age1... -o "$name.partial" && mv "$name.partial" "$name"
+
+# Restore: stop, restore with the instance's settings, start.
 ssh voice-host 'sudo systemctl stop drywire'
 age -d -i ~/.config/drywire/backup-key.txt backups/<file>.db.age \
-  | ssh voice-host 'sudo -u drywire DRYWIRE_DB=/var/lib/drywire/drywire.db DRYWIRE_LEDGER=/var/lib/drywire/drywire.deletions /usr/local/bin/drywire-server restore'
+  | ssh voice-host 'sudo -u drywire sh -c "set -a; . /etc/drywire/instance.env; DRYWIRE_DB=/var/lib/drywire/drywire.db DRYWIRE_LEDGER=/var/lib/drywire/drywire.deletions exec /usr/local/bin/drywire-server restore"'
 ssh voice-host 'sudo systemctl start drywire'
 ```
 

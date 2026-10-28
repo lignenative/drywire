@@ -6,6 +6,8 @@ set -eu
 
 if ! command -v rsync >/dev/null 2>&1; then
 	echo "installing rsync"
+	# A fresh image may have no package lists yet.
+	apt-get update -qq >/dev/null
 	DEBIAN_FRONTEND=noninteractive apt-get install -y -qq rsync >/dev/null
 fi
 

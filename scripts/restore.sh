@@ -17,6 +17,7 @@ command -v age >/dev/null 2>&1 ||
 [ -n "${BACKUP_IDENTITY:-}" ] ||
 	fail "BACKUP_IDENTITY is not set in .env: the age identity file that decrypts the backups; see deploy/README.md, \"Backups\""
 # make passes .env's values as written: expand a leading ~ here.
+# shellcheck disable=SC2088 # the ~ is matched as written, on purpose
 case $BACKUP_IDENTITY in
 "~/"*) BACKUP_IDENTITY=$HOME/${BACKUP_IDENTITY#"~/"} ;;
 esac
@@ -29,6 +30,15 @@ if [ -z "$file" ]; then
 	[ -n "$file" ] || fail "no backup in backups/: make backup, or FILE=<path>"
 fi
 [ -f "$file" ] || fail "no backup at $file"
+
+# A backup older than 6 months is out of its retention, and older than
+# what the deletion ledger remembers (7 months, then pruned): restoring it
+# could bring back what was deleted long ago.
+taken=$(backup_date "$file")
+[ -n "$taken" ] ||
+	fail "cannot tell when $file was taken: make backup names them drywire-YYYYMMDD-HHMMSS.db.age"
+[ "$taken" -ge "$(backup_cutoff)" ] ||
+	fail "$file is older than 6 months: backups are kept 6 months at most, and deletions older than that could come back"
 
 echo "Restore $file on $HOST."
 echo "The database there now is replaced; what changed since this backup is"

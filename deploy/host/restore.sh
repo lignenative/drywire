@@ -11,13 +11,20 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
+# The SSH session may be gone by the time the server starts again (Ctrl-C
+# on the operator's side, a dropped connection): this script must not die
+# of it, and the commands that start the server write to a log beside it,
+# shown afterwards to whoever is still there.
+trap '' HUP PIPE
 start_again() {
 	status=$?
-	docker compose up --detach drywire >&2
-	sh host/wait.sh >&2 || status=1
+	{ docker compose up --detach drywire && sh host/wait.sh; } >restore.log 2>&1 || status=1
+	cat restore.log >&2 || true
 	exit "$status"
 }
 docker compose stop drywire >&2
 trap start_again EXIT
-# A one-off container with the server's volume and settings.
+# A one-off container with the server's volume and settings. Its own
+# check for a running server only sees its own network (on a proxy's
+# Docker network, not the server's): the stop above is what counts.
 docker compose run --rm -T --no-deps drywire restore
