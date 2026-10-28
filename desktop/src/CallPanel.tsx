@@ -83,6 +83,8 @@ export function CallPanel({ call, onLeave }: { call: CallView; onLeave: () => vo
         ))}
       </ul>
 
+      <Statistics call={call} />
+
       <details className="devices">
         <summary>{t("call.devices")}</summary>
         {call.devices.map((d) => (
@@ -189,7 +191,6 @@ function Person({ person }: { person: Participant }) {
   });
 
   const figures = [
-    person.bufferMs !== null ? t("call.jitter", { buffer: formatMs(person.bufferMs) }) : null,
     person.lossPct !== null ? t("call.loss", { loss: `${person.lossPct.toFixed(0)} %` }) : null,
   ].filter(Boolean);
 
@@ -200,6 +201,11 @@ function Person({ person }: { person: Participant }) {
         <span className="name">{person.name}</span>
         {person.me && <span className="muted small">({t("call.you")})</span>}
         {figures.length > 0 && <span className="figures muted small">{figures.join(" · ")}</span>}
+        {person.estimateMs !== null && (
+          <span className="figures estimate small" title={t("call.estimateHelp")}>
+            {t("call.estimate", { ms: formatMs(person.estimateMs) })}
+          </span>
+        )}
       </div>
       {!person.me && (
         <label className="volume">
@@ -221,5 +227,45 @@ function Person({ person }: { person: Participant }) {
         </label>
       )}
     </li>
+  );
+}
+
+/** The local statistics of spec section 11, never sent anywhere. */
+function Statistics({ call }: { call: CallView }) {
+  const { t } = useLanguage();
+  const others = call.participants.filter((p) => !p.me);
+  return (
+    <details className="devices stats">
+      <summary>{t("stats.title")}</summary>
+      <div className="small">
+        {t("stats.rtt", {
+          rtt: call.rttMs !== null ? formatMs(call.rttMs) : "–",
+          min: call.minRttMs !== null ? formatMs(call.minRttMs) : "–",
+        })}
+      </div>
+      <div className="small">
+        {t("stats.device", { ms: formatMs(call.deviceMs) })} (
+        {call.deviceMeasured ? t("stats.measured") : t("stats.reported")})
+      </div>
+      {call.uplinkLossPct > 0 && (
+        <div className="small">
+          {t("call.uplink", { loss: `${call.uplinkLossPct.toFixed(1)} %` })}
+        </div>
+      )}
+      {others.map((p) => (
+        <div key={p.session} className="small muted">
+          {t("stats.person", {
+            name: p.name,
+            received: p.counters.received,
+            played: p.counters.played,
+            concealed: p.counters.concealed,
+            late: p.counters.late,
+            dropped: p.counters.dropped,
+            depth: p.counters.depth,
+          })}
+          {p.bufferMs !== null && ` · ${t("call.jitter", { buffer: formatMs(p.bufferMs) })}`}
+        </div>
+      ))}
+    </details>
   );
 }

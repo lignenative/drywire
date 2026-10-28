@@ -123,6 +123,10 @@ fn members_join_by_link_and_meet_in_a_room() {
         v.bound && v.rtt_ms.is_some()
     });
 
+    // The lab needs the sound card the call holds.
+    let busy = sam.calibrate(Duration::from_secs(1)).unwrap_err();
+    assert_eq!(busy.code, "busy");
+
     // Alex's app joins the same room: each sees the other.
     let (alex, _) = desktop("alex", devices(voice()));
     alex.accept(&link(), "alex").unwrap();
@@ -147,6 +151,11 @@ fn members_join_by_link_and_meet_in_a_room() {
     assert!(view.muted);
     let view = wait_for(&sam, "alex muted", |v| !v.participants[1].speaking);
     assert!(view.participants[1].buffer_ms.is_some(), "{view:#?}");
+    let alex_seen = &view.participants[1];
+    assert!(alex_seen.counters.received > 0 && alex_seen.counters.played > 0);
+    let estimate = alex_seen.estimate_ms.expect("an estimate once alex spoke");
+    assert!(estimate >= 5.0, "at least one frame: {estimate}");
+    assert!(!view.device_measured);
     wait_for(&sam, "loss measured", |v| {
         v.participants[1].loss_pct.is_some()
     });
@@ -173,4 +182,25 @@ fn members_join_by_link_and_meet_in_a_room() {
     sam.leave();
     let status = relay.status();
     assert_eq!(status["sessions"], 0, "both sessions were freed: {status}");
+}
+
+#[test]
+fn the_lab_measures_the_device_and_calibrates_the_gate() {
+    // An echo device: what it plays, it hears one period later.
+    let echo: Devices = Arc::new(|| {
+        Box::new(|| Ok(Box::new(FileIo::new(Source::Echo, 120, None)) as Box<dyn AudioIo>))
+    });
+    let (lab, _) = desktop("lab", echo);
+    let measured = lab.loopback_test(Duration::from_secs(4)).unwrap();
+    let median = measured.median_ms.expect("the clicks are heard");
+    assert!(median < 50.0, "{measured:?}");
+    assert!(measured.delays_ms.len() >= 3, "{measured:?}");
+    assert_eq!(measured.devices.len(), 2);
+
+    // Background noise at -60 dBFS: the gate opens 4 dB above it.
+    let (quiet, _) = desktop("quiet", devices(vec![0.001; 5 * SAMPLE_RATE as usize]));
+    let found = quiet.calibrate(Duration::from_secs(1)).unwrap();
+    assert!((found.noise_dbfs - -60.0).abs() < 0.1, "{found:?}");
+    assert!((found.gate_dbfs - -56.0).abs() < 0.1, "{found:?}");
+    assert!(!found.too_loud);
 }

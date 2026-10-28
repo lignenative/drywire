@@ -4,7 +4,9 @@
 
 use tauri::{AppHandle, State};
 
-use crate::app::{Desktop, Preferences, SpaceView};
+use std::time::Duration;
+
+use crate::app::{CalibrationView, Desktop, LoopbackView, Preferences, SpaceView};
 use crate::error::AppError;
 use crate::session::CallView;
 use crate::shell;
@@ -112,4 +114,16 @@ pub fn set_preferences(
 #[tauri::command]
 pub fn set_language(app: AppHandle, language: String) {
     shell::set_language(&app, &language);
+}
+
+/// The loopback test: at most 8 seconds.
+#[tauri::command(async)]
+pub fn loopback_test(desktop: State<'_, Desktop>) -> Result<LoopbackView, AppError> {
+    desktop.loopback_test(Duration::from_secs(8))
+}
+
+/// The gate calibration: 10 seconds, controller in hand (spec section 10).
+#[tauri::command(async)]
+pub fn calibrate_gate(desktop: State<'_, Desktop>) -> Result<CalibrationView, AppError> {
+    desktop.calibrate(Duration::from_secs(10))
 }

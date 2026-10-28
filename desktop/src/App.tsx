@@ -2,6 +2,7 @@
 // invitation form and the device key.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type CallView } from "./api";
+import { LabCard } from "./LabCard";
 import { SettingsCard } from "./SettingsCard";
 import { playPresence } from "./sounds";
 import { CallPanel } from "./CallPanel";
@@ -77,6 +78,7 @@ export function App() {
       </header>
       <main>
         {call ? <CallPanel call={call} onLeave={leave} /> : <Home onJoined={setCall} />}
+        {!call && <LabCard />}
         {!call && <SettingsCard onSaved={(s) => (soundVolume.current = s.soundVolume)} />}
       </main>
     </div>

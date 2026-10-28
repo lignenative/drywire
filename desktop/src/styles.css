@@ -396,3 +396,36 @@ label.check {
 label.check input {
   accent-color: var(--accent);
 }
+
+.lab-step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.progress > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 1s linear;
+}
+
+.estimate {
+  cursor: help;
+}
+
+.stats {
+  font-variant-numeric: tabular-nums;
+}
+
+.person .figures + .figures {
+  margin-left: 8px;
+}

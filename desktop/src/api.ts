@@ -33,6 +33,32 @@ export interface Participant {
   volume: number;
   bufferMs: number | null;
   lossPct: number | null;
+  /** Mouth to ear from them to this device: an estimate, always shown as one. */
+  estimateMs: number | null;
+  counters: Counters;
+}
+
+export interface Counters {
+  received: number;
+  played: number;
+  concealed: number;
+  late: number;
+  dropped: number;
+  depth: number;
+}
+
+export interface LoopbackView {
+  medianMs: number | null;
+  delaysMs: number[];
+  clicks: number;
+  devices: DeviceView[];
+}
+
+export interface CalibrationView {
+  noiseDbfs: number;
+  peakDbfs: number;
+  gateDbfs: number;
+  tooLoud: boolean;
 }
 
 export interface DeviceView {
@@ -53,6 +79,9 @@ export interface CallView {
   ended: string | null;
   bound: boolean;
   rttMs: number | null;
+  minRttMs: number | null;
+  deviceMs: number;
+  deviceMeasured: boolean;
   muted: boolean;
   /** The microphone's level for the meter, from -90 dBFS up. */
   inputDbfs: number;
@@ -112,6 +141,8 @@ export const api = {
   setPreferences: (preferences: Preferences) =>
     invoke<Settings>("set_preferences", { preferences }),
   setLanguage: (language: string) => invoke<void>("set_language", { language }),
+  loopbackTest: () => invoke<LoopbackView>("loopback_test"),
+  calibrateGate: () => invoke<CalibrationView>("calibrate_gate"),
   /** Calls `f` for every arrival and departure in the room. */
   onPresence: (f: (notice: Notice) => void): Promise<UnlistenFn> =>
     listen<Notice>("presence", (event) => f(event.payload)),

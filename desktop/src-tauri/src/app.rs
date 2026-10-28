@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use drywire_control::{Client, Id};
 use drywire_proto::invite::Invitation;
@@ -11,9 +12,42 @@ use serde::Serialize;
 
 use crate::error::AppError;
 use crate::session::{
-    CallView, DeviceFactory, JoinRequest, Notices, Session, clamp_gate, printable,
+    CallView, DeviceFactory, DeviceView, JoinRequest, Notices, Session, clamp_gate, printable,
 };
 use crate::store::{KnownSpace, Settings, Store};
+
+/// What the loopback test measured.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopbackView {
+    /// The median delay, input plus output, in milliseconds; `None` when
+    /// no click was heard.
+    pub median_ms: Option<f64>,
+    /// Every delay measured, in milliseconds.
+    pub delays_ms: Vec<f64>,
+    /// How many clicks were played.
+    pub clicks: usize,
+    /// What the system says of the two streams, to compare.
+    pub devices: Vec<DeviceView>,
+}
+
+/// What the gate calibration found.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalibrationView {
+    /// The background noise's typical level, in dBFS.
+    pub noise_dbfs: f32,
+    /// Its loudest moments, in dBFS.
+    pub peak_dbfs: f32,
+    /// The threshold proposed, in dBFS: the interface applies it with
+    /// `set_gate` once the person accepts.
+    pub gate_dbfs: f32,
+    /// Whether the room is too loud for quiet speech to open the gate.
+    pub too_loud: bool,
+}
+
+/// How many clicks the loopback test waits for.
+const LOOPBACK_CLICKS: usize = 9;
 
 /// What the settings panel edits.
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
@@ -263,6 +297,77 @@ impl Desktop {
             .map_err(AppError::storage)?;
         if let Some(session) = self.session.lock().expect("not poisoned").as_ref() {
             session.set_volume(public_key, volume);
+        }
+        Ok(())
+    }
+
+    /// The loopback test (spec section 11): clicks played on the default
+    /// output and heard back by the default microphone, the earphone held
+    /// against it, for at most `duration`. The median is kept for the
+    /// latency estimates. Out of a call only: the call holds the device.
+    pub fn loopback_test(&self, duration: Duration) -> Result<LoopbackView, AppError> {
+        let _switching = self.switching.lock().expect("not poisoned");
+        self.refuse_in_a_call()?;
+        let (test, input, output) = drywire_core::lab::Loopback::new();
+        let mut device = (self.devices)()().map_err(|e| AppError::new("audio", e))?;
+        let streams = device
+            .start(input, output)
+            .map_err(|e| AppError::new("audio", e.to_string()))?;
+        let deadline = Instant::now() + duration;
+        while Instant::now() < deadline && test.delays_ms().len() < LOOPBACK_CLICKS {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        device.stop();
+        let median_ms = test.median_ms();
+        if median_ms.is_some() {
+            let mut settings = self.store.settings();
+            settings.device_loopback_ms = median_ms;
+            self.store
+                .save_settings(&settings)
+                .map_err(AppError::storage)?;
+        }
+        Ok(LoopbackView {
+            median_ms,
+            delays_ms: test.delays_ms(),
+            clicks: test.clicks(),
+            devices: streams.iter().map(DeviceView::new).collect(),
+        })
+    }
+
+    /// Records the microphone for `duration`, the person silent but
+    /// playing, and proposes a gate threshold just above that noise (spec
+    /// section 10, "Gate calibration"). Out of a call only.
+    pub fn calibrate(&self, duration: Duration) -> Result<CalibrationView, AppError> {
+        let _switching = self.switching.lock().expect("not poisoned");
+        self.refuse_in_a_call()?;
+        let frames = (duration.as_millis() / 5) as usize;
+        let (recorder, input, output) = drywire_core::lab::LevelRecorder::new(frames);
+        let mut device = (self.devices)()().map_err(|e| AppError::new("audio", e))?;
+        device
+            .start(input, output)
+            .map_err(|e| AppError::new("audio", e.to_string()))?;
+        // A little longer than asked: the device starts with a delay.
+        let deadline = Instant::now() + duration + Duration::from_secs(2);
+        while !recorder.is_full() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        device.stop();
+        let found = drywire_core::gate::calibrate(&recorder.levels_dbfs())
+            .ok_or_else(|| AppError::new("audio", "the microphone sent nothing"))?;
+        Ok(CalibrationView {
+            noise_dbfs: found.noise_dbfs,
+            peak_dbfs: found.peak_dbfs,
+            gate_dbfs: clamp_gate(found.gate.open_dbfs),
+            too_loud: found.too_loud,
+        })
+    }
+
+    fn refuse_in_a_call(&self) -> Result<(), AppError> {
+        if self.call().is_some() {
+            return Err(AppError::new(
+                "busy",
+                "leave the room first: the call is using the sound card",
+            ));
         }
         Ok(())
     }

@@ -72,6 +72,40 @@ const en = {
   "overlay.disconnect": "{name} lost their connection",
 
   "error.shortcut": "This shortcut cannot be used: another app may hold it.",
+  "lab.title": "Latency lab",
+  "lab.device": "Device test",
+  "lab.deviceHelp":
+    "Hold your earphone against the microphone and turn the volume up: the app plays clicks and times how long the microphone takes to hear them. This is your input plus output latency, wireless headsets included.",
+  "lab.start": "Start",
+  "lab.listening": "Listening…",
+  "lab.deviceResult": "Input + output: {ms} (median of {count} clicks)",
+  "lab.reported": "The system reports {ms}.",
+  "lab.noClick": "No click was heard. Hold the earphone closer to the microphone, and turn the volume up.",
+  "lab.calibrate": "Voice gate calibration",
+  "lab.calibrateHelp":
+    "Ten seconds, controller in hand: stay silent and play as you would. The gate is then set just above that noise, clicks included.",
+  "lab.recording": "Recording… {seconds} s",
+  "lab.noise": "Background noise {noise}, its loudest moments {peak}.",
+  "lab.proposed": "Proposed threshold: {gate}.",
+  "lab.tooLoud":
+    "It is loud: quiet speech may not open the gate. Lower the game in your headset, or move the microphone.",
+  "lab.apply": "Apply",
+  "lab.discard": "Discard",
+  "lab.applied": "The voice gate opens at {gate} from now on.",
+  "lab.network": "In a room, the widget shows the round trip to the relay continuously.",
+
+  "stats.title": "Statistics",
+  "stats.rtt": "Round trip to the relay: {rtt} (lowest {min})",
+  "stats.device": "This device, input + output: {ms}",
+  "stats.measured": "measured",
+  "stats.reported": "reported by the system",
+  "stats.person":
+    "{name}: received {received}, played {played}, concealed {concealed}, late {late}, dropped {dropped}, buffered {depth}",
+  "call.estimate": "≈ {ms} (estimate)",
+  "call.estimateHelp":
+    "Estimate, not a measurement: your devices, one frame, the round trip to the relay, and your jitter buffer, assuming their side matches yours.",
+
+  "error.busy": "Leave the room first: the call is using the sound card.",
   "error.storage": "This device's files could not be read or written.",
   "error.invalid_link": "This is not a Drywire invitation link.",
   "error.bad_instance": "The instance's address cannot be used.",
@@ -154,6 +188,40 @@ const fr: Record<Key, string> = {
   "overlay.disconnect": "{name} a perdu la connexion",
 
   "error.shortcut": "Ce raccourci est inutilisable : une autre application le détient peut-être.",
+  "lab.title": "Labo de latence",
+  "lab.device": "Test des périphériques",
+  "lab.deviceHelp":
+    "Placez votre écouteur contre le micro et montez le volume : l'application joue des clics et mesure le temps que le micro met à les entendre. C'est votre latence d'entrée plus de sortie, casques sans fil compris.",
+  "lab.start": "Lancer",
+  "lab.listening": "Écoute…",
+  "lab.deviceResult": "Entrée + sortie : {ms} (médiane de {count} clics)",
+  "lab.reported": "Le système annonce {ms}.",
+  "lab.noClick": "Aucun clic entendu. Rapprochez l'écouteur du micro et montez le volume.",
+  "lab.calibrate": "Calibrage du seuil de voix",
+  "lab.calibrateHelp":
+    "Dix secondes, manette en main : restez silencieux et jouez normalement. Le seuil est ensuite placé juste au-dessus de ce bruit, clics compris.",
+  "lab.recording": "Enregistrement… {seconds} s",
+  "lab.noise": "Bruit de fond {noise}, ses pointes {peak}.",
+  "lab.proposed": "Seuil proposé : {gate}.",
+  "lab.tooLoud":
+    "C'est bruyant : une voix basse risque de ne pas ouvrir le seuil. Baissez le jeu dans le casque, ou éloignez le micro.",
+  "lab.apply": "Appliquer",
+  "lab.discard": "Annuler",
+  "lab.applied": "Le seuil de voix s'ouvre désormais à {gate}.",
+  "lab.network": "Dans un salon, le widget affiche en continu l'aller-retour vers le relais.",
+
+  "stats.title": "Statistiques",
+  "stats.rtt": "Aller-retour vers le relais : {rtt} (minimum {min})",
+  "stats.device": "Cet appareil, entrée + sortie : {ms}",
+  "stats.measured": "mesuré",
+  "stats.reported": "annoncé par le système",
+  "stats.person":
+    "{name} : reçus {received}, joués {played}, masqués {concealed}, en retard {late}, abandonnés {dropped}, en tampon {depth}",
+  "call.estimate": "≈ {ms} (estimation)",
+  "call.estimateHelp":
+    "Estimation, pas une mesure : vos périphériques, une trame, l'aller-retour vers le relais et votre tampon de gigue, en supposant que leur côté ressemble au vôtre.",
+
+  "error.busy": "Quittez d'abord le salon : l'appel utilise la carte son.",
   "error.storage": "Les fichiers de cet appareil n'ont pas pu être lus ou écrits.",
   "error.invalid_link": "Ce n'est pas un lien d'invitation Drywire.",
   "error.bad_instance": "L'adresse de l'instance est inutilisable.",

@@ -29,12 +29,13 @@ use drywire_core::call::{Call, CallControls, CallMembers, CallOptions, CallStats
 use drywire_core::config::{ClientConfig, Member};
 use drywire_core::gate::GateConfig;
 use drywire_core::link::LinkConfig;
-use drywire_core::opus::FrameSize;
+use drywire_core::opus::{FrameSize, SAMPLE_RATE};
 use drywire_core::sender::SenderConfig;
 use drywire_proto::crypto::{SigningKey, VerifyingKey};
 use serde::Serialize;
 
 use crate::error::AppError;
+use crate::latency::estimate_ms;
 use crate::store::Settings;
 
 /// Opens the sound card, on the session thread.
@@ -144,6 +145,29 @@ pub struct Participant {
     /// The share of their voice lost and concealed over the last second,
     /// in percent; `None` when they were silent.
     pub loss_pct: Option<f64>,
+    /// Their estimated mouth-to-ear latency to this device, in
+    /// milliseconds, once they spoke ([`crate::latency`]).
+    pub estimate_ms: Option<f64>,
+    /// Their playback counters, over the call.
+    pub counters: Counters,
+}
+
+/// One person's playback counters, for the latency lab's statistics.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Counters {
+    /// Packets received.
+    pub received: u64,
+    /// Frames played.
+    pub played: u64,
+    /// Gaps filled by concealment.
+    pub concealed: u64,
+    /// Packets that came after their time.
+    pub late: u64,
+    /// Frames dropped because too many piled up.
+    pub dropped: u64,
+    /// Frames in the jitter buffer now.
+    pub depth: usize,
 }
 
 /// One audio stream, as the system opened it.
@@ -165,7 +189,8 @@ pub struct DeviceView {
 }
 
 impl DeviceView {
-    fn new(info: &StreamInfo) -> DeviceView {
+    /// What the system says of one stream.
+    pub fn new(info: &StreamInfo) -> DeviceView {
         DeviceView {
             direction: match info.direction {
                 drywire_core::audio::Direction::Input => "input",
@@ -202,6 +227,13 @@ pub struct CallView {
     pub bound: bool,
     /// The last round trip to the relay, in milliseconds.
     pub rtt_ms: Option<f64>,
+    /// The smallest round trip seen, in milliseconds.
+    pub min_rtt_ms: Option<f64>,
+    /// This device's latency, input plus output, in milliseconds: the
+    /// loopback test's if it was run, else what the system reports.
+    pub device_ms: f64,
+    /// Whether `device_ms` was measured by the loopback test.
+    pub device_measured: bool,
     /// Whether the microphone is muted.
     pub muted: bool,
     /// The microphone's level for the meter, in dBFS, from
@@ -454,6 +486,10 @@ impl Live {
                 devices: streams.iter().map(DeviceView::new).collect(),
                 gate_dbfs: gate.open_dbfs,
                 input_dbfs: METER_FLOOR_DBFS,
+                device_ms: request.settings.device_loopback_ms.unwrap_or_else(|| {
+                    streams.iter().map(|s| s.buffer_ms() + s.latency_ms()).sum()
+                }),
+                device_measured: request.settings.device_loopback_ms.is_some(),
                 ..CallView::default()
             },
         })
@@ -571,6 +607,7 @@ impl Live {
         let stats = self.call.stats();
         self.view.bound = stats.link.bound && self.view.ended.is_none();
         self.view.rtt_ms = stats.link.rtt_us.map(|us| us as f64 / 1000.0);
+        self.view.min_rtt_ms = stats.link.min_rtt_us.map(|us| us as f64 / 1000.0);
         self.view.muted = self.controls.is_muted();
         self.view.gate_dbfs = self.controls.gate().0;
         let peak = self.controls.take_input_peak_dbfs().max(METER_FLOOR_DBFS);
@@ -616,6 +653,18 @@ impl Live {
             .map(|(&session, k)| {
                 let track = stats.tracks.iter().find(|t| t.session == session);
                 let me = session == self.me;
+                let frame_ms = track
+                    .and_then(|t| t.frame)
+                    .map(|f| f.samples() as f64 * 1000.0 / f64::from(SAMPLE_RATE));
+                let buffer_ms = frame_ms
+                    .and(track)
+                    .map(|t| t.jitter.target_us as f64 / 1000.0);
+                let estimate_ms = match (frame_ms, buffer_ms, self.view.rtt_ms) {
+                    (Some(frame), Some(buffer), Some(rtt)) => {
+                        Some(estimate_ms(self.view.device_ms, frame, rtt, buffer))
+                    }
+                    _ => None,
+                };
                 Participant {
                     session,
                     name: k.name.clone(),
@@ -627,10 +676,17 @@ impl Live {
                         track.is_some_and(|t| t.speaking)
                     },
                     volume: self.volumes.get(&k.public_key).copied().unwrap_or(1.0),
-                    buffer_ms: track
-                        .filter(|t| t.frame.is_some())
-                        .map(|t| t.jitter.target_us as f64 / 1000.0),
+                    buffer_ms,
                     loss_pct: self.quality.get(&session).and_then(|q| q.2),
+                    estimate_ms,
+                    counters: track.map_or_else(Counters::default, |t| Counters {
+                        received: t.jitter.received,
+                        played: t.jitter.played,
+                        concealed: t.jitter.concealed,
+                        late: t.jitter.late,
+                        dropped: t.jitter.dropped,
+                        depth: t.depth,
+                    }),
                 }
             })
             .collect();

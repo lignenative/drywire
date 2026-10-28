@@ -13,6 +13,7 @@
 pub mod app;
 mod commands;
 pub mod error;
+pub mod latency;
 pub mod session;
 mod shell;
 pub mod store;
@@ -88,6 +89,8 @@ pub fn run() {
             commands::get_settings,
             commands::set_preferences,
             commands::set_language,
+            commands::loopback_test,
+            commands::calibrate_gate,
         ])
         .build(tauri::generate_context!())
         .expect("Drywire could not start");

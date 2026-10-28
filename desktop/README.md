@@ -12,6 +12,7 @@ desktop/
     src/app.rs       What each command does, without the window
     src/session.rs   A call in progress, on a thread of its own
     src/shell.rs     The tray icon, the global shortcut and the overlay
+    src/latency.rs   The per-person latency estimate
     src/store.rs     The identity and the space keys on disk
     src/vault.rs     DPAPI on Windows (ADR 0031)
     tests/app.rs     The whole app against the real server, headless
@@ -45,6 +46,15 @@ mobile ones it adds).
   who is speaking, "Muted", and a pill for two seconds when someone comes
   or goes. The game must run in borderless windowed mode; nothing is
   injected into it.
+- The latency lab (spec section 11), out of a call: the loopback device
+  test (the earphone held against the microphone; the median of nine
+  clicks is input plus output latency, kept for the estimates), and the
+  10-second voice gate calibration, controller in hand, which proposes a
+  threshold 4 dB above the noise's loudest moments. In a call, each person
+  shows an estimated mouth-to-ear latency, always labelled as an estimate
+  (`src-tauri/src/latency.rs` says what it adds up and assumes), and a
+  "Statistics" section lists the round trip, the device latency and each
+  person's playback counters. None of it leaves the device.
 
 The interface is in English and French; it follows the system's language
 and can be switched in the header.
@@ -136,3 +146,12 @@ run. What only a person on a Windows PC can check:
       back; "Quit" leaves the room and the teammate sees it at once.
 - [ ] **Presence sounds** are quiet, distinct, and never delay or duck a
       teammate's voice; at "Off" there are none.
+- [ ] **Latency lab.** The device test hears its clicks with a wired
+      earphone held to the microphone (expect tens of milliseconds) and
+      shows far more with a Bluetooth headset. The calibration's proposed
+      threshold keeps controller clicks out and lets normal speech in.
+- [ ] **Real latency.** Measure a full mouth-to-ear path with the physical
+      method of spec section 11 (two PCs side by side, a third recorder;
+      the `drywire-bench measure` command it names is not written yet, so
+      the gaps are read off the recording by hand), record it in
+      `docs/measurements.md`, and compare it with the in-app estimate.

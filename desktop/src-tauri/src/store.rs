@@ -75,6 +75,10 @@ pub struct Settings {
     pub sound_volume: f32,
     /// Whether the overlay shows who speaks, over the game, during calls.
     pub overlay: bool,
+    /// The device latency the last loopback test measured, input plus
+    /// output, in milliseconds: it replaces the system's figures in the
+    /// latency estimates.
+    pub device_loopback_ms: Option<f64>,
 }
 
 impl Default for Settings {
@@ -85,6 +89,7 @@ impl Default for Settings {
             mute_shortcut: "Ctrl+Shift+M".into(),
             sound_volume: 0.5,
             overlay: true,
+            device_loopback_ms: None,
         }
     }
 }
