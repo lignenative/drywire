@@ -1,0 +1,74 @@
+# drywire-server as a systemd service: the alternative to Docker, for a
+# host without it. The make targets drive the Docker deployment only; with
+# this unit you install, update, back up and restore by hand, as
+# README.md, "Without Docker", explains.
+#
+# Install:
+#   sudo useradd --system --home-dir /var/lib/drywire --shell /usr/sbin/nologin drywire
+#   sudo install -m 0755 drywire-server /usr/local/bin/
+#   sudo install -d -m 0755 /etc/drywire
+#   sudo install -m 0644 instance.env /etc/drywire/
+#   sudo install -m 0644 drywire.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now drywire
+#
+# The settings are the same as in the Docker deployment: instance.env,
+# described in instance.env.example.
+
+[Unit]
+Description=Drywire voice relay and control plane
+Documentation=https://github.com/lignenative/drywire/tree/main/deploy
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=drywire
+Group=drywire
+EnvironmentFile=/etc/drywire/instance.env
+# The database and the deletion ledger, in /var/lib/drywire, readable by
+# the drywire user only. systemd creates the directory.
+Environment=DRYWIRE_DB=/var/lib/drywire/drywire.db
+Environment=DRYWIRE_LEDGER=/var/lib/drywire/drywire.deletions
+StateDirectory=drywire
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/drywire
+ExecStart=/usr/local/bin/drywire-server
+Restart=on-failure
+RestartSec=2s
+# The server stops its HTTP side within 5 seconds of SIGTERM.
+TimeoutStopSec=10s
+# Logs (application and access) go to the journal. Keep the access log a
+# year at most: README.md, "Logs".
+
+# The same confinement as the container: no privilege to keep or gain,
+# nothing writable but its own state, no device, no other user's files.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+# A call outside the filter fails with an error instead of killing the server.
+SystemCallErrorNumber=EPERM
+UMask=0077
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
