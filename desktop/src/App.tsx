@@ -1,7 +1,9 @@
 // The window: the call when there is one, else this device's spaces, the
 // invitation form and the device key.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type CallView } from "./api";
+import { SettingsCard } from "./SettingsCard";
+import { playPresence } from "./sounds";
 import { CallPanel } from "./CallPanel";
 import { Home } from "./Home";
 import { LANGUAGES } from "./i18n";
@@ -13,6 +15,22 @@ const POLL_MS = 100;
 export function App() {
   const { lang, setLang, t } = useLanguage();
   const [call, setCall] = useState<CallView | null>(null);
+  const soundVolume = useRef(0.5);
+
+  // The tray menu speaks the interface's language.
+  useEffect(() => {
+    api.setLanguage(lang).catch(() => {});
+  }, [lang]);
+
+  // The presence sounds. Events, not polling: they arrive even while
+  // the window is hidden in the tray and its timers are slowed down.
+  useEffect(() => {
+    api.getSettings().then((s) => (soundVolume.current = s.soundVolume), () => {});
+    const unlisten = api.onPresence((notice) => playPresence(notice.kind, soundVolume.current));
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
 
   // Polled, never pushed: the numbers are a copy the session thread
   // refreshes, so reading them never touches the audio.
@@ -59,6 +77,7 @@ export function App() {
       </header>
       <main>
         {call ? <CallPanel call={call} onLeave={leave} /> : <Home onJoined={setCall} />}
+        {!call && <SettingsCard onSaved={(s) => (soundVolume.current = s.soundVolume)} />}
       </main>
     </div>
   );

@@ -56,6 +56,22 @@ const en = {
   "call.jitter": "buffer {buffer}",
   "call.uplink": "Lost on the way to the relay: {loss}",
 
+  "settings.title": "Settings",
+  "settings.shortcut": "Mute shortcut",
+  "settings.shortcutNone": "None",
+  "settings.shortcutHelp":
+    "Click, then press the keys; Backspace removes it. It works while a game has the focus.",
+  "settings.sounds": "Sounds when someone joins or leaves",
+  "settings.off": "Off",
+  "settings.overlay": "Show who is speaking over the game (borderless window mode)",
+  "settings.save": "Save",
+  "settings.saved": "Saved.",
+
+  "overlay.join": "{name} joined",
+  "overlay.leave": "{name} left",
+  "overlay.disconnect": "{name} lost their connection",
+
+  "error.shortcut": "This shortcut cannot be used: another app may hold it.",
   "error.storage": "This device's files could not be read or written.",
   "error.invalid_link": "This is not a Drywire invitation link.",
   "error.bad_instance": "The instance's address cannot be used.",
@@ -122,6 +138,22 @@ const fr: Record<Key, string> = {
   "call.jitter": "tampon {buffer}",
   "call.uplink": "Perdu en route vers le relais : {loss}",
 
+  "settings.title": "Réglages",
+  "settings.shortcut": "Raccourci pour couper le micro",
+  "settings.shortcutNone": "Aucun",
+  "settings.shortcutHelp":
+    "Cliquez, puis appuyez sur les touches ; Retour arrière l'efface. Il fonctionne pendant que le jeu a le focus.",
+  "settings.sounds": "Sons quand quelqu'un arrive ou part",
+  "settings.off": "Coupés",
+  "settings.overlay": "Afficher qui parle par-dessus le jeu (mode fenêtré sans bordure)",
+  "settings.save": "Enregistrer",
+  "settings.saved": "Enregistré.",
+
+  "overlay.join": "{name} est arrivé·e",
+  "overlay.leave": "{name} est parti·e",
+  "overlay.disconnect": "{name} a perdu la connexion",
+
+  "error.shortcut": "Ce raccourci est inutilisable : une autre application le détient peut-être.",
   "error.storage": "Les fichiers de cet appareil n'ont pas pu être lus ou écrits.",
   "error.invalid_link": "Ce n'est pas un lien d'invitation Drywire.",
   "error.bad_instance": "L'adresse de l'instance est inutilisable.",

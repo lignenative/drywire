@@ -1,6 +1,7 @@
 // The Rust side's commands, typed. Each type mirrors a Rust struct in
 // src-tauri/src (serde turns its fields into camelCase).
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 /** Why a command failed: a code to translate, and the detail in English. */
 export interface AppError {
@@ -61,6 +62,29 @@ export interface CallView {
   devices: DeviceView[];
 }
 
+/** The person's preferences (settings.json). */
+export interface Settings {
+  gateOpenDbfs: number;
+  volumes: Record<string, number>;
+  muteShortcut: string;
+  /** 0 (off) to 1. */
+  soundVolume: number;
+  overlay: boolean;
+}
+
+/** What the settings panel edits. */
+export interface Preferences {
+  muteShortcut: string;
+  soundVolume: number;
+  overlay: boolean;
+}
+
+/** Someone came into the room, or went. */
+export interface Notice {
+  kind: "join" | "leave" | "disconnect";
+  name: string;
+}
+
 /** Whether a value thrown by a command is an AppError. */
 export function isAppError(value: unknown): value is AppError {
   return (
@@ -84,4 +108,11 @@ export const api = {
   setGate: (openDbfs: number) => invoke<void>("set_gate", { openDbfs }),
   setVolume: (publicKey: string, volume: number) =>
     invoke<void>("set_volume", { publicKey, volume }),
+  getSettings: () => invoke<Settings>("get_settings"),
+  setPreferences: (preferences: Preferences) =>
+    invoke<Settings>("set_preferences", { preferences }),
+  setLanguage: (language: string) => invoke<void>("set_language", { language }),
+  /** Calls `f` for every arrival and departure in the room. */
+  onPresence: (f: (notice: Notice) => void): Promise<UnlistenFn> =>
+    listen<Notice>("presence", (event) => f(event.payload)),
 };

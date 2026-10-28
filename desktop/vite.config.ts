@@ -18,5 +18,12 @@ export default defineConfig({
     // WebView2 on Windows 10 and 11 is a current Chromium.
     target: "es2022",
     outDir: "dist",
+    // Two pages: the app's window and the overlay (src-tauri/src/shell.rs).
+    rollupOptions: {
+      input: {
+        main: "index.html",
+        overlay: "overlay.html",
+      },
+    },
   },
 });

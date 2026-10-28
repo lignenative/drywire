@@ -8,7 +8,7 @@ use serde::Serialize;
 pub struct AppError {
     /// What kind of failure, for the interface to translate:
     /// `storage`, `invalid_link`, `bad_instance`, `refused`, `network`,
-    /// `protocol`, `relay`, `audio`, `not_found`.
+    /// `protocol`, `relay`, `audio`, `not_found`, `shortcut`.
     pub code: &'static str,
     /// The detail, in English.
     pub message: String,

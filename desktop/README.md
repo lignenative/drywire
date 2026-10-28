@@ -11,6 +11,7 @@ desktop/
   src-tauri/       The Rust side: a Cargo workspace of its own (ADR 0030)
     src/app.rs       What each command does, without the window
     src/session.rs   A call in progress, on a thread of its own
+    src/shell.rs     The tray icon, the global shortcut and the overlay
     src/store.rs     The identity and the space keys on disk
     src/vault.rs     DPAPI on Windows (ADR 0031)
     tests/app.rs     The whole app against the real server, headless
@@ -34,6 +35,16 @@ mobile ones it adds).
   button, the gate's threshold, and each person's volume from 0 to 200 %,
   with their jitter buffer and recent loss. The gate and the volumes are
   remembered (`settings.json`, by public key for volumes); mute is not.
+- Out of the window, for a player in a match: a tray icon (show, mute,
+  quit; closing the window only hides it), a global mute shortcut
+  (`Ctrl+Shift+M` by default, changed in the settings), three short
+  presence sounds when someone joins, leaves or loses their connection
+  (synthesised by the interface, played through the web view's own output,
+  never through the call), and the overlay: a transparent, always-on-top
+  window in the top-left corner that lets every click through, and shows
+  who is speaking, "Muted", and a pill for two seconds when someone comes
+  or goes. The game must run in borderless windowed mode; nothing is
+  injected into it.
 
 The interface is in English and French; it follows the system's language
 and can be switched in the header.
@@ -114,3 +125,14 @@ run. What only a person on a Windows PC can check:
 - [ ] **Widget.** The meter moves with your voice and turns green above the
       gate's mark; muting stops your teammate hearing you within a word;
       a teammate at 200 % is clearly louder, at 0 % silent.
+- [ ] **Global shortcut in a game.** With a game in the foreground (and in
+      a game that runs as administrator: then Drywire must too), the mute
+      shortcut mutes and unmutes; the overlay says "Muted".
+- [ ] **Overlay over a borderless game.** The pill shows in the top-left
+      corner over the game, the game keeps every click and the focus, and
+      the frame rate does not change. In exclusive fullscreen the overlay
+      cannot show: expected.
+- [ ] **Tray.** Closing the window keeps the call; the tray icon brings it
+      back; "Quit" leaves the room and the teammate sees it at once.
+- [ ] **Presence sounds** are quiet, distinct, and never delay or duck a
+      teammate's voice; at "Off" there are none.

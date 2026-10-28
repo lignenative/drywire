@@ -9,7 +9,7 @@
 mod relay;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use drywire_control::Client;
@@ -17,7 +17,7 @@ use drywire_core::audio::AudioIo;
 use drywire_core::audio::file::{FileIo, Source};
 use drywire_core::opus::SAMPLE_RATE;
 use drywire_desktop::app::{Desktop, Devices};
-use drywire_desktop::session::CallView;
+use drywire_desktop::session::{CallView, Notice, Notices};
 use drywire_desktop::store::Store;
 use drywire_proto::crypto::SigningKey;
 use relay::Relay;
@@ -47,8 +47,17 @@ fn temp_dir(name: &str) -> PathBuf {
     dir
 }
 
-fn desktop(name: &str, devices: Devices) -> Desktop {
-    Desktop::new(Store::open(&temp_dir(name)).unwrap(), devices)
+/// The notices an app received, as "kind name".
+type Heard = Arc<Mutex<Vec<String>>>;
+
+fn desktop(name: &str, devices: Devices) -> (Desktop, Heard) {
+    let heard = Heard::default();
+    let notices: Notices = {
+        let heard = Arc::clone(&heard);
+        Arc::new(move |n: Notice| heard.lock().unwrap().push(format!("{} {}", n.kind, n.name)))
+    };
+    let app = Desktop::new(Store::open(&temp_dir(name)).unwrap(), devices, notices);
+    (app, heard)
 }
 
 /// Polls the call until `done` says so, or fails after five seconds.
@@ -84,7 +93,8 @@ fn members_join_by_link_and_meet_in_a_room() {
     };
 
     // Sam's app: a device key, then the link.
-    let sam = desktop("sam", devices(Vec::new()));
+    let (sam, sam_heard) = desktop("sam", devices(Vec::new()));
+    assert_eq!(sam.toggle_muted(), None, "nothing to mute out of a call");
     let key = sam.public_key().unwrap();
     assert_eq!(key.len(), 64);
     assert_eq!(sam.public_key().unwrap(), key, "the identity is kept");
@@ -114,7 +124,7 @@ fn members_join_by_link_and_meet_in_a_room() {
     });
 
     // Alex's app joins the same room: each sees the other.
-    let alex = desktop("alex", devices(voice()));
+    let (alex, _) = desktop("alex", devices(voice()));
     alex.accept(&link(), "alex").unwrap();
     alex.join(instance, space_id, &room.id).unwrap();
     let view = wait_for(&sam, "alex arrives", |v| v.participants.len() == 2);
@@ -132,7 +142,7 @@ fn members_join_by_link_and_meet_in_a_room() {
     // Sam turns Alex up; Alex mutes, and Sam sees them stop.
     sam.set_volume(&alex_key, 1.5).unwrap();
     wait_for(&sam, "alex louder", |v| v.participants[1].volume == 1.5);
-    alex.set_muted(true);
+    assert_eq!(alex.toggle_muted(), Some(true), "the global shortcut mutes");
     let view = alex.call().unwrap();
     assert!(view.muted);
     let view = wait_for(&sam, "alex muted", |v| !v.participants[1].speaking);
@@ -149,6 +159,7 @@ fn members_join_by_link_and_meet_in_a_room() {
     alex.leave();
     assert!(alex.call().is_none());
     wait_for(&sam, "alex leaves", |v| v.participants.len() == 1);
+    assert_eq!(*sam_heard.lock().unwrap(), ["join alex", "leave alex"]);
 
     // Volumes follow the person into the next call.
     sam.leave();

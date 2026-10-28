@@ -19,15 +19,35 @@
         "height": 640,
         "minWidth": 320,
         "minHeight": 420
+      },
+      {
+        "label": "overlay",
+        "url": "overlay.html",
+        "title": "Drywire overlay",
+        "width": 260,
+        "height": 220,
+        "x": 16,
+        "y": 16,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "resizable": false,
+        "shadow": false,
+        "visible": false
       }
     ],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "publisher": "Ligne Native",
     "copyright": "MIT License",
     "category": "SocialNetworking",

@@ -50,3 +50,4 @@ Status: Accepted · YYYY-MM-DD
 | [0030](0030-build-the-desktop-app-in-its-own-cargo-workspace.md) | Build the desktop app in its own Cargo workspace |
 | [0031](0031-protect-the-desktop-identity-with-dpapi.md) | Protect the desktop app's identity with DPAPI |
 | [0032](0032-control-a-running-call-without-touching-the-audio-path.md) | Control a running call without touching the audio path |
+| [0033](0033-play-presence-sounds-outside-the-call.md) | Play the presence sounds outside the call |

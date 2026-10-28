@@ -10,8 +10,22 @@ use drywire_proto::invite::Invitation;
 use serde::Serialize;
 
 use crate::error::AppError;
-use crate::session::{CallView, DeviceFactory, JoinRequest, Session, clamp_gate, printable};
-use crate::store::{KnownSpace, Store};
+use crate::session::{
+    CallView, DeviceFactory, JoinRequest, Notices, Session, clamp_gate, printable,
+};
+use crate::store::{KnownSpace, Settings, Store};
+
+/// What the settings panel edits.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Preferences {
+    /// The global mute shortcut, such as `Ctrl+Shift+M`.
+    pub mute_shortcut: String,
+    /// The presence sounds' volume, 0 (off) to 1.
+    pub sound_volume: f32,
+    /// Whether the overlay shows during calls.
+    pub overlay: bool,
+}
 
 /// Makes the factory that opens the sound card for each call.
 pub type Devices = Arc<dyn Fn() -> DeviceFactory + Send + Sync>;
@@ -49,6 +63,7 @@ pub struct SpaceView {
 pub struct Desktop {
     store: Store,
     devices: Devices,
+    notices: Notices,
     /// Held while joining or leaving, so two of them never overlap; the
     /// session itself is behind a lock held only for an instant, so
     /// polling the call never waits for a join.
@@ -61,11 +76,13 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    /// The app on `store`, opening sound cards with `devices`.
-    pub fn new(store: Store, devices: Devices) -> Desktop {
+    /// The app on `store`, opening sound cards with `devices`, telling
+    /// `notices` who comes and goes in the room.
+    pub fn new(store: Store, devices: Devices, notices: Notices) -> Desktop {
         Desktop {
             store,
             devices,
+            notices,
             switching: Mutex::new(()),
             session: Mutex::new(None),
             clients: Mutex::new(HashMap::new()),
@@ -151,6 +168,7 @@ impl Desktop {
             space_key: known.space_key().map_err(AppError::storage)?,
             room_id,
             settings: self.store.settings(),
+            notices: Arc::clone(&self.notices),
         };
         // The next join replaces this device's session on the server, so
         // there is no need to tell it we left.
@@ -177,6 +195,39 @@ impl Desktop {
         if let Some(session) = self.session.lock().expect("not poisoned").as_ref() {
             session.set_muted(muted);
         }
+    }
+
+    /// Mutes if unmuted, and the other way round; returns whether the
+    /// microphone is now muted, or `None` out of a call.
+    pub fn toggle_muted(&self) -> Option<bool> {
+        let session = self.session.lock().expect("not poisoned");
+        let session = session.as_ref()?;
+        let muted = !session.view().muted;
+        session.set_muted(muted);
+        Some(muted)
+    }
+
+    /// The person's preferences.
+    pub fn settings(&self) -> Settings {
+        self.store.settings()
+    }
+
+    /// Saves the preferences the settings panel edits: the mute shortcut,
+    /// the presence sounds' volume and the overlay. The gate and the
+    /// volumes have their own methods, used during a call.
+    pub fn set_preferences(&self, preferences: Preferences) -> Result<Settings, AppError> {
+        let mut settings = self.store.settings();
+        settings.mute_shortcut = preferences.mute_shortcut.trim().to_string();
+        settings.sound_volume = if preferences.sound_volume.is_nan() {
+            0.0
+        } else {
+            preferences.sound_volume.clamp(0.0, 1.0)
+        };
+        settings.overlay = preferences.overlay;
+        self.store
+            .save_settings(&settings)
+            .map_err(AppError::storage)?;
+        Ok(settings)
     }
 
     /// Moves the voice gate's threshold, now and for the next calls.

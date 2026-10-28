@@ -36,7 +36,10 @@ drywire-proto = { path = "../../core/drywire-proto" }
 getrandom = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tauri = { version = "2.12", features = [] }
+# The tray icon; on macOS, where it is developed, the private API that
+# lets the overlay be transparent.
+tauri = { version = "2.12", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-global-shortcut = "2.4"
 
 # Windows only: DPAPI protects the identity and the space keys (ADR 0031).
 [target.'cfg(windows)'.dependencies]

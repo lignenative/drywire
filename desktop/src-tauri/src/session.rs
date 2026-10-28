@@ -40,6 +40,21 @@ use crate::store::Settings;
 /// Opens the sound card, on the session thread.
 pub type DeviceFactory = Box<dyn FnOnce() -> Result<Box<dyn AudioIo>, String> + Send>;
 
+/// Hears who comes and goes in the room, on the session thread: the app
+/// plays a sound and shows a pill for each (spec section 10, "Presence").
+pub type Notices = Arc<dyn Fn(Notice) + Send + Sync>;
+
+/// Someone came into the room, or went.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Notice {
+    /// `join`, `leave`, or `disconnect`: the relay stopped hearing from
+    /// them.
+    pub kind: &'static str,
+    /// Their display name.
+    pub name: String,
+}
+
 /// How often the session thread wakes up: to apply the space's events and
 /// refresh the [`CallView`].
 const TICK: Duration = Duration::from_millis(20);
@@ -95,6 +110,8 @@ pub struct JoinRequest {
     pub room_id: Id,
     /// The gate threshold and the volumes to start with.
     pub settings: Settings,
+    /// Told of every arrival and departure.
+    pub notices: Notices,
 }
 
 /// What the interface asks of the session thread.
@@ -332,6 +349,7 @@ struct Live {
     commands: Receiver<Command>,
     /// Each person's volume other than 1, by public key.
     volumes: BTreeMap<String, f32>,
+    notices: Notices,
     /// The counters the loss figures started from: played and concealed,
     /// by session, and the figures of the last window.
     quality: HashMap<u32, (u64, u64, Option<f64>)>,
@@ -418,6 +436,7 @@ impl Live {
             controls,
             commands,
             volumes,
+            notices: request.notices,
             quality: HashMap::new(),
             ticks: 0,
             device: Some(device),
@@ -491,11 +510,15 @@ impl Live {
                 if !present.contains(&self.me) {
                     return Some("this session ended while the event stream was down".into());
                 }
-                let (me, members) = (self.me, &self.members);
-                self.people.retain(|session, _| {
+                let (me, members, notices) = (self.me, &self.members, &self.notices);
+                self.people.retain(|session, person| {
                     let keep = *session == me || present.contains(session);
                     if !keep {
                         members.remove(*session);
+                        notices(Notice {
+                            kind: "leave",
+                            name: person.name.clone(),
+                        });
                     }
                     keep
                 });
@@ -506,11 +529,8 @@ impl Live {
                         .into(),
                 );
             }
-            Event::Leave(p) | Event::Disconnect(p) => {
-                if self.people.remove(&p.session).is_some() {
-                    self.members.remove(p.session);
-                }
-            }
+            Event::Leave(p) => self.remove(p.session, "leave"),
+            Event::Disconnect(p) => self.remove(p.session, "disconnect"),
             Event::Other(_) => {}
         }
         None
@@ -527,7 +547,22 @@ impl Live {
             if let Some(&volume) = self.volumes.get(&person.public_key) {
                 self.members.set_volume(p.session, volume);
             }
+            (self.notices)(Notice {
+                kind: "join",
+                name: person.name.clone(),
+            });
             self.people.insert(p.session, person);
+        }
+    }
+
+    /// Someone left the room, or the relay stopped hearing from them.
+    fn remove(&mut self, session: u32, kind: &'static str) {
+        if let Some(person) = self.people.remove(&session) {
+            self.members.remove(session);
+            (self.notices)(Notice {
+                kind,
+                name: person.name,
+            });
         }
     }
 

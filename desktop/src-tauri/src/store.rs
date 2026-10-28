@@ -68,6 +68,13 @@ pub struct Settings {
     /// The volume of each person other than 1 (100 %), by the hex of their
     /// public key: it follows them from room to room.
     pub volumes: BTreeMap<String, f32>,
+    /// The global shortcut that mutes and unmutes, in Tauri's syntax
+    /// (`Ctrl+Shift+M`); empty for none.
+    pub mute_shortcut: String,
+    /// The presence sounds' volume, 0 (off) to 1.
+    pub sound_volume: f32,
+    /// Whether the overlay shows who speaks, over the game, during calls.
+    pub overlay: bool,
 }
 
 impl Default for Settings {
@@ -75,6 +82,9 @@ impl Default for Settings {
         Settings {
             gate_open_dbfs: drywire_core::gate::GateConfig::default().open_dbfs,
             volumes: BTreeMap::new(),
+            mute_shortcut: "Ctrl+Shift+M".into(),
+            sound_volume: 0.5,
+            overlay: true,
         }
     }
 }
@@ -255,6 +265,8 @@ mod tests {
         let settings = Settings {
             gate_open_dbfs: -52.0,
             volumes: [("ab".repeat(32), 1.5)].into(),
+            sound_volume: 0.0,
+            ..Settings::default()
         };
         store.save_settings(&settings).unwrap();
         assert_eq!(store.settings(), settings);

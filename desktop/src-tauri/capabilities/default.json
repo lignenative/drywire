@@ -1,7 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the main window may do: Tauri's defaults; the app's own commands are always allowed.",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "What the windows may do: Tauri's defaults, events included; the app's own commands are always allowed.",
+  "windows": [
+    "main",
+    "overlay"
+  ],
+  "permissions": [
+    "core:default"
+  ]
 }
