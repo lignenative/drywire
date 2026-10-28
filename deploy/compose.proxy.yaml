@@ -1,0 +1,24 @@
+# Added to compose.yaml when the reverse proxy runs in a Docker network
+# (DRYWIRE_PROXY_NETWORK in .env, ADR 0027). make deploy fills in the
+# variables below in /srv/drywire/.env on the host, which Docker Compose
+# reads by itself; nothing here is set by hand.
+#
+# The server leaves the host's network for the proxy's: the proxy reaches
+# the control plane as drywire:10050, which no host port publishes, and
+# only the relay's UDP port is published on the host.
+services:
+  drywire:
+    network_mode: !reset null
+    networks: [proxy]
+    environment:
+      # Plain HTTP inside the proxy's network, accepted from its subnet
+      # (and loopback, for the health check) only.
+      DRYWIRE_HTTP_ADDR: 0.0.0.0:10050
+      DRYWIRE_TRUST_PROXY: ${DRYWIRE_PROXY_SUBNET:?the proxy network's subnet}
+    ports:
+      - "${DRYWIRE_RELAY_PORT:?the relay port}:${DRYWIRE_RELAY_PORT}/udp"
+
+networks:
+  proxy:
+    name: ${DRYWIRE_PROXY_NETWORK:?the proxy's Docker network}
+    external: true

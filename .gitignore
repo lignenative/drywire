@@ -25,5 +25,4 @@ node_modules/
 
 # Deployment: an instance's settings and its backups.
 deploy/instance.env
-deploy/compose.override.yaml
 /backups/

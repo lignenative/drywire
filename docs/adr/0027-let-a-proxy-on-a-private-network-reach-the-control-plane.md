@@ -29,9 +29,12 @@ which would mean a second certificate for the same name.
   the named networks and loopback alone**, and closes any other at once.
   Tokens cross that private network unencrypted, between the proxy and
   the server, and reach nobody else.
-- The deployment keeps the host network by default (ADR 0026), and offers
-  `deploy/compose.override.example.yaml` for a proxy in a Docker network:
-  the server joins that network and the relay's port is published.
+- The deployment keeps the host network by default (ADR 0026). With
+  `DRYWIRE_PROXY_NETWORK` set in the operator's `.env`, `make deploy`
+  looks up that network's subnet on the host and adds
+  `deploy/compose.proxy.yaml`: the server joins the network, its HTTP
+  port is not published, the relay's UDP port is, and
+  `DRYWIRE_TRUST_PROXY` is set to the subnet.
 
 ## Consequences
 

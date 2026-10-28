@@ -51,6 +51,9 @@ On **your machine**: Go (the version in `server/go.mod`), rsync, curl, and
    HOST=voice-host
    ```
 
+   `.env` also says where the reverse proxy is (`DRYWIRE_PROXY_NETWORK`)
+   and how to publish its route (`ROUTE_PUBLISH_CMD`), below.
+
 2. **Describe the instance.** Copy
    [`instance.env.example`](instance.env.example) to `deploy/instance.env`
    (never committed) and set your own addresses:
@@ -103,14 +106,42 @@ terminates TLS in front of it. Three things matter:
 
 ### Caddy
 
-Caddy gets and renews the certificate itself, sets `X-Forwarded-For`
-(dropping any value a client sent), and flushes event streams at once:
+Caddy gets and renews the certificate itself, and sets `X-Forwarded-For`
+(dropping any value a client sent). `make deploy` writes this route for
+your instance to `/srv/drywire/route.caddy` on the host:
 
 ```caddyfile
 voice.example.org {
-	reverse_proxy 127.0.0.1:10050
+	reverse_proxy 127.0.0.1:10050 {
+		lb_try_duration 10s
+		lb_try_interval 250ms
+		flush_interval -1
+	}
 }
 ```
+
+- `flush_interval -1` hands each response on as soon as the server writes
+  it. Presence (who joins, leaves or renames) is a `text/event-stream`
+  response that stays open for the whole call; a proxy that buffers it
+  holds the events back until its buffer fills, so people would appear in
+  a room long after they joined. Recent Caddy versions already flush
+  event streams at once, but saying it keeps presence live whatever the
+  version.
+- `lb_try_duration` and `lb_try_interval` make Caddy retry for up to
+  10 seconds while the server restarts during a deploy, instead of
+  answering 502 at once.
+
+**Publishing the route by itself.** If the host has a command that
+installs a route read on its standard input (one that checks the site
+block, reloads the proxy, and puts the old route back if that fails),
+name it in `.env`:
+
+```sh
+ROUTE_PUBLISH_CMD=/usr/local/bin/publish-route drywire
+```
+
+`make deploy` then pipes `route.caddy` into it over SSH once the server
+is healthy. Left empty, you add the route to your Caddyfile yourself.
 
 ### nginx
 
@@ -142,39 +173,32 @@ server {
 ### A proxy in a Docker network
 
 If your reverse proxy runs in a container on a Docker network that the
-applications it serves join (a shared "edge" or "proxy" network), the
-server joins that network instead of using the host's
+applications it serves join (a shared "edge" or "proxy" network), name
+that network in `.env`:
+
+```sh
+DRYWIRE_PROXY_NETWORK=edge
+```
+
+`make deploy` then looks up the network's subnet on the host and adds
+[`compose.proxy.yaml`](compose.proxy.yaml) to the deployment, through a
+generated `/srv/drywire/.env` that Docker Compose reads by itself
 ([ADR 0027](../docs/adr/0027-let-a-proxy-on-a-private-network-reach-the-control-plane.md)):
 
-1. Find the network's name and subnet:
+- the server leaves the host's network and joins the proxy's, where the
+  proxy reaches the control plane as `drywire:10050` (the route in
+  `route.caddy` says so); no host port is published for it;
+- it serves plain HTTP there, accepts connections from that subnet and
+  loopback only, and believes `X-Forwarded-For` from them; it refuses to
+  start if the subnet is not a private one;
+- only the relay's UDP port is published on the host.
 
-   ```sh
-   docker network inspect edge --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
-   ```
-
-2. Copy [`compose.override.example.yaml`](compose.override.example.yaml)
-   to `deploy/compose.override.yaml` (ignored by git) and set the
-   network's name in it. `make deploy` sends it, and Docker Compose merges
-   it into `compose.yaml`.
-
-3. In `deploy/instance.env`:
-
-   ```sh
-   DRYWIRE_HTTP_ADDR=0.0.0.0:10050
-   DRYWIRE_TRUST_PROXY=172.18.0.0/16   # the subnet from step 1
-   ```
-
-   The server then serves plain HTTP on that network, accepts connections
-   from that subnet and loopback only, and believes `X-Forwarded-For` from
-   them. It refuses to start with a public network there.
-
-4. Route the name to the container: with Caddy,
-   `reverse_proxy drywire:10050`.
-
-The relay's UDP port is then published by Docker, which goes around ufw:
-it is open whatever ufw says, and the rule `make deploy` adds only keeps
-`ufw status` truthful. Every container on that network can reach the
-control plane in plain HTTP, so keep it to applications you trust.
+A port Docker publishes goes around ufw: the relay is reachable whatever
+ufw says, and the rule `make deploy` adds keeps `ufw status` truthful.
+The audio then passes Docker's port forwarding, a kernel NAT rule that
+keeps IPv4 clients' addresses. Every container on the proxy's network
+can reach the control plane in plain HTTP, so keep that network to
+applications you trust.
 
 ## Firewall
 
@@ -201,10 +225,9 @@ tcp dport 443 accept
 udp dport 30050 accept
 ```
 
-Because the server runs on the host's network, these rules really decide
-what is reachable; a port Docker publishes would go around them, but
-Drywire publishes none (unless you put it on a proxy's Docker network,
-above).
+On the host's network, these rules really decide what is reachable. On a
+proxy's Docker network (above), Docker publishes the relay's port, which
+goes around them.
 
 If your **provider** has a network firewall in front of the server (a
 "security group", an "edge firewall"…), open the same ports there too. A
@@ -366,9 +389,10 @@ curl http://127.0.0.1:10050/v1/status
 | `Dockerfile` | The release image: the prebuilt static binary in `scratch`, unprivileged, state in `/data` |
 | `compose.yaml` | The service on the host network, its volume, health check and log rotation |
 | `instance.env.example` | An instance's settings; copied to `instance.env` |
-| `compose.override.example.yaml` | For a reverse proxy in a Docker network; copied to `compose.override.yaml` |
+| `compose.proxy.yaml` | Added by `make deploy` for a reverse proxy in a Docker network (`DRYWIRE_PROXY_NETWORK`) |
 | `compose.local.yaml` | Trying the image on Docker Desktop |
 | `drywire.service` | The systemd unit, for a host without Docker |
+| `.env`, `route.caddy` | Not in the repository: written by `make deploy` on the host, for Docker Compose and the reverse proxy |
 | `host/` | What `make` runs on the host: `prepare.sh` and `setup.sh` (as root), `up.sh`, `wait.sh`, `status.sh`, `backup.sh`, `restore.sh` |
 
 The scripts on your side are in [`../scripts/`](../scripts/):
