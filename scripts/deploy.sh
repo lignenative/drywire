@@ -4,7 +4,8 @@
 # 1. Build drywire-server here, a static Linux binary (CGO_ENABLED=0) for
 #    the host's processor.
 # 2. Send it over rsync to /srv/drywire, with deploy/'s Dockerfile,
-#    compose.yaml, host scripts and instance.env.
+#    compose.yaml, host scripts, instance.env and, if you wrote one,
+#    compose.override.yaml.
 # 3. Open the relay's UDP port in the host's firewall (ufw).
 # 4. Build the image there (from scratch: nothing is downloaded) and start
 #    it with Docker Compose, then wait for its health check.
@@ -47,6 +48,9 @@ mkdir -p "$stage"
 	go build -trimpath -ldflags "-s -w -X main.version=$version" \
 	-o "../$stage/drywire-server" ./cmd/drywire-server)
 cp -R deploy/Dockerfile deploy/compose.yaml deploy/instance.env deploy/host "$stage/"
+# The operator's own adjustments, such as a proxy in a Docker network
+# (deploy/compose.override.example.yaml).
+[ ! -f deploy/compose.override.yaml ] || cp deploy/compose.override.yaml "$stage/"
 
 echo "==> sending it to $HOST:$dir"
 # --delete keeps the host's copy exactly this one. The data is not in

@@ -90,9 +90,8 @@ terminates TLS in front of it. Three things matter:
 
 - **Same host, loopback.** The proxy must reach `127.0.0.1:10050` of the
   host. A proxy installed on the host does. A proxy that runs in a
-  container needs `network_mode: host`: on a Docker bridge, its
-  `127.0.0.1` is its own, and its connections would not come from
-  loopback, which `DRYWIRE_TRUST_PROXY` requires.
+  container on a Docker network does not (its `127.0.0.1` is its own):
+  see [A proxy in a Docker network](#a-proxy-in-a-docker-network).
 - **The client's address** goes in `X-Forwarded-For`. With
   `DRYWIRE_TRUST_PROXY=1` (in `instance.env.example`), the server takes the
   last entry of that header, the one your proxy wrote, for its rate limits
@@ -140,6 +139,43 @@ server {
 }
 ```
 
+### A proxy in a Docker network
+
+If your reverse proxy runs in a container on a Docker network that the
+applications it serves join (a shared "edge" or "proxy" network), the
+server joins that network instead of using the host's
+([ADR 0027](../docs/adr/0027-let-a-proxy-on-a-private-network-reach-the-control-plane.md)):
+
+1. Find the network's name and subnet:
+
+   ```sh
+   docker network inspect edge --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+   ```
+
+2. Copy [`compose.override.example.yaml`](compose.override.example.yaml)
+   to `deploy/compose.override.yaml` (ignored by git) and set the
+   network's name in it. `make deploy` sends it, and Docker Compose merges
+   it into `compose.yaml`.
+
+3. In `deploy/instance.env`:
+
+   ```sh
+   DRYWIRE_HTTP_ADDR=0.0.0.0:10050
+   DRYWIRE_TRUST_PROXY=172.18.0.0/16   # the subnet from step 1
+   ```
+
+   The server then serves plain HTTP on that network, accepts connections
+   from that subnet and loopback only, and believes `X-Forwarded-For` from
+   them. It refuses to start with a public network there.
+
+4. Route the name to the container: with Caddy,
+   `reverse_proxy drywire:10050`.
+
+The relay's UDP port is then published by Docker, which goes around ufw:
+it is open whatever ufw says, and the rule `make deploy` adds only keeps
+`ufw status` truthful. Every container on that network can reach the
+control plane in plain HTTP, so keep it to applications you trust.
+
 ## Firewall
 
 Clients need two ports on the host: the proxy's **443/tcp** (and 80/tcp if
@@ -164,7 +200,8 @@ udp dport 10050 accept
 
 Because the server runs on the host's network, these rules really decide
 what is reachable; a port Docker publishes would go around them, but
-Drywire publishes none.
+Drywire publishes none (unless you put it on a proxy's Docker network,
+above).
 
 If your **provider** has a network firewall in front of the server (a
 "security group", an "edge firewall"…), open the same ports there too. A
@@ -326,6 +363,7 @@ curl http://127.0.0.1:10050/v1/status
 | `Dockerfile` | The release image: the prebuilt static binary in `scratch`, unprivileged, state in `/data` |
 | `compose.yaml` | The service on the host network, its volume, health check and log rotation |
 | `instance.env.example` | An instance's settings; copied to `instance.env` |
+| `compose.override.example.yaml` | For a reverse proxy in a Docker network; copied to `compose.override.yaml` |
 | `compose.local.yaml` | Trying the image on Docker Desktop |
 | `drywire.service` | The systemd unit, for a host without Docker |
 | `host/` | What `make` runs on the host: `prepare.sh` and `setup.sh` (as root), `up.sh`, `wait.sh`, `status.sh`, `backup.sh`, `restore.sh` |

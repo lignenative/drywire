@@ -1,0 +1,31 @@
+# For a reverse proxy that runs in a Docker network rather than on the
+# host itself: copy this file to deploy/compose.override.yaml (git ignores
+# it), set the network's name, and make deploy sends it along. Docker
+# Compose merges compose.override.yaml into compose.yaml by itself.
+#
+# The server then leaves the host's network for the proxy's: the proxy
+# reaches the control plane as drywire:10050, and the relay's UDP port is
+# published on the host. In instance.env, set:
+#
+#   DRYWIRE_HTTP_ADDR=0.0.0.0:10050
+#   DRYWIRE_TRUST_PROXY=<the network's subnet>   (docker network inspect <name>)
+#
+# Plain HTTP then crosses that private network, so the server accepts
+# connections from that subnet and loopback only (ADR 0027).
+#
+# Compared with the host network: the relay's packets go through Docker's
+# port forwarding (an iptables rule in the kernel; IPv4 clients keep their
+# address), and a published port goes around ufw, so the firewall rule
+# make deploy adds only keeps `ufw status` truthful. See README.md,
+# "A proxy in a Docker network".
+services:
+  drywire:
+    network_mode: !reset null
+    networks: [proxy]
+    ports:
+      - "10050:10050/udp" # the relay; the same port as DRYWIRE_UDP_ADDR
+
+networks:
+  proxy:
+    name: edge # the proxy's network, as `docker network ls` names it
+    external: true

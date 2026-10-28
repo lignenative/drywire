@@ -22,7 +22,8 @@ services:
     #   can tell that proxy apart from the rest of the world.
     # Ports are therefore not "published": the server binds the addresses
     # in instance.env (DRYWIRE_HTTP_ADDR, DRYWIRE_UDP_ADDR) directly, and
-    # the host firewall decides what is reachable.
+    # the host firewall decides what is reachable. For a reverse proxy in
+    # a Docker network instead: compose.override.example.yaml (ADR 0027).
     network_mode: host
     # The instance's settings: public URL, relay address, space creators.
     # Copied from instance.env.example, never committed.
