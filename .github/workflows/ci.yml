@@ -83,6 +83,20 @@ jobs:
             server/drywire-server.exe
           if-no-files-found: error
 
+  # Licenses of every Go dependency of the server, against the list in
+  # CLAUDE.md (scripts/go-licenses.sh).
+  go-licenses:
+    name: go-licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.mod
+      - run: go install github.com/google/go-licenses/v2@v2.0.1
+      - run: scripts/go-licenses.sh
+
   # Licenses, banned and duplicate crates, sources and security advisories
   # of every Rust dependency (core/deny.toml).
   cargo-deny:

@@ -21,6 +21,14 @@ if [ -f server/go.mod ]; then
 	fi
 	go vet ./...
 	go test -race ./...
+
+	# Licenses of the Go dependencies; CI always checks them.
+	if command -v go-licenses >/dev/null 2>&1; then
+		echo "==> server (go-licenses)"
+		"$root/scripts/go-licenses.sh"
+	else
+		echo "note: Go license check skipped; run: go install github.com/google/go-licenses/v2@v2.0.1"
+	fi
 fi
 
 if [ -f "$root/core/Cargo.toml" ]; then
