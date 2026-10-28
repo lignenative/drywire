@@ -24,7 +24,7 @@
 use std::collections::VecDeque;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender as ChangeSender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -36,6 +36,7 @@ use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::audio::{InputCallback, OutputCallback};
 use crate::config::ClientConfig;
+use crate::gate::{GateConfig, mean_square, power_to_dbfs};
 use crate::inbound::{Event, Inbound, InboundStats};
 use crate::jitter::JitterStats;
 use crate::link::{Link, LinkConfig, LinkStats};
@@ -137,6 +138,8 @@ enum ToPlayback {
     Event(u64, Event),
     /// A spare track for a member who just joined.
     Slot(Slot),
+    /// A member's volume.
+    Volume(u32, f32),
 }
 
 /// Changes the members of a running call; cheap to clone, and usable from
@@ -158,12 +161,83 @@ impl CallMembers {
     pub fn remove(&self, session: u32) {
         let _ = self.0.send(Change::Remove(session));
     }
+
+    /// Plays this member at `volume`: 1 is as sent, 0 silent, 2 the most
+    /// ([`MAX_VOLUME`](crate::mixer::MAX_VOLUME)). Takes effect within the
+    /// network thread's next wake-up, as [`CallMembers::add`] does, and
+    /// also for a member whose first frame has not arrived yet.
+    pub fn set_volume(&self, session: u32, volume: f32) {
+        let _ = self.0.send(Change::Volume(session, volume));
+    }
 }
 
 /// A change of the room's members, from the control plane.
 enum Change {
     Add(u32, VerifyingKey),
     Remove(u32),
+    Volume(u32, f32),
+}
+
+/// This client's own microphone in a running call: mute, the voice gate's
+/// thresholds, and the input level. Cheap to clone, and usable from any
+/// thread: every setting is an atomic the capture callback reads at its
+/// next call, so changing one never waits for the audio, nor makes it
+/// wait.
+#[derive(Clone)]
+pub struct CallControls(Arc<Shared>);
+
+impl CallControls {
+    /// Mutes or unmutes. A muted microphone is heard as silence by the
+    /// voice gate, which then closes as it does after any talk spurt, with
+    /// its `end_of_spurt` frame: the others hear the last word end, not a
+    /// cut.
+    pub fn set_muted(&self, muted: bool) {
+        self.0.muted.store(muted, Ordering::Relaxed);
+    }
+
+    /// Whether the microphone is muted.
+    pub fn is_muted(&self) -> bool {
+        self.0.muted.load(Ordering::Relaxed)
+    }
+
+    /// Changes the voice gate's thresholds; the hold stays what the call
+    /// started with. A close threshold above the open one is lowered to
+    /// it; thresholds that are not numbers are ignored.
+    pub fn set_gate(&self, open_dbfs: f32, close_dbfs: f32) {
+        if open_dbfs.is_nan() || close_dbfs.is_nan() {
+            return;
+        }
+        self.0.gate.store(
+            pack_gate(open_dbfs, close_dbfs.min(open_dbfs)),
+            Ordering::Relaxed,
+        );
+    }
+
+    /// The voice gate's thresholds: open, then close, in dBFS.
+    pub fn gate(&self) -> (f32, f32) {
+        unpack_gate(self.0.gate.load(Ordering::Relaxed))
+    }
+
+    /// The level of the loudest microphone frame since the last call, in
+    /// dBFS (`-inf` for silence, or when nothing was captured). Muted or
+    /// not, this is what the microphone hears, for a level meter.
+    pub fn take_input_peak_dbfs(&self) -> f32 {
+        let bits = self.0.input_peak.swap(0, Ordering::Relaxed);
+        power_to_dbfs(f32::from_bits(bits))
+    }
+}
+
+/// The two thresholds of the gate in one atomic word: open in the high
+/// half, close in the low half, as `f32` bits.
+fn pack_gate(open_dbfs: f32, close_dbfs: f32) -> u64 {
+    (u64::from(open_dbfs.to_bits()) << 32) | u64::from(close_dbfs.to_bits())
+}
+
+fn unpack_gate(word: u64) -> (f32, f32) {
+    (
+        f32::from_bits((word >> 32) as u32),
+        f32::from_bits(word as u32),
+    )
 }
 
 /// State shared by the three threads.
@@ -173,6 +247,15 @@ struct Shared {
     /// Last time the capture thread sent a packet, in microseconds since
     /// `started`, so the link knows when a keepalive is needed.
     last_sent_us: AtomicU64,
+    /// See [`CallControls::set_muted`].
+    muted: AtomicBool,
+    /// The gate's thresholds as [`CallControls::set_gate`] last set them
+    /// ([`pack_gate`]); the capture callback applies them when they change.
+    gate: AtomicU64,
+    /// The loudest frame's mean square since the last read, as `f32` bits:
+    /// for numbers that are not negative, the bits sort like the numbers,
+    /// so `fetch_max` on them keeps the loudest.
+    input_peak: AtomicU32,
     stats: Mutex<CallStats>,
 }
 
@@ -218,6 +301,12 @@ impl Call {
             started: Instant::now(),
             stop: AtomicBool::new(false),
             last_sent_us: AtomicU64::new(0),
+            muted: AtomicBool::new(false),
+            gate: AtomicU64::new(pack_gate(
+                options.sender.gate.open_dbfs,
+                options.sender.gate.close_dbfs,
+            )),
+            input_peak: AtomicU32::new(0),
             stats: Mutex::new(CallStats {
                 // Room for every track, so playback never grows it.
                 tracks: Vec::with_capacity(MAX_TRACKS),
@@ -298,6 +387,11 @@ impl Call {
     /// as the one reading the control plane's events.
     pub fn members(&self) -> CallMembers {
         CallMembers(self.changes.clone())
+    }
+
+    /// A handle on this client's microphone: mute, gate, input level.
+    pub fn controls(&self) -> CallControls {
+        CallControls(Arc::clone(&self.shared))
     }
 
     /// A snapshot of the counters.
@@ -394,6 +488,9 @@ impl Members {
                     }
                 }
                 Change::Add(..) => {}
+                Change::Volume(session, volume) => {
+                    self.pending.push_back(ToPlayback::Volume(session, volume));
+                }
                 Change::Remove(session) => {
                     if inbound.remove_peer(session) {
                         self.peers -= 1;
@@ -487,6 +584,8 @@ struct Capture {
     socket: Arc<UdpSocket>,
     shared: Arc<Shared>,
     sender: Sender,
+    /// The gate thresholds last applied, as [`Shared::gate`] holds them.
+    gate: u64,
     pending: Vec<f32>,
     packets: Packets,
     send_dropped: u64,
@@ -495,6 +594,17 @@ struct Capture {
 
 impl Capture {
     fn process(&mut self, samples: &[f32]) {
+        let gate = self.shared.gate.load(Ordering::Relaxed);
+        if gate != self.gate {
+            self.gate = gate;
+            let (open_dbfs, close_dbfs) = unpack_gate(gate);
+            self.sender.set_gate(GateConfig {
+                open_dbfs,
+                close_dbfs,
+                ..self.sender.config().gate
+            });
+        }
+        let muted = self.shared.muted.load(Ordering::Relaxed);
         let frame = self.sender.config().frame.samples();
         let mut rest = samples;
         while !rest.is_empty() {
@@ -503,6 +613,17 @@ impl Capture {
             rest = &rest[take..];
             if self.pending.len() < frame {
                 break;
+            }
+            let power = mean_square(&self.pending);
+            if power.is_finite() {
+                self.shared
+                    .input_peak
+                    .fetch_max(power.to_bits(), Ordering::Relaxed);
+            }
+            if muted {
+                // Silence, so the gate closes the spurt properly; the
+                // samples themselves are never altered otherwise.
+                self.pending.fill(0.0);
             }
             // An Opus error drops this one frame; the next may be fine.
             let _ = self.sender.process(&self.pending, &mut self.packets);
@@ -556,10 +677,12 @@ fn is_full(e: &std::io::Error) -> bool {
 
 fn capture_callback(socket: Arc<UdpSocket>, shared: Arc<Shared>, sender: Sender) -> InputCallback {
     let frame = sender.config().frame.samples();
+    let gate = shared.gate.load(Ordering::Relaxed);
     let mut capture = Capture {
         socket,
         shared,
         sender,
+        gate,
         pending: Vec::with_capacity(frame),
         packets: Packets::new(),
         send_dropped: 0,
@@ -587,6 +710,8 @@ impl Playback {
                 // Room was reserved for MAX_TRACKS, and the network thread
                 // never makes more: this never allocates.
                 ToPlayback::Slot(slot) => self.mixer.add_slot(slot),
+                // Room for MAX_TRACKS volumes was reserved too.
+                ToPlayback::Volume(session, volume) => self.mixer.set_volume(session, volume),
             }
         }
         let now = self.shared.now_us();

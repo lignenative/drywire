@@ -32,7 +32,7 @@ use crate::opus::{Decoder, FrameSize, OpusError, SAMPLE_RATE, packet_samples};
 pub const IDLE_TICK: usize = 24;
 
 /// What one track is doing, for display.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TrackStats {
     /// The sender's session.
     pub session: u32,
@@ -44,7 +44,16 @@ pub struct TrackStats {
     pub depth: usize,
     /// Frames Opus refused to decode, concealed instead.
     pub decode_errors: u64,
+    /// Whether the track is playing the sender's voice (decoded or
+    /// concealed) rather than silence between talk spurts: a "speaking"
+    /// light.
+    pub speaking: bool,
+    /// The volume it is played at: 1 is as sent.
+    pub volume: f32,
 }
+
+/// The loudest volume a sender can be played at: 200 % (spec section 10).
+pub const MAX_VOLUME: f32 = 2.0;
 
 /// One sender's playback.
 struct Track {
@@ -61,6 +70,10 @@ struct Track {
     /// Counters of the buffers replaced after a frame size change.
     earlier: JitterStats,
     decode_errors: u64,
+    /// Whether the frame being played is voice, not idle silence.
+    speaking: bool,
+    /// What every sample is multiplied by.
+    volume: f32,
 }
 
 /// The session of a free track: 0 is never a valid session (protocol
@@ -79,6 +92,8 @@ impl Track {
             played: 0,
             earlier: JitterStats::default(),
             decode_errors: 0,
+            speaking: false,
+            volume: 1.0,
         })
     }
 
@@ -93,6 +108,8 @@ impl Track {
         self.played = 0;
         self.earlier = JitterStats::default();
         self.decode_errors = 0;
+        self.speaking = false;
+        self.volume = 1.0;
     }
 
     fn push(&mut self, now_us: u64, arrival: Arrival, min_target_us: u64) {
@@ -133,7 +150,7 @@ impl Track {
                 .iter_mut()
                 .zip(&self.pcm[self.played..self.played + n])
             {
-                *o += s;
+                *o += s * self.volume;
             }
             self.played += n;
             i += n;
@@ -147,8 +164,10 @@ impl Track {
         self.pcm.clear();
         self.pcm.resize(frame.samples(), 0.0);
         self.played = 0;
+        self.speaking = true;
         let decoded = match self.buffer.pop(now_us) {
             Playout::Silence => {
+                self.speaking = false;
                 self.pcm.truncate(IDLE_TICK);
                 return;
             }
@@ -174,6 +193,8 @@ impl Track {
             },
             depth: self.buffer.len(),
             decode_errors: self.decode_errors,
+            speaking: self.speaking,
+            volume: self.volume,
         }
     }
 }
@@ -192,6 +213,11 @@ pub struct Mixer {
     min_target_us: u64,
     /// The counters of the senders who left, summed.
     departed: JitterStats,
+    /// The volume of each sender who has one other than 1, by session,
+    /// kept apart from the tracks so that a volume set before a sender's
+    /// first frame applies when their track is assigned. Its room is
+    /// reserved with the tracks', and it never grows past it.
+    volumes: Vec<(u32, f32)>,
 }
 
 impl Mixer {
@@ -224,6 +250,34 @@ impl Mixer {
     /// grows the list while playback runs.
     pub fn reserve(&mut self, n: usize) {
         self.tracks.reserve(n);
+        self.volumes.reserve(n);
+    }
+
+    /// Plays `session` at `volume` (1 is as sent; clamped to 0 through
+    /// [`MAX_VOLUME`]), from now on, and on the track the sender gets
+    /// later if they have none yet. It does not allocate: past the room
+    /// [`Mixer::reserve`] made, a sender without a track keeps volume 1.
+    pub fn set_volume(&mut self, session: u32, volume: f32) {
+        let volume = if volume.is_nan() {
+            1.0
+        } else {
+            volume.clamp(0.0, MAX_VOLUME)
+        };
+        if let Some(track) = self.tracks.iter_mut().find(|t| t.session == session) {
+            track.volume = volume;
+        }
+        if let Some(entry) = self.volumes.iter_mut().find(|(s, _)| *s == session) {
+            entry.1 = volume;
+        } else if self.volumes.len() < self.volumes.capacity() {
+            self.volumes.push((session, volume));
+        }
+    }
+
+    fn volume_of(&self, session: u32) -> f32 {
+        self.volumes
+            .iter()
+            .find(|(s, _)| *s == session)
+            .map_or(1.0, |(_, v)| *v)
     }
 
     /// Makes a free track to hand to a running mixer. It allocates: call
@@ -245,16 +299,20 @@ impl Mixer {
     fn track(&mut self, session: u32) -> Result<&mut Track, OpusError> {
         let i = match self.tracks.iter().position(|t| t.session == session) {
             Some(i) => i,
-            None => match self.tracks.iter().position(|t| t.session == FREE) {
-                Some(i) => {
-                    self.tracks[i].reuse(session);
-                    i
-                }
-                None => {
-                    self.tracks.push(Box::new(Track::new(session)?));
-                    self.tracks.len() - 1
-                }
-            },
+            None => {
+                let i = match self.tracks.iter().position(|t| t.session == FREE) {
+                    Some(i) => {
+                        self.tracks[i].reuse(session);
+                        i
+                    }
+                    None => {
+                        self.tracks.push(Box::new(Track::new(session)?));
+                        self.tracks.len() - 1
+                    }
+                };
+                self.tracks[i].volume = self.volume_of(session);
+                i
+            }
         };
         Ok(&mut self.tracks[i])
     }
@@ -278,6 +336,8 @@ impl Mixer {
                     self.departed = add(self.departed, track.stats().jitter);
                     track.reuse(FREE);
                 }
+                // Sessions are never reused; forget the volume.
+                self.volumes.retain(|(s, _)| *s != session);
             }
         }
         Ok(())
@@ -406,6 +466,77 @@ mod tests {
             assert_eq!(track.jitter.played, 20, "{track:?}");
             assert_eq!(track.decode_errors, 0);
         }
+    }
+
+    /// Plays one 100 ms talk spurt of sender 1 through `mixer`; returns
+    /// the energy of the mix, and whether the track said it was speaking
+    /// in the middle of the spurt and after it.
+    fn play_a_spurt(mixer: &mut Mixer) -> (f32, bool, bool) {
+        let frame = FrameSize::Ms5;
+        let mut encoder = Encoder::new(frame, 64_000).unwrap();
+        let tone: Vec<f32> = (0..frame.samples())
+            .map(|i| 0.1 * (i as f32 * 0.05).sin())
+            .collect();
+        let mut energy = 0.0;
+        let mut out = [0.0f32; 240];
+        let (mut during, mut after) = (false, true);
+        for k in 0..40u32 {
+            let t = u64::from(k) * 5_000;
+            if k < 20 {
+                let arrival = Arrival {
+                    timestamp: k * frame.samples() as u32,
+                    end_of_spurt: k == 19,
+                    primary: FrameBytes::new(&encoder.encode(&tone).unwrap()).unwrap(),
+                    redundant: None,
+                };
+                mixer
+                    .push(
+                        t,
+                        Event::Audio {
+                            session: 1,
+                            arrival,
+                        },
+                    )
+                    .unwrap();
+            }
+            mixer.render(t, &mut out);
+            energy += out.iter().map(|x| x * x).sum::<f32>();
+            let speaking = mixer.stats()[0].speaking;
+            match k {
+                10 => during = speaking,
+                39 => after = speaking,
+                _ => {}
+            }
+        }
+        (energy, during, after)
+    }
+
+    #[test]
+    fn each_sender_has_a_volume_and_a_speaking_light() {
+        let mut plain = Mixer::new();
+        let (energy, during, after) = play_a_spurt(&mut plain);
+        assert!(energy > 0.1, "{energy}");
+        assert!(during, "speaking while the spurt plays");
+        assert!(!after, "silent once it ended");
+        assert_eq!(plain.stats()[0].volume, 1.0);
+
+        // A volume set before the sender's first frame waits for their
+        // track. Twice the amplitude is four times the energy: the mix
+        // stays under the soft clip's knee.
+        let mut louder = Mixer::new();
+        louder.reserve(4);
+        louder.set_volume(1, 2.0);
+        let (loud, ..) = play_a_spurt(&mut louder);
+        assert!((loud / energy - 4.0).abs() < 0.01, "{loud} / {energy}");
+        assert_eq!(louder.stats()[0].volume, 2.0);
+
+        // Clamped to 0 through 200 %; 0 mutes the sender for this client.
+        let mut muted = Mixer::new();
+        muted.reserve(4);
+        muted.set_volume(1, -3.0);
+        assert_eq!(play_a_spurt(&mut muted).0, 0.0);
+        muted.set_volume(1, 9.0);
+        assert_eq!(muted.stats()[0].volume, MAX_VOLUME);
     }
 
     #[test]

@@ -57,6 +57,7 @@ pub enum GateDecision {
 #[derive(Clone, Debug)]
 pub struct VoiceGate {
     config: GateConfig,
+    frame: FrameSize,
     hold_frames: u32,
     /// Frames left before closing; 0 means the gate is closed.
     remaining: u32,
@@ -74,15 +75,30 @@ impl VoiceGate {
             config.close_dbfs <= config.open_dbfs,
             "the close threshold must not be above the open threshold"
         );
-        let frame_ms = frame.samples() as f64 * 1000.0 / f64::from(SAMPLE_RATE);
-        // At least one frame, so the frame that opens the gate is not also
-        // its last.
-        let hold_frames = (f64::from(config.hold_ms) / frame_ms).ceil().max(1.0) as u32;
         VoiceGate {
             config,
-            hold_frames,
+            frame,
+            hold_frames: hold_frames(config.hold_ms, frame),
             remaining: 0,
         }
+    }
+
+    /// The thresholds and hold in use.
+    pub fn config(&self) -> GateConfig {
+        self.config
+    }
+
+    /// Changes the thresholds and hold, from the next frame on. A close
+    /// threshold above the open one is lowered to it, rather than refused:
+    /// this runs in the capture callback, where nothing may panic. An open
+    /// gate stays open, with at most the new hold left.
+    pub fn set_config(&mut self, config: GateConfig) {
+        self.config = GateConfig {
+            close_dbfs: config.close_dbfs.min(config.open_dbfs),
+            ..config
+        };
+        self.hold_frames = hold_frames(config.hold_ms, self.frame);
+        self.remaining = self.remaining.min(self.hold_frames);
     }
 
     /// Whether the gate is open.
@@ -115,14 +131,31 @@ impl VoiceGate {
     }
 }
 
+/// How many frames a hold of `hold_ms` lasts: at least one, so the frame
+/// that opens the gate is not also its last.
+fn hold_frames(hold_ms: u32, frame: FrameSize) -> u32 {
+    let frame_ms = frame.samples() as f64 * 1000.0 / f64::from(SAMPLE_RATE);
+    (f64::from(hold_ms) / frame_ms).ceil().max(1.0) as u32
+}
+
+/// The mean of the squared samples: the frame's power, 1 for a full-scale
+/// square wave, 0 for digital silence.
+pub fn mean_square(frame: &[f32]) -> f32 {
+    if frame.is_empty() {
+        return 0.0;
+    }
+    frame.iter().map(|x| x * x).sum::<f32>() / frame.len() as f32
+}
+
+/// A [`mean_square`] in dBFS: `-inf` for silence.
+pub fn power_to_dbfs(mean_square: f32) -> f32 {
+    10.0 * mean_square.log10()
+}
+
 /// The RMS level of a frame in dBFS: 0 for a full-scale square wave, about
 /// −3 for a full-scale sine, `-inf` for digital silence.
 pub fn level_dbfs(frame: &[f32]) -> f32 {
-    if frame.is_empty() {
-        return f32::NEG_INFINITY;
-    }
-    let mean_square = frame.iter().map(|x| x * x).sum::<f32>() / frame.len() as f32;
-    10.0 * mean_square.log10()
+    power_to_dbfs(mean_square(frame))
 }
 
 #[cfg(test)]
@@ -198,6 +231,36 @@ mod tests {
             assert_eq!(gate.process(&frame_at(-70.0)), send(false, false));
         }
         assert_eq!(gate.process(&frame_at(-70.0)), send(false, true));
+    }
+
+    #[test]
+    fn thresholds_change_while_the_gate_runs() {
+        let mut gate = VoiceGate::new(GateConfig::default(), FRAME);
+        let speech = frame_at(-30.0);
+        assert_eq!(gate.process(&speech), send(true, false));
+        // A threshold raised above the speech: the hold runs out, at most
+        // the new hold (5 ms here, one frame) later.
+        gate.set_config(GateConfig {
+            open_dbfs: -20.0,
+            close_dbfs: -26.0,
+            hold_ms: 5,
+        });
+        assert_eq!(gate.process(&speech), send(false, true));
+        assert_eq!(gate.process(&speech), GateDecision::Silent);
+        // Lowered again, it opens on the same level.
+        gate.set_config(GateConfig::default());
+        assert_eq!(gate.process(&speech), send(true, false));
+    }
+
+    #[test]
+    fn a_close_threshold_above_the_open_one_is_lowered() {
+        let mut gate = VoiceGate::new(GateConfig::default(), FRAME);
+        gate.set_config(GateConfig {
+            open_dbfs: -50.0,
+            close_dbfs: -10.0,
+            hold_ms: 150,
+        });
+        assert_eq!(gate.config().close_dbfs, -50.0);
     }
 
     #[test]

@@ -208,6 +208,13 @@ impl Sender {
         self.gate.is_open()
     }
 
+    /// Changes the voice gate's thresholds and hold, from the next frame
+    /// on (see [`VoiceGate::set_config`]). It does not allocate.
+    pub fn set_gate(&mut self, gate: GateConfig) {
+        self.gate.set_config(gate);
+        self.config.gate = self.gate.config();
+    }
+
     /// The signed announcement of the current epoch.
     pub fn announce(&mut self) -> Vec<u8> {
         self.signed_announce().to_vec()

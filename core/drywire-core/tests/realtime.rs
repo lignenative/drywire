@@ -11,6 +11,9 @@
 //! Sam starts alone, as if alex joined the room after them: alex becomes a
 //! member of sam's call while it runs, and leaves before the end, so the
 //! track handed to playback mid-call and its release are counted too.
+//! While alex talks, the controls an app uses change under the callbacks:
+//! alex mutes and unmutes, retunes the gate, and sam turns alex's volume
+//! up.
 //!
 //! It sees Rust's allocator only; libopus, the one C library on the path,
 //! does not allocate when it encodes or decodes.
@@ -146,11 +149,30 @@ fn the_audio_callbacks_never_allocate() {
     let started = Instant::now();
     let mut calls = 0u64;
     let mut heard = None;
+    let mic = alex.controls();
+    let mut sent_when_muted = 0;
     // 200 ms of silence, 600 ms of tone, 400 ms of silence. Alex is in
     // sam's call from 100 ms to 1.1 s.
     for k in 0..240u32 {
         match k {
             20 => sam.add_member(alex_seat.session, alex_seat.identity.verifying_key()),
+            30 => mic.set_gate(-45.0, -50.0),
+            60 => sam.members().set_volume(alex_seat.session, 1.5),
+            // Muted halfway through the tone, for long enough that the
+            // hold (150 ms) runs out; unmuted before it ends.
+            80 => mic.set_muted(true),
+            130 => {
+                sent_when_muted = alex.stats().sender.audio;
+                assert!(
+                    mic.take_input_peak_dbfs() > -20.0,
+                    "the meter still hears a muted microphone"
+                );
+            }
+            150 => {
+                let sent = alex.stats().sender.audio;
+                assert_eq!(sent, sent_when_muted, "nothing is sent while muted");
+                mic.set_muted(false);
+            }
             220 => {
                 heard = sam.stats().tracks.first().copied();
                 sam.remove_member(alex_seat.session);
@@ -179,6 +201,9 @@ fn the_audio_callbacks_never_allocate() {
     drop((alex_capture, alex_playback, sam_capture, sam_playback));
     let sent = alex.stats().sender;
     assert!(sent.audio > 100, "{sent:?}");
+    assert!(sent.audio > sent_when_muted, "unmuted, alex talks again");
+    assert_eq!(sent.spurts, 2, "muting ended the first spurt: {sent:?}");
+    assert_eq!(mic.gate(), (-45.0, -50.0));
     let track = heard.expect("alex's track, while alex was a member");
     assert_eq!(track.session, alex_seat.session);
     assert!(track.jitter.received > 0, "{track:?}");
