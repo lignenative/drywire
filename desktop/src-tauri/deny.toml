@@ -51,3 +51,10 @@ unknown-git = "deny"
 
 [advisories]
 yanked = "deny"
+ignore = [
+    # Unmaintained, not vulnerable: a compile-time macro crate that the
+    # GTK 3 bindings Tauri uses on Linux need (glib-macros). It runs in
+    # the compiler, never in the app; it goes when Tauri moves to newer
+    # bindings, and is looked at again with the Linux phase.
+    { id = "RUSTSEC-2024-0370", reason = "unmaintained build-time macro of Tauri's Linux GTK bindings" },
+]
