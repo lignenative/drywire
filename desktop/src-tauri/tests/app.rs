@@ -8,13 +8,14 @@
 #[path = "../../../core/testsupport/relay.rs"]
 mod relay;
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use drywire_control::Client;
-use drywire_core::audio::AudioIo;
 use drywire_core::audio::file::{FileIo, Source};
+use drywire_core::audio::{AudioError, AudioIo, InputCallback, OutputCallback, StreamInfo};
 use drywire_core::opus::SAMPLE_RATE;
 use drywire_desktop::app::{Desktop, Devices};
 use drywire_desktop::session::{CallView, Notice, Notices};
@@ -184,16 +185,43 @@ fn members_join_by_link_and_meet_in_a_room() {
     assert_eq!(status["sessions"], 0, "both sessions were freed: {status}");
 }
 
+/// An echo device that takes time, as a real one does: what it plays, it
+/// hears five periods (12.5 ms) later. With no latency at all, a late
+/// wake-up followed by an early one would make an echo look older than
+/// its click, and a loopback rightly ignores such an echo.
+struct SlowEcho(FileIo);
+
+impl AudioIo for SlowEcho {
+    fn start(
+        &mut self,
+        mut input: InputCallback,
+        output: OutputCallback,
+    ) -> Result<Vec<StreamInfo>, AudioError> {
+        let mut late = VecDeque::from(vec![vec![0.0f32; 120]; 4]);
+        let delayed = Box::new(move |samples: &[f32]| {
+            late.push_back(samples.to_vec());
+            input(&late.pop_front().expect("four buffers"));
+        });
+        self.0.start(delayed, output)
+    }
+
+    fn stop(&mut self) {
+        self.0.stop();
+    }
+}
+
 #[test]
 fn the_lab_measures_the_device_and_calibrates_the_gate() {
-    // An echo device: what it plays, it hears one period later.
     let echo: Devices = Arc::new(|| {
-        Box::new(|| Ok(Box::new(FileIo::new(Source::Echo, 120, None)) as Box<dyn AudioIo>))
+        Box::new(|| {
+            let device = SlowEcho(FileIo::new(Source::Echo, 120, None));
+            Ok(Box::new(device) as Box<dyn AudioIo>)
+        })
     });
     let (lab, _) = desktop("lab", echo);
     let measured = lab.loopback_test(Duration::from_secs(4)).unwrap();
     let median = measured.median_ms.expect("the clicks are heard");
-    assert!(median < 50.0, "{measured:?}");
+    assert!((5.0..50.0).contains(&median), "{measured:?}");
     assert!(measured.delays_ms.len() >= 3, "{measured:?}");
     assert_eq!(measured.devices.len(), 2);
 
