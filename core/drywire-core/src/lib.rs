@@ -13,6 +13,8 @@
 //!
 //! - [`audio`]: the audio I/O trait and one backend per operating system.
 //! - [`call`]: a socket and the audio callbacks wired to all of the above.
+//! - [`lab`]: the loopback test and the gate calibration's recording,
+//!   on the sound card alone.
 //! - [`wav`]: reading and writing WAV files, for headless runs.
 //!
 //! The wire format and the encryption live in `drywire-proto`.
@@ -23,6 +25,7 @@ pub mod config;
 pub mod gate;
 pub mod inbound;
 pub mod jitter;
+pub mod lab;
 pub mod link;
 pub mod mixer;
 pub mod opus;

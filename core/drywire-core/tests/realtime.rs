@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 
 use drywire_core::call::{Call, CallOptions};
 use drywire_core::config::{ClientConfig, Member};
+use drywire_core::lab::{CLICK_EVERY, LevelRecorder, Loopback};
 use drywire_core::link::LinkConfig;
 use drywire_core::opus::{FrameSize, SAMPLE_RATE};
 use drywire_core::sender::SenderConfig;
@@ -219,4 +220,24 @@ fn the_audio_callbacks_never_allocate() {
     }
     let left = sam.stats().tracks;
     assert!(left.is_empty(), "{left:?}");
+}
+
+#[test]
+fn the_lab_callbacks_never_allocate() {
+    let (loopback, mut heard, mut play) = Loopback::new();
+    let (levels, mut record, mut silence) = LevelRecorder::new(100);
+    let mut out = vec![0.0f32; 240];
+    let mut echo = vec![0.0f32; 240];
+    let mut calls = 0;
+    // Three clicks' worth, each period's output captured back at once.
+    for _ in 0..(3 * CLICK_EVERY / 240) {
+        calls += as_callback(|| play(&mut out));
+        echo.copy_from_slice(&out);
+        calls += as_callback(|| heard(&echo));
+        calls += as_callback(|| record(&echo));
+        calls += as_callback(|| silence(&mut out));
+    }
+    assert_eq!(calls, 0, "a lab callback used the allocator");
+    assert!(!loopback.delays_ms().is_empty());
+    assert!(levels.is_full());
 }

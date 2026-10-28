@@ -158,6 +158,59 @@ pub fn level_dbfs(frame: &[f32]) -> f32 {
     power_to_dbfs(mean_square(frame))
 }
 
+/// How far above the background noise's loudest moments the calibrated
+/// gate opens.
+pub const CALIBRATION_MARGIN_DB: f32 = 4.0;
+
+/// The range a calibrated threshold stays in: below −70 dBFS no
+/// microphone is that quiet, above −20 dBFS speech may not open the gate.
+pub const CALIBRATION_RANGE_DBFS: (f32, f32) = (-70.0, -20.0);
+
+/// What [`calibrate`] found.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Calibration {
+    /// The background noise's typical level (the median frame), in dBFS.
+    pub noise_dbfs: f32,
+    /// Its loudest moments (the 99th percentile frame): controller
+    /// clicks, keys, the game leaking from a headset.
+    pub peak_dbfs: f32,
+    /// The gate to use: it opens [`CALIBRATION_MARGIN_DB`] above the
+    /// peaks, and closes as far below that as the default gate does.
+    pub gate: GateConfig,
+    /// Whether the noise is so loud that the threshold hit the top of its
+    /// range: quiet speech may not open the gate. The person should lower
+    /// the game or move the microphone.
+    pub too_loud: bool,
+}
+
+/// The gate for a microphone whose background noise, recorded frame by
+/// frame for a while with the person silent but playing, had these levels
+/// in dBFS (spec section 10, "Gate calibration"). `None` without levels.
+pub fn calibrate(levels_dbfs: &[f32]) -> Option<Calibration> {
+    if levels_dbfs.is_empty() {
+        return None;
+    }
+    // Digital silence is -inf: count it as far below anything real.
+    let mut levels: Vec<f32> = levels_dbfs.iter().map(|l| l.max(-120.0)).collect();
+    levels.sort_by(f32::total_cmp);
+    let at = |q: f64| levels[((levels.len() - 1) as f64 * q).round() as usize];
+    let (noise_dbfs, peak_dbfs) = (at(0.5), at(0.99));
+    let wanted = peak_dbfs + CALIBRATION_MARGIN_DB;
+    let (low, high) = CALIBRATION_RANGE_DBFS;
+    let open_dbfs = wanted.clamp(low, high);
+    let defaults = GateConfig::default();
+    Some(Calibration {
+        noise_dbfs,
+        peak_dbfs,
+        gate: GateConfig {
+            open_dbfs,
+            close_dbfs: open_dbfs - (defaults.open_dbfs - defaults.close_dbfs),
+            hold_ms: defaults.hold_ms,
+        },
+        too_loud: wanted > high,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +314,30 @@ mod tests {
             hold_ms: 150,
         });
         assert_eq!(gate.config().close_dbfs, -50.0);
+    }
+
+    #[test]
+    fn calibration_opens_just_above_the_noise_and_its_clicks() {
+        // Two seconds of 5 ms frames: noise at −60 dBFS, and 2 % of
+        // controller clicks at −45.
+        let mut levels = vec![-60.0; 400];
+        for i in (0..400).step_by(50) {
+            levels[i] = -45.0;
+        }
+        let c = calibrate(&levels).unwrap();
+        assert_eq!(c.noise_dbfs, -60.0);
+        assert_eq!(c.peak_dbfs, -45.0);
+        assert_eq!(c.gate.open_dbfs, -41.0);
+        assert_eq!(c.gate.close_dbfs, -47.0);
+        assert!(!c.too_loud);
+
+        // A silent microphone, and a very loud room.
+        let quiet = calibrate(&[f32::NEG_INFINITY; 100]).unwrap();
+        assert_eq!(quiet.gate.open_dbfs, CALIBRATION_RANGE_DBFS.0);
+        let loud = calibrate(&[-15.0; 100]).unwrap();
+        assert_eq!(loud.gate.open_dbfs, CALIBRATION_RANGE_DBFS.1);
+        assert!(loud.too_loud);
+        assert!(calibrate(&[]).is_none());
     }
 
     #[test]
