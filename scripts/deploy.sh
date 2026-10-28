@@ -33,10 +33,16 @@ esac
 public_host=${public_url#https://}
 public_host=${public_host%%/*}
 
-# The relay's port, from DRYWIRE_UDP_ADDR (":30050" binds every address).
+# Both addresses must be written down: the server's own defaults are the
+# development ones (127.0.0.1:10050), which a real host must not get by
+# accident.
+http_addr=$(instance_setting DRYWIRE_HTTP_ADDR)
 relay_addr=$(instance_setting DRYWIRE_UDP_ADDR)
+if [ -z "$http_addr" ] || [ -z "$relay_addr" ]; then
+	fail "set DRYWIRE_HTTP_ADDR and DRYWIRE_UDP_ADDR in deploy/instance.env (see instance.env.example)"
+fi
+# The relay's port (":30050" binds every address).
 relay_port=${relay_addr##*:}
-relay_port=${relay_port:-30050}
 case $(instance_setting DRYWIRE_PUBLIC_RELAY) in
 *:"$relay_port") ;;
 *) fail "DRYWIRE_PUBLIC_RELAY must end with the port of DRYWIRE_UDP_ADDR, :$relay_port" ;;
@@ -75,7 +81,7 @@ cp -R deploy/Dockerfile deploy/compose.yaml deploy/compose.proxy.yaml \
 if [ -z "$proxy_network" ]; then
 	echo "==> the reverse proxy is on the host: the server uses the host's network"
 	echo "COMPOSE_FILE=compose.yaml" >"$stage/.env"
-	upstream=127.0.0.1:10050
+	upstream=$http_addr
 else
 	subnet=$(ssh_host "docker network inspect --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' $proxy_network") ||
 		fail "no Docker network named $proxy_network on $HOST (DRYWIRE_PROXY_NETWORK)"
@@ -89,6 +95,7 @@ DRYWIRE_PROXY_NETWORK=$proxy_network
 DRYWIRE_PROXY_SUBNET=$subnet
 DRYWIRE_RELAY_PORT=$relay_port
 ENV
+	# compose.proxy.yaml sets the control plane's address in the network.
 	upstream=drywire:10050
 fi
 

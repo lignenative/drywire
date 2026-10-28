@@ -20,6 +20,8 @@ start_again() {
 	status=$?
 	{ docker compose up --detach drywire && sh host/wait.sh; } >restore.log 2>&1 || status=1
 	cat restore.log >&2 || true
+	# The server's log lines in it may hold client addresses.
+	rm -f restore.log
 	exit "$status"
 }
 docker compose stop drywire >&2

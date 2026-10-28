@@ -12,7 +12,8 @@ services:
     networks: [proxy]
     environment:
       # Plain HTTP inside the proxy's network, accepted from its subnet
-      # (and loopback, for the health check) only.
+      # (and loopback, for the health check) only. Always 10050 here:
+      # route.caddy points at drywire:10050, whatever instance.env says.
       DRYWIRE_HTTP_ADDR: 0.0.0.0:10050
       DRYWIRE_TRUST_PROXY: ${DRYWIRE_PROXY_SUBNET:?the proxy network's subnet}
     ports:
