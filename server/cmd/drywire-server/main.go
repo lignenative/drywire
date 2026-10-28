@@ -29,6 +29,13 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 {
+		if err := runCommand(os.Args[1], os.Stdin, os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintln(os.Stderr, "drywire-server:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if err := run(log); err != nil {
 		log.Error("drywire-server stopped", "error", err)

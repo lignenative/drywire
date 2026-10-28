@@ -43,6 +43,23 @@ another port. In plain HTTP the control plane only listens on a loopback
 address: tokens cross it, so it serves TLS itself or sits behind a reverse
 proxy on the same host.
 
+### Maintenance commands
+
+The release image has nothing but the binary, so the binary does its own
+maintenance (ADR 0025). Each command reads the same variables as the
+server:
+
+```sh
+drywire-server health              # exit 0 if the control plane answers
+drywire-server backup > copy.db    # consistent copy, while the server runs
+drywire-server restore < copy.db   # server stopped: replace, then replay deletions
+```
+
+`restore` checks the copy before it touches anything, then replays the
+deletion ledger and says how many deletions it applied again. The
+deployment ([`deploy/`](../deploy/README.md)) wraps them in `make backup`
+and `make restore`, with encryption.
+
 ### Logs
 
 Application logs (standard error) never hold an address, a token, a key or
