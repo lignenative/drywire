@@ -17,6 +17,8 @@ jobs:
   # The relay and the Rust core on Linux and macOS: gofmt, go vet,
   # go test -race, cargo fmt, clippy and test, as make test runs them.
   # The Rust tests start the real relay, so Go is installed everywhere.
+  # The desktop app is checked here too: its interface typechecked and
+  # tested with Bun, its Tauri crate linted and tested (desktop/README.md).
   test:
     name: make test (${{ matrix.os }})
     strategy:
@@ -38,11 +40,24 @@ jobs:
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: core
+          workspaces: |
+            core
+            desktop/src-tauri
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: desktop/.bun-version
+      # What Tauri needs on Linux: WebKitGTK for the window, and the
+      # libraries behind the tray icon and the menus.
+      - name: Tauri's system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
       - run: make test
 
   # The real Windows build: libopus with MSVC and CMake, the WASAPI
-  # backend linked, and the tests run. A hosted runner has no sound card,
+  # backend linked, and the tests run. Then the desktop app: its tests
+  # (DPAPI for real), and its installer, built by the Tauri CLI. A hosted runner has no sound card,
   # so `drywire devices` only shows that WASAPI answers without
   # crashing; its output is informative, not checked. The release
   # binaries are kept as a workflow artifact, "drywire-windows", to
@@ -61,7 +76,12 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: core
+          workspaces: |
+            core
+            desktop/src-tauri
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: desktop/.bun-version
       - name: cargo test
         working-directory: core
         run: cargo test
@@ -81,6 +101,29 @@ jobs:
           path: |
             core/target/release/drywire.exe
             server/drywire-server.exe
+          if-no-files-found: error
+      - name: desktop interface (typecheck, tests, licenses)
+        working-directory: desktop
+        run: |
+          bun install --frozen-lockfile
+          bun run typecheck
+          bun test
+          bun ../scripts/js-licenses.ts .
+      - name: desktop cargo clippy and test
+        working-directory: desktop/src-tauri
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+      # The installer, unsigned for now (spec section 16). The app inside
+      # is drywire-desktop.exe; the installer and the Start menu say
+      # Drywire.
+      - name: desktop installer
+        working-directory: desktop
+        run: bun run tauri build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: drywire-desktop-windows
+          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
   # Licenses of every Go dependency of the server, against the list in
@@ -107,4 +150,9 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           manifest-path: core/Cargo.toml
+          command: check
+      # The desktop app's crates, Tauri's among them (desktop/src-tauri/deny.toml).
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: desktop/src-tauri/Cargo.toml
           command: check
