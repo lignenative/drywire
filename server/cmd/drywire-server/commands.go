@@ -112,9 +112,11 @@ func backup(w io.Writer) error {
 // every start anyway; doing it here reports what the replay did, and the
 // database is never left on disk with deleted rows back in it.
 //
-// The current database is only replaced once the snapshot has been read
-// whole and checked: a backup that fails to decrypt or arrives cut short
-// leaves it untouched.
+// Everything that can fail happens on a temporary copy: reading the
+// snapshot whole, checking it, migrating it and replaying the ledger. The
+// current database is replaced only then, by a rename: a backup that does
+// not decrypt, arrives cut short, or cannot be replayed leaves it as it
+// was.
 func restore(r io.Reader, log io.Writer) error {
 	if health() == nil {
 		return fmt.Errorf("a server answers on %s: stop it before restoring", envOr("DRYWIRE_HTTP_ADDR", defaultAddr))
@@ -126,7 +128,8 @@ func restore(r io.Reader, log io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name()) // fails harmlessly once renamed
+	name := tmp.Name()
+	defer removeDatabase(name) // nothing left once renamed
 	_, err = io.Copy(tmp, r)
 	if err == nil {
 		err = tmp.Sync()
@@ -137,46 +140,85 @@ func restore(r io.Reader, log io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("reading the backup: %w", err)
 	}
-	if err := store.CheckSnapshot(tmp.Name()); err != nil {
+	if err := store.CheckSnapshot(name); err != nil {
 		return fmt.Errorf("the backup was not restored: %w", err)
 	}
 
 	_, statErr := os.Stat(ledgerPath)
 	ledgerMissing := errors.Is(statErr, os.ErrNotExist)
+	entries, applied, err := replay(name, ledgerPath)
+	if err != nil {
+		return fmt.Errorf("the backup was not restored: %w", err)
+	}
 
 	// The old database's write-ahead log belongs to the old file: left
 	// behind, SQLite would apply it to the restored one. What it holds is
-	// being thrown away with the old database anyway.
+	// thrown away with the old database.
 	for _, suffix := range []string{"-wal", "-shm"} {
 		if err := os.Remove(db + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}
-	if err := os.Rename(tmp.Name(), db); err != nil {
+	if err := os.Rename(name, db); err != nil {
 		return err
 	}
-
-	led, err := ledger.Open(ledgerPath)
-	if err != nil {
-		return err
-	}
-	defer led.Close()
-	st, err := store.Open(db, led, time.Now)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-	entries, err := led.Entries()
-	if err != nil {
-		return err
-	}
-	applied, err := st.Replay(context.Background(), entries)
-	if err != nil {
-		return fmt.Errorf("replaying the deletion ledger: %w", err)
-	}
-	fmt.Fprintf(log, "restored %s; deletions in the ledger: %d, applied again: %d\n", db, len(entries), applied)
-	if ledgerMissing {
-		fmt.Fprintf(log, "warning: there was no deletion ledger at %s, so nothing deleted since this backup could be deleted again; on a new host, copy the old host's ledger there first\n", ledgerPath)
+	fmt.Fprintf(log, "restored %s; deletions in the ledger: %d, applied again: %d\n", db, entries, applied)
+	if ledgerMissing || entries == 0 {
+		fmt.Fprintf(log, "warning: the deletion ledger at %s is missing or empty, so nothing deleted since this backup could be deleted again; on a new host, copy the old host's ledger there first and restore again\n", ledgerPath)
 	}
 	return nil
+}
+
+// replay migrates the database at path and replays the ledger on it. It
+// leaves the database whole in its one file: closing the last connection
+// checkpoints the write-ahead log into it.
+func replay(path, ledgerPath string) (entries, applied int, err error) {
+	led, err := ledger.Open(ledgerPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer led.Close()
+	all, err := led.Entries()
+	if err != nil {
+		return 0, 0, err
+	}
+	st, err := store.Open(path, led, time.Now)
+	if err != nil {
+		return 0, 0, err
+	}
+	applied, err = st.Replay(context.Background(), all)
+	if cerr := st.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return 0, 0, fmt.Errorf("replaying the deletion ledger: %w", err)
+	}
+	if info, err := os.Stat(path + "-wal"); err == nil && info.Size() > 0 {
+		return 0, 0, errors.New("the replayed copy kept changes in its write-ahead log")
+	}
+	return len(all), applied, nil
+}
+
+// removeDatabase removes a SQLite database and its companion files.
+func removeDatabase(path string) {
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+		os.Remove(path + suffix)
+	}
+}
+
+// removeLeftovers removes the temporary copies an interrupted backup or
+// restore left beside the database (a killed process cannot clean up).
+// They hold personal data outside the retention rules and the ledger's
+// reach, so the server removes them at every start.
+func removeLeftovers(db string) int {
+	dir := filepath.Dir(db)
+	var found []string
+	for _, pattern := range []string{".backup-*.db", ".restore-*.db"} {
+		m, _ := filepath.Glob(filepath.Join(dir, pattern))
+		found = append(found, m...)
+	}
+	for _, f := range found {
+		removeDatabase(f)
+	}
+	return len(found)
 }

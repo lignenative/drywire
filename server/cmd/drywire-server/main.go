@@ -52,6 +52,10 @@ func run(log *slog.Logger) error {
 		log.Warn(w)
 	}
 
+	if n := removeLeftovers(cfg.dbPath); n > 0 {
+		log.Warn("removed temporary copies left by an interrupted backup or restore", "files", n)
+	}
+
 	// The deletion ledger first: it is replayed before anything else
 	// reads the database (ADR 0019).
 	led, err := ledger.Open(cfg.ledgerPath)

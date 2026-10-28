@@ -57,8 +57,10 @@ drywire-server backup > copy.db    # consistent copy, while the server runs
 drywire-server restore < copy.db   # server stopped: replace, then replay deletions
 ```
 
-`restore` checks the copy before it touches anything, then replays the
-deletion ledger and says how many deletions it applied again. The
+`restore` checks the copy and replays the deletion ledger on it before it
+touches anything, then puts it in place and says how many deletions it
+applied again. Temporary copies that a killed `backup` or `restore` leaves
+behind are removed at the next start. The
 deployment ([`deploy/`](../deploy/README.md)) wraps them in `make backup`
 and `make restore`, with encryption.
 

@@ -37,10 +37,15 @@ variables as the server:
   server's user only, removed at once. The ledger is not in it (ADR 0019).
 - `restore` reads a snapshot from standard input into a temporary file,
   checks it (SQLite header, `integrity_check`, schema not newer than this
-  server), and only then replaces the database, removing the old `-wal`
-  and `-shm` files. It then replays the ledger on it and says how many
-  deletions it applied again. It refuses to run while a server answers on
+  server), migrates it and replays the ledger on it, all on that copy.
+  Only then does it replace the database, removing the old `-wal` and
+  `-shm` files, and say how many deletions it applied again. It warns
+  when the ledger is missing or empty, as on a new host where the old
+  ledger was not copied. It refuses to run while a server answers on
   `DRYWIRE_HTTP_ADDR`.
+- The server removes, at every start, the temporary copies a killed
+  `backup` or `restore` left beside the database: they hold personal data
+  that neither the ledger nor the retention rules would reach.
 
 Encryption is not the binary's job: the deployment scripts pipe the
 snapshot through `age` on the operator's machine (ADR 0026).
@@ -48,8 +53,8 @@ snapshot through `age` on the operator's machine (ADR 0026).
 ## Consequences
 
 - Backups need no downtime and no extra image on the host.
-- A backup that fails to decrypt, or arrives cut short, leaves the current
-  database untouched.
+- A backup that fails to decrypt, arrives cut short, or cannot be replayed
+  leaves the current database untouched.
 - The server still replays the ledger at every start, so a database put
   back by hand is corrected too; `restore` only does it sooner and reports
   it.
