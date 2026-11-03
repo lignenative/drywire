@@ -245,14 +245,18 @@ fn a_call_joins_again_after_the_server_restarts() {
     });
     let alex_key = view.participants[1].public_key.clone();
     sam.set_volume(&alex_key, 1.5).unwrap();
-    sam.set_muted(true);
     sam.set_gate(-61.0).unwrap();
 
-    // The server restarts: it forgets every session, and both apps find
-    // out when their event streams come back.
-    relay.restart();
+    // The server goes down, then comes back: it forgot every session,
+    // and both apps find out when their event streams come back.
+    relay.stop();
+    std::thread::sleep(Duration::from_secs(1));
+    relay.start_again();
     wait_long(&sam, "sam reconnecting", 15, |v| v.reconnecting);
     assert!(sam.call().unwrap().ended.is_none());
+    // Muted while joining again: it must hold in the new call.
+    sam.set_muted(true);
+    assert!(sam.call().unwrap().muted);
 
     // Both join again on their own, and sam hears alex again, with what
     // sam had chosen before.
@@ -261,7 +265,7 @@ fn a_call_joins_again_after_the_server_restarts() {
     });
     let view = sam.call().unwrap();
     assert!(view.ended.is_none(), "{view:#?}");
-    assert!(view.muted, "still muted");
+    assert!(view.muted, "the mute made while reconnecting holds");
     assert_eq!(view.gate_dbfs, -61.0, "same gate");
     assert_eq!(view.participants[1].volume, 1.5, "same volume for alex");
 

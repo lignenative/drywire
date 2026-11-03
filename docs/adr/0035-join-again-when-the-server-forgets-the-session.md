@@ -34,8 +34,15 @@ its own would fight that.
   longer a member) ends the call with its reason.
 - A `leave` for this device's session still ends the call.
 - Mute, the gate and every volume, including those changed while
-  reconnecting, carry over to the new call. Nobody's arrival is announced
-  again with a sound.
+  reconnecting, carry over to the new call; the new microphone opens
+  already muted if it was. Nobody's arrival is announced again with a
+  sound.
+- The space's event stream is kept from the lost call for the next one,
+  so failed attempts never pile up subscriptions on the server.
+- An attempt can block as long as the network takes to fail. Leaving,
+  switching rooms or quitting does not wait for it: the attempt checks
+  between its steps whether the call was left, ends what it started, and
+  its thread exits on its own.
 
 ## Consequences
 

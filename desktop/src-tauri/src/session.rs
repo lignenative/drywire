@@ -281,6 +281,9 @@ pub struct Session {
     controls: Arc<Mutex<CallControls>>,
     /// Whether the person moved the gate during this session.
     gate_moved: Arc<AtomicBool>,
+    /// Set while the session thread tries to join again: a network call
+    /// that may block for many seconds.
+    attempting: Arc<AtomicBool>,
     commands: Sender<Command>,
     stop: Arc<AtomicBool>,
     /// Whether ending should also tell the control plane: not when
@@ -297,19 +300,23 @@ impl Session {
         let stop = Arc::new(AtomicBool::new(false));
         let leave_server = Arc::new(AtomicBool::new(true));
         let gate_moved = Arc::new(AtomicBool::new(false));
+        let attempting = Arc::new(AtomicBool::new(false));
         let (ready, started) = mpsc::channel();
         let (commands, inbox) = mpsc::channel();
         let thread = {
-            let (view, stop, leave_server, gate_moved) = (
+            let (view, stop, leave_server, gate_moved, attempting) = (
                 Arc::clone(&view),
                 Arc::clone(&stop),
                 Arc::clone(&leave_server),
                 Arc::clone(&gate_moved),
+                Arc::clone(&attempting),
             );
             std::thread::Builder::new()
                 .name("drywire-session".into())
                 .spawn(move || {
-                    let live = match Live::start(request.clone(), devices()) {
+                    let mut events = None;
+                    let first = Live::start(request.clone(), devices(), &stop, false, &mut events);
+                    let live = match first {
                         Ok(live) => live,
                         Err(e) => {
                             let _ = ready.send(Err(e));
@@ -324,6 +331,9 @@ impl Session {
                         view,
                         controls: Arc::clone(&controls),
                         gate_moved,
+                        stop: Arc::clone(&stop),
+                        attempting,
+                        events: None,
                         live: Some(live),
                         retry: None,
                     };
@@ -334,7 +344,7 @@ impl Session {
                         thread.tick();
                     }
                     if let Some(live) = thread.live {
-                        live.end(leave_server.load(Ordering::Relaxed));
+                        let _ = live.end(leave_server.load(Ordering::Relaxed));
                     }
                 })
                 .map_err(|e| AppError::new("audio", e.to_string()))?
@@ -344,6 +354,7 @@ impl Session {
                 view,
                 controls,
                 gate_moved,
+                attempting,
                 commands,
                 stop,
                 leave_server,
@@ -406,7 +417,14 @@ impl Session {
 
     fn stop_thread(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        if let Some(thread) = self.thread.take() {
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
+        // In the middle of an attempt to join again, waiting could take
+        // as long as the network takes to fail. The thread sees the stop
+        // between the attempt's steps, ends what it started, and exits on
+        // its own: leaving, switching rooms or quitting never waits for it.
+        if !self.attempting.load(Ordering::Relaxed) {
             let _ = thread.join();
         }
     }
@@ -427,6 +445,11 @@ struct SessionThread {
     view: Arc<Mutex<CallView>>,
     controls: Arc<Mutex<CallControls>>,
     gate_moved: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    attempting: Arc<AtomicBool>,
+    /// The space's event stream, kept from the lost call for the next
+    /// one: one subscription, however many attempts it takes.
+    events: Option<Receiver<Event>>,
     /// `None` while reconnecting, and after a reconnection failed for good.
     live: Option<Live>,
     retry: Option<Retry>,
@@ -472,7 +495,7 @@ impl SessionThread {
         }
         let mut view = live.view.clone();
         // The session is already gone: nothing to tell the server.
-        live.end(false);
+        self.events = Some(live.end(false));
         view.reconnecting = true;
         view.bound = false;
         view.rtt_ms = None;
@@ -493,22 +516,37 @@ impl SessionThread {
         let Some(retry) = self.retry.take() else {
             return;
         };
-        let (muted, gate) = {
-            let controls = self.controls.lock().expect("not poisoned");
-            (controls.is_muted(), controls.gate())
-        };
-        match Live::start(self.request.clone(), (self.devices)()) {
+        let muted = self.controls.lock().expect("not poisoned").is_muted();
+        self.attempting.store(true, Ordering::Relaxed);
+        let attempt = Live::start(
+            self.request.clone(),
+            (self.devices)(),
+            &self.stop,
+            muted,
+            &mut self.events,
+        );
+        self.attempting.store(false, Ordering::Relaxed);
+        match attempt {
             Ok(live) => {
-                live.controls.set_muted(muted);
+                // Mute and the gate as they are now, not as they were when
+                // the attempt began: the person may have changed them
+                // meanwhile, on the old call's controls. Under the lock, so
+                // a change lands either before this copy or on the new
+                // controls.
+                let mut controls = self.controls.lock().expect("not poisoned");
+                let gate = controls.gate();
+                live.controls.set_muted(controls.is_muted());
                 live.controls.set_gate(gate.0, gate.1);
-                *self.controls.lock().expect("not poisoned") = live.controls.clone();
+                *controls = live.controls.clone();
+                drop(controls);
                 self.live = Some(live);
                 self.publish();
             }
+            Err(e) if e.code == "stopped" => {}
             Err(e) if e.is_temporary() => {
                 let pause = (retry.pause * 2).min(RECONNECT_MAX);
                 self.retry = Some(Retry {
-                    at: Instant::now() + retry.pause,
+                    at: Instant::now() + pause,
                     pause,
                 });
             }
@@ -575,7 +613,25 @@ struct Live {
 }
 
 impl Live {
-    fn start(request: JoinRequest, device: DeviceFactory) -> Result<Live, AppError> {
+    /// Joins the room and starts the sound card. `muted` applies before
+    /// the microphone opens. `events` is the space's event stream, opened
+    /// here when there is none yet, and taken only once the call runs, so
+    /// a failed attempt leaves it for the next. Between its steps it gives
+    /// up, with the code `stopped`, once `stop` is set.
+    fn start(
+        request: JoinRequest,
+        device: DeviceFactory,
+        stop: &AtomicBool,
+        muted: bool,
+        events: &mut Option<Receiver<Event>>,
+    ) -> Result<Live, AppError> {
+        let check = || {
+            if stop.load(Ordering::Relaxed) {
+                Err(AppError::new("stopped", "the call was left"))
+            } else {
+                Ok(())
+            }
+        };
         let client = request.client;
         let space = client.space(&request.space_id)?;
         let room = space
@@ -584,8 +640,15 @@ impl Live {
             .find(|r| r.id == request.room_id)
             .cloned()
             .ok_or_else(|| AppError::new("not_found", "this room no longer exists"))?;
-        // The event stream before the session, so no arrival is missed.
-        let events = follow(&client, &request.space_id)?;
+        // The event stream before the session, so no arrival is missed. A
+        // new stream begins with a snapshot older than the join answer,
+        // which is skipped; one kept from an earlier call has none pending.
+        let fresh_stream = events.is_none();
+        if fresh_stream {
+            check()?;
+            *events = Some(follow(&client, &request.space_id)?);
+        }
+        check()?;
         let joined = client.join(&room.id)?;
         let relay = resolve(&joined.relay)?;
         let me = joined.session;
@@ -625,14 +688,24 @@ impl Live {
             join_timeout: Duration::from_secs(5),
             min_buffer_us: 0,
         };
-        let (call, capture, playback) =
+        check()?;
+        let (mut call, capture, playback) =
             Call::join(&config, options).map_err(|e| AppError::new("relay", e.to_string()))?;
+        let controls = call.controls();
+        controls.set_muted(muted);
+        if let Err(e) = check() {
+            // The sound card never ran: its callbacks go first, then the
+            // call and the session.
+            drop((capture, playback));
+            call.leave();
+            let _ = client.leave();
+            return Err(e);
+        }
         let mut device = device().map_err(|e| AppError::new("audio", e))?;
         let streams = device
             .start(capture, playback)
             .map_err(|e| AppError::new("audio", e.to_string()))?;
         let members = call.members();
-        let controls = call.controls();
         let volumes = request.settings.volumes;
         for (session, person) in &people {
             if let Some(&volume) = volumes.get(&person.public_key) {
@@ -651,8 +724,8 @@ impl Live {
             quality: HashMap::new(),
             ticks: 0,
             device: Some(device),
-            events,
-            snapshots: 0,
+            events: events.take().expect("opened above"),
+            snapshots: if fresh_stream { 0 } else { 1 },
             me,
             room_id: room.id,
             people,
@@ -898,12 +971,14 @@ impl Live {
     }
 
     /// Stops the sound card first, then the call, as the core requires.
-    fn end(mut self, tell_server: bool) {
+    /// Returns the space's event stream, which a reconnection reuses.
+    fn end(mut self, tell_server: bool) -> Receiver<Event> {
         self.stop_audio();
         self.call.leave();
         if tell_server && self.view.ended.is_none() {
             let _ = self.client.leave();
         }
+        self.events
     }
 }
 

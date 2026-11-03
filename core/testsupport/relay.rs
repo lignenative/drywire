@@ -125,8 +125,20 @@ impl Relay {
     /// sessions and presence, kept in memory, are gone.
     #[allow(dead_code)] // not every test binary restarts its relay
     pub fn restart(&mut self) {
+        self.stop();
+        self.start_again();
+    }
+
+    /// Stops the relay, as a crash or a network cut would look to clients.
+    #[allow(dead_code)]
+    pub fn stop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+
+    /// Starts a stopped relay again on its addresses and database.
+    #[allow(dead_code)]
+    pub fn start_again(&mut self) {
         // The system may hold the ports for a moment after the old
         // process ends (on Windows especially): try again for a while.
         let (udp, http) = (self.udp.to_string(), self.http.to_string());
