@@ -209,9 +209,10 @@ fn two_clients_talk_through_the_relay_with_wav_files() {
         assert_eq!(sam_summary[key], 0, "{key}: {sam_summary:?}");
     }
     // Alex's first announcement, sent the moment they join, can reach Sam
-    // before the control plane's event saying who Alex is: then it cannot
-    // be verified yet. Alex announces again before the first spurt.
-    assert!(sam_summary["bad_signature"] <= 1, "{sam_summary:?}");
+    // before the control plane's event saying who Alex is: then it comes
+    // from an unknown sender. Alex announces again before the first spurt.
+    assert!(sam_summary["unknown_sender"] <= 1, "{sam_summary:?}");
+    assert_eq!(sam_summary["bad_signature"], 0, "{sam_summary:?}");
 
     // Every frame received is accounted for: played, dropped by the jitter
     // buffer, too late, or dropped before it because playback stalled. A

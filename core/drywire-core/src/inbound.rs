@@ -65,8 +65,12 @@ pub struct InboundStats {
     pub bad_tag: u64,
     /// Audio whose payload breaks section 7.
     pub bad_framing: u64,
-    /// Announcements that failed to verify, or from an unknown session.
+    /// Announcements whose signature does not verify.
     pub bad_signature: u64,
+    /// Announcements from a session not (yet) a member. A newcomer's
+    /// first one often arrives before the event that makes them a member:
+    /// it is dropped, and the next one is accepted.
+    pub unknown_sender: u64,
     /// Audio already seen.
     pub duplicate: u64,
     /// Audio older than the replay window.
@@ -160,7 +164,7 @@ impl Inbound {
 
     fn announce(&mut self, session: u32, epoch: u8, packet: &[u8]) -> Option<Event> {
         let Some(peer) = self.peers.get_mut(&session) else {
-            self.stats.bad_signature += 1;
+            self.stats.unknown_sender += 1;
             return None;
         };
         let Ok(salt) = verify_announce(&peer.public_key, &self.room_id, packet) else {
@@ -308,7 +312,8 @@ mod tests {
         let packets = loud_packets(&mut s);
         let mut stranger = Inbound::new(ROOM, &SPACE, []);
         assert_eq!(stranger.handle(&packets[0]), None);
-        assert_eq!(stranger.stats().bad_signature, 1);
+        assert_eq!(stranger.stats().unknown_sender, 1);
+        assert_eq!(stranger.stats().bad_signature, 0);
 
         let mut r = inbound();
         r.handle(&packets[0]);

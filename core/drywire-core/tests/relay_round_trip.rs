@@ -256,9 +256,10 @@ fn audio_crosses_the_relay_at_every_frame_size() {
                 stats.no_key,
                 stats.bad_tag,
                 stats.bad_signature,
+                stats.unknown_sender,
                 stats.duplicate
             ),
-            (0, 0, 0, 0),
+            (0, 0, 0, 0, 0),
             "{frame}"
         );
 

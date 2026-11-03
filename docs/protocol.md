@@ -318,9 +318,11 @@ message = "drywire/sender-announce/v1" ‖ room_id (16) ‖ session (4)
   first one of an epoch before any audio of that epoch.
 - A receiver verifies the signature with the public key it knows for that
   session (from the control plane, section 13.6)
-  before deriving the key. An announcement from a session with no known
-  public key, or whose signature does not verify, is dropped
-  (`bad_signature`).
+  before deriving the key. An announcement whose signature does not verify
+  is dropped (`bad_signature`). One from a session with no known public key
+  is dropped too (`unknown_sender`): that is expected when a newcomer's
+  first announcement arrives before the control plane's event naming them,
+  and the next announcement is accepted.
 - A new announcement for the same `(session, epoch)` with a different salt
   replaces the old one: the sender restarted. Receivers keep the keys of at
   least the current and the previous epoch of each sender, so packets
@@ -384,7 +386,8 @@ they are never sent on the wire. The test vectors use the same codes.
 | `bad_mac` | relay, client | MAC of a `hello` or `hello_ack` does not verify |
 | `bad_tag` | receiver | AES-GCM decryption fails |
 | `bad_framing` | receiver | Audio payload breaks the rules of section 7 |
-| `bad_signature` | receiver | Signature of an `announce` does not verify, or its session has no known public key |
+| `unknown_sender` | receiver | An `announce` from a session with no known public key (no test vector: it depends on the receiver's members) |
+| `bad_signature` | receiver | Signature of an `announce` does not verify |
 
 Checks run in the order of this table: a 10-byte datagram is `too_short` even
 though its version byte is also wrong.

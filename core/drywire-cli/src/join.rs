@@ -390,6 +390,10 @@ fn status_line(names: &HashMap<u32, String>, stats: &CallStats) -> String {
             i.bad_framing + i.invalid
         );
     }
+    // Expected once per newcomer: shown apart, never among the errors.
+    if i.unknown_sender > 0 {
+        line += &format!(" | early announcements {}", i.unknown_sender);
+    }
     line
 }
 
@@ -403,7 +407,7 @@ fn summary(stats: &CallStats) -> String {
     let i = &stats.inbound;
     format!(
         "summary sent_audio={} announces={} spurts={} send_dropped={} send_errors={} \
-         received_audio={} no_key={} bad_tag={} bad_signature={} duplicate={} \
+         received_audio={} no_key={} bad_tag={} bad_signature={} unknown_sender={} duplicate={} \
          played={} concealed={} late={} dropped={} playback_queue_full={} pongs={} \
          uplink_received={} uplink_lost={}",
         stats.sender.audio,
@@ -415,6 +419,7 @@ fn summary(stats: &CallStats) -> String {
         i.no_key,
         i.bad_tag,
         i.bad_signature,
+        i.unknown_sender,
         i.duplicate,
         sum(|j| j.played),
         sum(|j| j.concealed),
