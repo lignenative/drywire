@@ -57,7 +57,8 @@ export function CallPanel({ call, onLeave }: { call: CallView; onLeave: () => vo
           }
         >
           <span className="dot" />
-          {call.rttMs !== null ? formatMs(call.rttMs) : "–"}
+          {/* An ended call has no link: its last round trip would be stale. */}
+          {call.rttMs !== null && !call.ended ? formatMs(call.rttMs) : "–"}
         </div>
       </div>
 
@@ -76,6 +77,12 @@ export function CallPanel({ call, onLeave }: { call: CallView; onLeave: () => vo
       {error && <p className="error">{error}</p>}
 
       {!call.ended && <Microphone call={call} />}
+
+      {/* Shown at once, not in "Audio devices": a Bluetooth device can add
+          more latency than everything else together. */}
+      {call.devices.some((d) => d.bluetooth) && (
+        <p className="warn small">{t("call.bluetooth")}</p>
+      )}
 
       <ul className="people">
         {call.participants.map((p) => (
@@ -97,7 +104,6 @@ export function CallPanel({ call, onLeave }: { call: CallView; onLeave: () => vo
                 latency: formatMs(d.latencyMs),
               })}
             </div>
-            {d.bluetooth && <div className="warn">{t("call.bluetooth")}</div>}
           </div>
         ))}
       </details>

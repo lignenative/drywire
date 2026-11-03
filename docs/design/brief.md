@@ -112,7 +112,8 @@ view while in a room.
 | Default threshold | Under the slider, until calibrated: "Default threshold: calibrate it in the latency lab, out of a call." (screen 07) |
 | People | Everyone in the room: a speaking light, the name, "(you)" for this device. For the others: packet loss, an **estimated** mouth-to-ear latency ("≈ 47 ms (estimate)", with a tooltip explaining what it adds up), and a volume slider 0 to 200 %. |
 | Statistics (hidden) | Round trip and its lowest; this device's input + output latency, marked "measured" or "reported by the system"; uplink loss; per person: received, played, concealed, late, dropped, buffered |
-| Audio devices (hidden) | Input and output: device name, mode (WASAPI exclusive, shared…), buffer and reported latency, and a **Bluetooth warning** "expect far more latency than shown". Today this warning is hidden inside the collapsed section (screen 08): it should be visible. |
+| Audio devices (hidden) | Input and output: device name, mode (WASAPI exclusive, shared…), buffer and reported latency |
+| Bluetooth warning | When either device is Bluetooth: "Bluetooth: expect far more latency than shown." Shown in the widget, not hidden (screen 08 predates this: it shows no warning). |
 | Leave | Ends the call |
 
 States of the widget:
@@ -123,8 +124,8 @@ States of the widget:
 | In a call, speaking / not speaking | Lights per person (screen 03) |
 | Muted | Button turns to Unmute, "Muted" label (screen 04) |
 | Poor link | Red dot, high round trip (screen 08) |
-| Bluetooth device | Warning, hidden today (screen 08) |
-| Call ended by the server | Banner with the reason in English, "Join again", "Close" (screen 06). The round trip is still shown, stale: it should not be. |
+| Bluetooth device | Warning in the widget |
+| Call ended by the server | Banner with the reason in English, "Join again", "Close" (screen 06). The round trip shows "–" (screen 06 predates this and still shows the last one). |
 | Reconnecting | **Coming soon**: the app will rejoin on its own when the network drops. Plan for a "Reconnecting…" state that keeps the people list. |
 | Alone in the room | Only "you" in the list |
 
@@ -191,7 +192,7 @@ another app.
 | `05-call-connecting.png` | Connecting to the relay |
 | `06-call-ended.png` | Ended by the server |
 | `07-call-default-gate.png` | Threshold still the default |
-| `08-call-poor-link-bluetooth.png` | Poor link (Bluetooth warning hidden in "Audio devices") |
+| `08-call-poor-link-bluetooth.png` | Poor link, Bluetooth devices (taken before the warning moved into the widget) |
 | `09-lab-results.png` | Lab with a device test and a calibration result |
 | `10-home-unreachable.png` | A space whose server is unreachable |
 | `11-overlay.png` | Overlay over a game: two speakers, a lost connection |
