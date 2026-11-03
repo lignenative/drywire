@@ -69,6 +69,7 @@ const en = {
   "settings.preview.disconnect": "▶ Connection lost",
   "settings.off": "Off",
   "settings.overlay": "Show who is speaking over the game (borderless window mode)",
+  "settings.atLogin": "Start Drywire when you log in, in the tray",
   "settings.save": "Save",
   "settings.saved": "Saved.",
 
@@ -126,6 +127,7 @@ const en = {
   "error.relay": "The relay did not answer.",
   "error.audio": "The sound card could not start.",
   "error.not_found": "Not found.",
+  "error.autostart": "Starting with the session could not be changed.",
   "error.unknown": "Something went wrong.",
 } as const;
 
@@ -196,6 +198,7 @@ const fr: Record<Key, string> = {
   "settings.preview.disconnect": "▶ Connexion perdue",
   "settings.off": "Coupés",
   "settings.overlay": "Afficher qui parle par-dessus le jeu (mode fenêtré sans bordure)",
+  "settings.atLogin": "Lancer Drywire à l'ouverture de session, près de l'horloge",
   "settings.save": "Enregistrer",
   "settings.saved": "Enregistré.",
 
@@ -253,6 +256,7 @@ const fr: Record<Key, string> = {
   "error.relay": "Le relais n'a pas répondu.",
   "error.audio": "La carte son n'a pas pu démarrer.",
   "error.not_found": "Introuvable.",
+  "error.autostart": "Le lancement à l'ouverture de session n'a pas pu être modifié.",
   "error.unknown": "Une erreur est survenue.",
 };
 

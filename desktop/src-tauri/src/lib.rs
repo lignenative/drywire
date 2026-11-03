@@ -26,6 +26,10 @@ use drywire_core::audio::{AudioOptions, default_devices};
 use tauri::{Emitter, Manager, WindowEvent};
 
 use crate::app::Desktop;
+
+/// The argument the session's login starts the app with: it then stays in
+/// the tray instead of opening its window.
+pub const HIDDEN_ARG: &str = "--hidden";
 use crate::session::{DeviceFactory, Notice, Notices};
 use crate::store::Store;
 
@@ -48,6 +52,10 @@ fn data_dir(app: &tauri::App) -> Result<PathBuf, String> {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![HIDDEN_ARG]),
+        ))
         .setup(|app| {
             let store = Store::open(&data_dir(app)?)?;
             // Arrivals and departures go to every window as events: the
@@ -64,6 +72,11 @@ pub fn run() {
             // settings panel shows the error when it is changed.
             if let Err(e) = shell::register_shortcut(app.handle(), &shortcut) {
                 eprintln!("drywire: the mute shortcut is not active: {e}");
+            }
+            // The window starts hidden (tauri.conf.json): it opens unless
+            // the session's login started the app.
+            if !std::env::args().any(|a| a == HIDDEN_ARG) {
+                shell::show_main(app.handle());
             }
             Ok(())
         })
@@ -91,6 +104,8 @@ pub fn run() {
             commands::set_language,
             commands::loopback_test,
             commands::calibrate_gate,
+            commands::launch_at_login,
+            commands::set_launch_at_login,
         ])
         .build(tauri::generate_context!())
         .expect("Drywire could not start");

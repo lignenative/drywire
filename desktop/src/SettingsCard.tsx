@@ -11,6 +11,7 @@ export function SettingsCard({ onSaved }: { onSaved: (settings: Settings) => voi
   const [shortcut, setShortcut] = useState("");
   const [soundVolume, setSoundVolume] = useState(50);
   const [overlay, setOverlay] = useState(true);
+  const [atLogin, setAtLogin] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
 
   useEffect(() => {
@@ -19,6 +20,7 @@ export function SettingsCard({ onSaved }: { onSaved: (settings: Settings) => voi
       setSoundVolume(Math.round(s.soundVolume * 100));
       setOverlay(s.overlay);
     }, () => {});
+    api.launchAtLogin().then(setAtLogin, () => {});
   }, []);
 
   const record = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -41,6 +43,7 @@ export function SettingsCard({ onSaved }: { onSaved: (settings: Settings) => voi
         overlay,
       });
       onSaved(saved);
+      setAtLogin(await api.setLaunchAtLogin(atLogin));
       setMessage({ text: t("settings.saved"), error: false });
     } catch (e) {
       setMessage({ text: errorText(t, e), error: true });
@@ -90,6 +93,10 @@ export function SettingsCard({ onSaved }: { onSaved: (settings: Settings) => voi
       <label className="check">
         <input type="checkbox" checked={overlay} onChange={(e) => setOverlay(e.target.checked)} />
         <span>{t("settings.overlay")}</span>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={atLogin} onChange={(e) => setAtLogin(e.target.checked)} />
+        <span>{t("settings.atLogin")}</span>
       </label>
       <button onClick={save}>{t("settings.save")}</button>
       {message && <p className={message.error ? "error" : "ok"}>{message.text}</p>}

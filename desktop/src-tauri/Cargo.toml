@@ -40,6 +40,9 @@ serde_json = "1.0"
 # lets the overlay be transparent.
 tauri = { version = "2.12", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-global-shortcut = "2.4"
+# Starting with the session, when the person asks for it (off by
+# default): the Run key on Windows, a launch agent on macOS.
+tauri-plugin-autostart = "2.7"
 
 # Windows only: DPAPI protects the identity and the space keys (ADR 0031).
 [target.'cfg(windows)'.dependencies]

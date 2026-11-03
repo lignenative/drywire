@@ -3,6 +3,7 @@
 //! on Tauri's thread pool (`async`), never on the window's thread.
 
 use tauri::{AppHandle, State};
+use tauri_plugin_autostart::ManagerExt;
 
 use std::time::Duration;
 
@@ -126,4 +127,26 @@ pub fn loopback_test(desktop: State<'_, Desktop>) -> Result<LoopbackView, AppErr
 #[tauri::command(async)]
 pub fn calibrate_gate(desktop: State<'_, Desktop>) -> Result<CalibrationView, AppError> {
     desktop.calibrate(Duration::from_secs(10))
+}
+
+/// Whether the app starts with the session, hidden in the tray.
+#[tauri::command]
+pub fn launch_at_login(app: AppHandle) -> Result<bool, AppError> {
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|e| AppError::new("autostart", e.to_string()))
+}
+
+/// Starts the app with the session, or stops doing so. Off until the
+/// person turns it on.
+#[tauri::command]
+pub fn set_launch_at_login(app: AppHandle, enabled: bool) -> Result<bool, AppError> {
+    let manager = app.autolaunch();
+    let done = if enabled {
+        manager.enable()
+    } else {
+        manager.disable()
+    };
+    done.map_err(|e| AppError::new("autostart", e.to_string()))?;
+    launch_at_login(app)
 }

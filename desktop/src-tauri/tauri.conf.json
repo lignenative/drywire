@@ -18,7 +18,8 @@
         "width": 380,
         "height": 640,
         "minWidth": 320,
-        "minHeight": 420
+        "minHeight": 420,
+        "visible": false
       },
       {
         "label": "overlay",

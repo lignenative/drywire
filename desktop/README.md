@@ -46,6 +46,14 @@ mobile ones it adds).
   who is speaking, "Muted", and a pill for two seconds when someone comes
   or goes. The game must run in borderless windowed mode; nothing is
   injected into it.
+- When the network drops long enough for the server to forget the
+  session, or the server restarts, the call shows "reconnecting" and
+  joins the room again on its own, keeping mute, the gate and the volumes
+  (ADR 0035).
+- Starting with the session, hidden in the tray, if the person ticks it
+  in the settings; off by default. On Windows this is a value under the
+  current user's `Run` registry key, removed when unticked (untick it
+  before uninstalling); on macOS, a launch agent.
 - The latency lab (spec section 11), out of a call: the loopback device
   test (the earphone held against the microphone; the median of nine
   clicks is input plus output latency, kept for the estimates), and the

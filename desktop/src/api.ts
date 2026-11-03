@@ -148,6 +148,8 @@ export const api = {
   setLanguage: (language: string) => invoke<void>("set_language", { language }),
   loopbackTest: () => invoke<LoopbackView>("loopback_test"),
   calibrateGate: () => invoke<CalibrationView>("calibrate_gate"),
+  launchAtLogin: () => invoke<boolean>("launch_at_login"),
+  setLaunchAtLogin: (enabled: boolean) => invoke<boolean>("set_launch_at_login", { enabled }),
   /** Calls `f` for every arrival and departure in the room. */
   onPresence: (f: (notice: Notice) => void): Promise<UnlistenFn> =>
     listen<Notice>("presence", (event) => f(event.payload)),

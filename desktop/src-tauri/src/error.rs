@@ -9,7 +9,7 @@ pub struct AppError {
     /// What kind of failure, for the interface to translate:
     /// `storage`, `invalid_link`, `bad_instance`, `refused`, `network`,
     /// `unavailable`, `protocol`, `relay`, `audio`, `not_found`,
-    /// `shortcut`, `busy`.
+    /// `shortcut`, `busy`, `autostart`.
     pub code: &'static str,
     /// The detail, in English.
     pub message: String,
