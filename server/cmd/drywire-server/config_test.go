@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"net/netip"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,26 @@ func TestPlainHTTPLeavesLoopbackOnlyForANamedProxyNetwork(t *testing.T) {
 	t.Setenv("DRYWIRE_HTTP_ADDR", "127.0.0.1:10050")
 	if c, err := loadConfig(); err != nil || c.proxyOnly {
 		t.Errorf("on loopback: error %v, proxyOnly %v", err, c.proxyOnly)
+	}
+}
+
+func TestAnAccessLogDirectoryKeepsAYearAtMost(t *testing.T) {
+	dir := t.TempDir() + "/access/"
+	t.Setenv("DRYWIRE_ACCESS_LOG", dir)
+	c, err := loadConfig()
+	if err != nil || c.accessLog == nil {
+		t.Fatalf("a directory: error %v", err)
+	}
+	c.accessLog.Info("request")
+	files, _ := filepath.Glob(dir + "access-*.jsonl")
+	if len(files) != 1 {
+		t.Fatalf("one file for today, got %v", files)
+	}
+	for v, ok := range map[string]bool{"30": true, "365": true, "366": false, "0": false, "a year": false} {
+		t.Setenv("DRYWIRE_ACCESS_LOG_DAYS", v)
+		if _, err := loadConfig(); (err == nil) != ok {
+			t.Errorf("DRYWIRE_ACCESS_LOG_DAYS=%q: error %v", v, err)
+		}
 	}
 }
 

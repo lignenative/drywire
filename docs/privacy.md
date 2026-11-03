@@ -46,8 +46,8 @@ it stores or for how long, this file changes in the same commit.
 | **Purpose** | Detect and date incidents (art. 33 notifications) |
 | **Legal basis** | Legitimate interest in the security of the service (art. 6(1)(f)) |
 | **Data** | Access log: time, full client IP address, method, route pattern (never the path, query string, headers or `Referer`), status, duration |
-| **Where** | `DRYWIRE_ACCESS_LOG` (standard output by default) |
-| **Retention** | 1 year at most: [how the operator rotates and deletes it] |
+| **Where** | `DRYWIRE_ACCESS_LOG`: with the Docker image, `/data/access/`, one file per day; never in a backup |
+| **Retention** | 1 year at most: the server deletes each day's file once it is a year old (shorter with `DRYWIRE_ACCESS_LOG_DAYS`). An operator who sends the log elsewhere rotates it themselves |
 | **Not logged** | Application logs hold no IP address, token, key, name or content |
 
 ## Processing 4: backups and the deletion ledger

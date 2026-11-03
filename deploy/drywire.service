@@ -29,6 +29,7 @@ EnvironmentFile=/etc/drywire/instance.env
 # the drywire user only. systemd creates the directory.
 Environment=DRYWIRE_DB=/var/lib/drywire/drywire.db
 Environment=DRYWIRE_LEDGER=/var/lib/drywire/drywire.deletions
+Environment=DRYWIRE_ACCESS_LOG=/var/lib/drywire/access/
 StateDirectory=drywire
 StateDirectoryMode=0700
 WorkingDirectory=/var/lib/drywire

@@ -12,7 +12,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/lignenative/drywire/server/internal/accesslog"
 	"github.com/lignenative/drywire/server/internal/api"
 	"github.com/lignenative/drywire/server/internal/auth"
 	"github.com/lignenative/drywire/server/internal/store"
@@ -40,8 +42,11 @@ const defaultAddr = "127.0.0.1:10050"
 //	                        networks such as 172.18.0.0/16 (comma-separated)
 //	                        for a proxy in a Docker network. Its requests
 //	                        name their client in X-Forwarded-For
-//	DRYWIRE_ACCESS_LOG      access log file, - for standard output (the
-//	                        default), off for none
+//	DRYWIRE_ACCESS_LOG      access log: - for standard output (the
+//	                        default), off for none, a directory (ending
+//	                        in /) for one file per day deleted after
+//	                        DRYWIRE_ACCESS_LOG_DAYS (default and most 365),
+//	                        or a single file rotated by someone else
 type config struct {
 	udpAddr, httpAddr  string
 	publicURL          string // set by setPublicAddresses
@@ -125,10 +130,24 @@ func loadConfig() (config, error) {
 		}
 	}
 
-	switch path := envOr("DRYWIRE_ACCESS_LOG", "-"); path {
-	case "off":
-	case "-":
+	switch path := envOr("DRYWIRE_ACCESS_LOG", "-"); {
+	case path == "off":
+	case path == "-":
 		c.accessLog = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	case strings.HasSuffix(path, "/"):
+		days := accesslog.MaxDays
+		if v := os.Getenv("DRYWIRE_ACCESS_LOG_DAYS"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return c, fmt.Errorf("DRYWIRE_ACCESS_LOG_DAYS: %w", err)
+			}
+			days = n
+		}
+		dir, err := accesslog.Open(path, days, time.Now)
+		if err != nil {
+			return c, fmt.Errorf("DRYWIRE_ACCESS_LOG: %w", err)
+		}
+		c.accessLog = slog.New(slog.NewJSONHandler(dir, nil))
 	default:
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {

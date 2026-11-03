@@ -36,7 +36,8 @@ curl http://127.0.0.1:10050/v1/status    # uptime, rooms, packet counters
 | `DRYWIRE_MAX_MEMBERS` | `50` | Member limit of a new space |
 | `DRYWIRE_TLS_CERT`, `DRYWIRE_TLS_KEY` | none | Serve HTTPS (TLS 1.3) from these PEM files |
 | `DRYWIRE_TRUST_PROXY` | off | Where the reverse proxy connects from: `1` for this host's loopback, or private networks such as `172.18.0.0/16` for a proxy in a Docker network. Its requests name their client in `X-Forwarded-For` |
-| `DRYWIRE_ACCESS_LOG` | `-` (standard output) | Access log file, or `off` |
+| `DRYWIRE_ACCESS_LOG` | `-` (standard output; the Docker image: `/data/access/`) | Access log: a directory ending in `/` for one file per UTC day, deleted after `DRYWIRE_ACCESS_LOG_DAYS`; a single file someone else rotates; or `off` |
+| `DRYWIRE_ACCESS_LOG_DAYS` | `365` | How many days a directory access log keeps, at most 365 |
 
 If an address is taken, the server stops with an error; it never picks
 another port. Tokens cross the control plane's connections, so it serves

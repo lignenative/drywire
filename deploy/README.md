@@ -333,25 +333,26 @@ Practise a restore now and then on a test server: `make deploy` and
 
 ## Logs
 
-The server writes two kinds of lines: its application log on standard
-error, which never holds an address, a token, a key or anything a user
-wrote, and the access log on standard output (JSON lines: client
-address, method, route pattern, status, duration; spec section 9).
-Docker keeps both in rotating files, 3 × 10 MB at most, and deletes them
-when the container is recreated, which every deploy that changes the
-server or its settings does.
+The server writes two kinds of lines. Its application log goes to
+standard error and never holds an address, a token, a key or anything a
+user wrote; Docker keeps it in rotating files, 3 × 10 MB at most, and
+deletes them when the container is recreated, which every deploy that
+changes the server or its settings does.
 
-The access log may be kept **one year at most**, and these limits keep
-it far shorter. To see how far back it goes:
+The access log (JSON lines: client address, method, route pattern,
+status, duration; spec section 9) goes to `/data/access/`, one file per
+UTC day (`access-2026-11-04.jsonl`), so it survives deploys: an incident
+can still be dated months later. The server deletes each day once it is
+a year old (ADR 0036), at start and at every new day;
+`DRYWIRE_ACCESS_LOG_DAYS` in `instance.env` shortens that. It is never
+part of a backup. To read a day:
 
 ```sh
-ssh voice-host 'cd /srv/drywire && docker compose logs --no-log-prefix drywire | head -n 3'
+ssh voice-host 'cd /srv/drywire && docker compose exec drywire cat /data/access/access-2026-11-04.jsonl'
 ```
 
-The flip side is that a deploy also erases the trail an incident
-investigation would need (spec section 9). If that matters for your
-instance, set `DRYWIRE_ACCESS_LOG` to a file in `/data` and rotate it
-yourself, keeping a year at most.
+Instances deployed before this kept the access log in Docker's logs; the
+first deploy with this image starts the directory.
 
 ## Without Docker
 

@@ -13,12 +13,15 @@ COPY --chmod=0555 drywire-server /drywire-server
 # the binary can only write to /data.
 USER 10050:10050
 
-# The database and the deletion ledger live in the one volume mounted on
-# /data. Created after USER, the directory belongs to that user, and so
-# does a new volume Docker fills from it.
+# The database, the deletion ledger and the access log live in the one
+# volume mounted on /data, so the access log survives the container being
+# recreated; the server deletes its days past a year (ADR 0036). Created
+# after USER, the directory belongs to that user, and so does a new volume
+# Docker fills from it.
 WORKDIR /data
 ENV DRYWIRE_DB=/data/drywire.db \
-    DRYWIRE_LEDGER=/data/drywire.deletions
+    DRYWIRE_LEDGER=/data/drywire.deletions \
+    DRYWIRE_ACCESS_LOG=/data/access/
 VOLUME /data
 
 # Without arguments the server runs; `health`, `backup` and `restore` are
