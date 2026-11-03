@@ -29,7 +29,8 @@ getrandom = "0.4"
 # A wait-free single-producer, single-consumer ring: frames from the
 # network thread to the playback callback (ADR 0017). No dependencies.
 rtrb = "0.4"
-# Unix only: `poll`, to wait on the call's non-blocking socket (ADR 0016).
+# Unix only: `poll`, to wait on the call's non-blocking socket (ADR 0016),
+# and `signal`, so the command-line client leaves a call cleanly on Ctrl-C.
 libc = "0.2"
 aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
 ed25519-dalek = "3.0"
@@ -51,6 +52,7 @@ windows = { version = "0.62", features = [
     "Win32_Security",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
+    "Win32_System_Console",
     "Win32_System_Threading",
     "Win32_System_Variant",
     "Win32_UI_Shell_PropertiesSystem",

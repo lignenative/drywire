@@ -42,7 +42,8 @@ drywire join --link 'https://drywire.gg/i#…' --display-name sam
 
 From then on, `drywire join` is enough (`--space` and `--room` choose
 when there are several). People who join or leave the room are added to or
-removed from the call as it runs.
+removed from the call as it runs. Ctrl-C leaves the call: the others hear
+you leave at once (a second Ctrl-C quits without waiting).
 
 ## Commands
 

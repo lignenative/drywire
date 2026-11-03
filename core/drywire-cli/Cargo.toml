@@ -26,6 +26,13 @@ getrandom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# Ctrl-C ends a call cleanly (src/stop.rs).
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
+
 [dev-dependencies]
 serde_json.workspace = true
 

@@ -8,6 +8,7 @@ mod args;
 mod devices;
 mod home;
 mod join;
+mod stop;
 
 use std::process::ExitCode;
 

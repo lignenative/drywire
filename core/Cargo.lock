@@ -289,8 +289,10 @@ dependencies = [
  "drywire-core",
  "drywire-proto",
  "getrandom 0.4.3",
+ "libc",
  "serde",
  "serde_json",
+ "windows",
 ]
 
 [[package]]

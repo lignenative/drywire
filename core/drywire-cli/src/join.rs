@@ -132,6 +132,7 @@ pub fn run(args: Join) -> Result<(), String> {
         eprintln!("{stream}");
     }
 
+    crate::stop::install();
     let started = Instant::now();
     let mut next_line = Duration::from_secs(1);
     let mut ended = None;
@@ -155,6 +156,10 @@ pub fn run(args: Join) -> Result<(), String> {
                 &call_members,
                 args.quiet,
             ));
+        }
+        if crate::stop::requested() {
+            eprintln!("leaving");
+            break;
         }
         let finished = match &file_device {
             Some(device) => device.is_finished(),
