@@ -272,8 +272,10 @@ impl Mixer {
 
     /// Plays `session` at `volume` (1 is as sent; clamped to 0 through
     /// [`MAX_VOLUME`]), from now on, and on the track the sender gets
-    /// later if they have none yet. It does not allocate: past the room
-    /// [`Mixer::reserve`] made, a sender without a track keeps volume 1.
+    /// later if they have none yet. It does not allocate. Once the room
+    /// [`Mixer::reserve`] made is full, a new volume takes the place of the
+    /// oldest one kept for a sender with no track: someone who never
+    /// came, or not yet.
     pub fn set_volume(&mut self, session: u32, volume: f32) {
         let volume = if volume.is_nan() {
             1.0
@@ -283,11 +285,34 @@ impl Mixer {
         if let Some(track) = self.tracks.iter_mut().find(|t| t.session == session) {
             track.volume = volume;
         }
-        if let Some(entry) = self.volumes.iter_mut().find(|(s, _)| *s == session) {
-            entry.1 = volume;
-        } else if self.volumes.len() < self.volumes.capacity() {
-            self.volumes.push((session, volume));
+        if let Some(i) = self.volumes.iter().position(|(s, _)| *s == session) {
+            if volume == 1.0 {
+                // The default needs no entry.
+                self.volumes.remove(i);
+            } else {
+                self.volumes[i].1 = volume;
+            }
+            return;
         }
+        if volume == 1.0 {
+            return;
+        }
+        if self.volumes.len() == self.volumes.capacity() {
+            let tracks = &self.tracks;
+            let waiting = self
+                .volumes
+                .iter()
+                .position(|(s, _)| !tracks.iter().any(|t| t.session == *s));
+            match waiting {
+                Some(i) => {
+                    self.volumes.remove(i);
+                }
+                // Every entry belongs to a sender playing now: their track
+                // has the volume, and this one waits with volume 1.
+                None => return,
+            }
+        }
+        self.volumes.push((session, volume));
     }
 
     fn volume_of(&self, session: u32) -> f32 {
@@ -580,6 +605,18 @@ mod tests {
         assert_eq!(play_a_spurt(&mut muted).0, 0.0);
         muted.set_volume(1, 9.0);
         assert_eq!(muted.stats()[0].volume, MAX_VOLUME);
+
+        // Volumes for people who never came do not crowd out the next
+        // one: the oldest of them gives up its place.
+        let mut crowded = Mixer::new();
+        crowded.reserve(4);
+        for stranger in 100..200 {
+            crowded.set_volume(stranger, 0.5);
+        }
+        crowded.set_volume(1, 2.0);
+        let (crowded_loud, ..) = play_a_spurt(&mut crowded);
+        assert!((crowded_loud / energy - 4.0).abs() < 0.01, "{crowded_loud}");
+        assert!(crowded.volumes.len() <= crowded.volumes.capacity());
     }
 
     #[test]
