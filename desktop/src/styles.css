@@ -136,7 +136,8 @@ label {
   color: var(--muted);
 }
 
-input {
+input,
+select {
   font: inherit;
   color: var(--text);
   background: var(--bg);
@@ -146,6 +147,7 @@ input {
 }
 
 input:focus-visible,
+select:focus-visible,
 button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;

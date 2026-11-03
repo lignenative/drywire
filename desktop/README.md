@@ -42,7 +42,8 @@ mobile ones it adds).
   presence sounds when someone joins, leaves or loses their connection
   (synthesised by the interface, played through the web view's own output,
   never through the call), and the overlay: a transparent, always-on-top
-  window in the top-left corner that lets every click through, and shows
+  window in a corner of the main screen (top left unless the settings
+  say another) that lets every click through, and shows
   who is speaking, "Muted", and a pill for two seconds when someone comes
   or goes. The game must run in borderless windowed mode; nothing is
   injected into it.

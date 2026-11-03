@@ -155,12 +155,37 @@ pub fn update_overlay(app: &AppHandle) {
         return;
     };
     let desktop = app.state::<Desktop>();
-    let wanted = desktop.settings().overlay && desktop.call().is_some();
-    let _ = if wanted {
-        overlay.show()
+    let settings = desktop.settings();
+    let wanted = settings.overlay && desktop.call().is_some();
+    if wanted {
+        place_overlay(&overlay, &settings.overlay_corner);
+        let _ = overlay.show();
     } else {
-        overlay.hide()
+        let _ = overlay.hide();
+    }
+}
+
+/// Puts the overlay in `corner` of the main screen, a small margin from
+/// its edges. The page aligns its pills on the same corner.
+fn place_overlay(overlay: &tauri::WebviewWindow, corner: &str) {
+    let (Ok(Some(screen)), Ok(size)) = (overlay.primary_monitor(), overlay.outer_size()) else {
+        return;
     };
+    let margin = (16.0 * screen.scale_factor()).round() as i32;
+    let (origin, area) = (screen.position(), screen.size());
+    let right = corner.ends_with("right");
+    let bottom = corner.starts_with("bottom");
+    let x = if right {
+        origin.x + area.width as i32 - size.width as i32 - margin
+    } else {
+        origin.x + margin
+    };
+    let y = if bottom {
+        origin.y + area.height as i32 - size.height as i32 - margin
+    } else {
+        origin.y + margin
+    };
+    let _ = overlay.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
 #[cfg(test)]

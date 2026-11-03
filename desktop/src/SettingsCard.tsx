@@ -1,7 +1,7 @@
 // The settings that matter during a match: the global mute shortcut, the
 // presence sounds' volume, and the overlay.
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { api, type Settings } from "./api";
+import { api, type OverlayCorner, type Settings } from "./api";
 import { errorText, useLanguage } from "./lang";
 import { playPresence } from "./sounds";
 import { shortcutFromPress } from "./shortcut";
@@ -12,6 +12,7 @@ export function SettingsCard({ onSaved }: { onSaved: (settings: Settings) => voi
   const [soundVolume, setSoundVolume] = useState(50);
   const [overlay, setOverlay] = useState(true);
   const [atLogin, setAtLogin] = useState(false);
+  const [corner, setCorner] = useState<OverlayCorner>("top-left");
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
 
   useEffect(() => {
@@ -19,6 +20,7 @@ export function SettingsCard({ onSaved }: { onSaved: (settings: Settings) => voi
       setShortcut(s.muteShortcut);
       setSoundVolume(Math.round(s.soundVolume * 100));
       setOverlay(s.overlay);
+      setCorner(s.overlayCorner);
     }, () => {});
     api.launchAtLogin().then(setAtLogin, () => {});
   }, []);
@@ -41,6 +43,7 @@ export function SettingsCard({ onSaved }: { onSaved: (settings: Settings) => voi
         muteShortcut: shortcut,
         soundVolume: soundVolume / 100,
         overlay,
+        overlayCorner: corner,
       });
       onSaved(saved);
       setAtLogin(await api.setLaunchAtLogin(atLogin));
@@ -93,6 +96,20 @@ export function SettingsCard({ onSaved }: { onSaved: (settings: Settings) => voi
       <label className="check">
         <input type="checkbox" checked={overlay} onChange={(e) => setOverlay(e.target.checked)} />
         <span>{t("settings.overlay")}</span>
+      </label>
+      <label>
+        <span>{t("settings.overlayCorner")}</span>
+        <select
+          value={corner}
+          disabled={!overlay}
+          onChange={(e) => setCorner(e.target.value as OverlayCorner)}
+        >
+          {(["top-left", "top-right", "bottom-left", "bottom-right"] as const).map((c) => (
+            <option key={c} value={c}>
+              {t(`settings.corner.${c}`)}
+            </option>
+          ))}
+        </select>
       </label>
       <label className="check">
         <input type="checkbox" checked={atLogin} onChange={(e) => setAtLogin(e.target.checked)} />

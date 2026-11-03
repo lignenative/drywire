@@ -57,6 +57,9 @@ pub struct Preferences {
     pub sound_volume: f32,
     /// Whether the overlay shows during calls.
     pub overlay: bool,
+    /// Its corner (see [`crate::store::OVERLAY_CORNERS`]); anything else
+    /// keeps the current one.
+    pub overlay_corner: String,
 }
 
 pub use crate::session::Devices;
@@ -255,6 +258,9 @@ impl Desktop {
             preferences.sound_volume.clamp(0.0, 1.0)
         };
         settings.overlay = preferences.overlay;
+        if crate::store::OVERLAY_CORNERS.contains(&preferences.overlay_corner.as_str()) {
+            settings.overlay_corner = preferences.overlay_corner;
+        }
         self.store
             .save_settings(&settings)
             .map_err(AppError::storage)?;

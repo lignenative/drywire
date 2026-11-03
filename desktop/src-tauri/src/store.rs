@@ -57,6 +57,9 @@ impl KnownSpace {
     }
 }
 
+/// Where the overlay may sit; the first is the default.
+pub const OVERLAY_CORNERS: [&str; 4] = ["top-left", "top-right", "bottom-left", "bottom-right"];
+
 /// The person's preferences. Fields added later take their default when
 /// an older file lacks them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -77,6 +80,9 @@ pub struct Settings {
     pub sound_volume: f32,
     /// Whether the overlay shows who speaks, over the game, during calls.
     pub overlay: bool,
+    /// The corner of the main screen it sits in: `top-left`, `top-right`,
+    /// `bottom-left` or `bottom-right`.
+    pub overlay_corner: String,
     /// The device latency the last loopback test measured, input plus
     /// output, in milliseconds: it replaces the system's figures in the
     /// latency estimates.
@@ -91,6 +97,7 @@ impl Default for Settings {
             mute_shortcut: "Ctrl+Shift+M".into(),
             sound_volume: 0.5,
             overlay: true,
+            overlay_corner: OVERLAY_CORNERS[0].into(),
             device_loopback_ms: None,
         }
     }
@@ -282,6 +289,7 @@ mod tests {
         // A file from an older version, without the newer fields.
         std::fs::write(dir.join("settings.json"), r#"{"gateOpenDbfs": -45}"#).unwrap();
         assert_eq!(store.settings().gate_open_dbfs, Some(-45.0));
+        assert_eq!(store.settings().overlay_corner, "top-left");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

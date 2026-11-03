@@ -17,6 +17,19 @@ body {
   align-items: flex-start;
   gap: 4px;
   padding: 4px;
+  box-sizing: border-box;
+  height: 100vh;
+}
+
+/* The pills hug the corner the window sits in. */
+.overlay.top-right,
+.overlay.bottom-right {
+  align-items: flex-end;
+}
+
+.overlay.bottom-left,
+.overlay.bottom-right {
+  flex-direction: column-reverse;
 }
 
 .pill {

@@ -104,13 +104,18 @@ export interface Settings {
   /** 0 (off) to 1. */
   soundVolume: number;
   overlay: boolean;
+  overlayCorner: OverlayCorner;
 }
+
+/** Where the overlay sits on the main screen. */
+export type OverlayCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
 /** What the settings panel edits. */
 export interface Preferences {
   muteShortcut: string;
   soundVolume: number;
   overlay: boolean;
+  overlayCorner: OverlayCorner;
 }
 
 /** Someone came into the room, or went. */

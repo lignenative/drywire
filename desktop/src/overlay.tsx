@@ -18,6 +18,15 @@ function Overlay() {
   const { t } = useLanguage();
   const [call, setCall] = useState<CallView | null>(null);
   const [pills, setPills] = useState<Pill[]>([]);
+  const [corner, setCorner] = useState("top-left");
+
+  // The corner, read again now and then: the settings may change it.
+  useEffect(() => {
+    const read = () => api.getSettings().then((s) => setCorner(s.overlayCorner), () => {});
+    read();
+    const timer = setInterval(read, 2000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => api.callStatus().then(setCall, () => {}), POLL_MS);
@@ -39,7 +48,7 @@ function Overlay() {
   if (!call || call.ended) return null;
   const speaking = call.participants.filter((p) => p.speaking && !(p.me && call.muted));
   return (
-    <div className="overlay">
+    <div className={`overlay ${corner}`}>
       {call.reconnecting && <div className="pill notice disconnect">{t("call.reconnecting")}</div>}
       {call.muted && <div className="pill muted">{t("call.muted")}</div>}
       {speaking.map((p) => (

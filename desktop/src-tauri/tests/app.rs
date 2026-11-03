@@ -17,7 +17,7 @@ use drywire_control::Client;
 use drywire_core::audio::file::{FileIo, Source};
 use drywire_core::audio::{AudioError, AudioIo, InputCallback, OutputCallback, StreamInfo};
 use drywire_core::opus::SAMPLE_RATE;
-use drywire_desktop::app::{Desktop, Devices};
+use drywire_desktop::app::{Desktop, Devices, Preferences};
 use drywire_desktop::session::{CallView, Notice, Notices};
 use drywire_desktop::store::Store;
 use drywire_proto::crypto::SigningKey;
@@ -186,6 +186,25 @@ fn members_join_by_link_and_meet_in_a_room() {
     sam.leave();
     let status = relay.status();
     assert_eq!(status["sessions"], 0, "both sessions were freed: {status}");
+}
+
+#[test]
+fn the_overlay_corner_is_one_of_four() {
+    let (app, _) = desktop("corner", devices(Vec::new()));
+    let prefs = |corner: &str| Preferences {
+        mute_shortcut: "Ctrl+Shift+M".into(),
+        sound_volume: 0.5,
+        overlay: true,
+        overlay_corner: corner.into(),
+    };
+    assert_eq!(app.settings().overlay_corner, "top-left", "the default");
+    let saved = app.set_preferences(prefs("bottom-right")).unwrap();
+    assert_eq!(saved.overlay_corner, "bottom-right");
+    let kept = app.set_preferences(prefs("middle")).unwrap();
+    assert_eq!(
+        kept.overlay_corner, "bottom-right",
+        "an unknown corner changes nothing"
+    );
 }
 
 /// Polls the call until `done` says so, or fails after `seconds`.

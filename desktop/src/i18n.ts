@@ -70,6 +70,11 @@ const en = {
   "settings.off": "Off",
   "settings.overlay": "Show who is speaking over the game (borderless window mode)",
   "settings.atLogin": "Start Drywire when you log in, in the tray",
+  "settings.overlayCorner": "Overlay corner",
+  "settings.corner.top-left": "Top left",
+  "settings.corner.top-right": "Top right",
+  "settings.corner.bottom-left": "Bottom left",
+  "settings.corner.bottom-right": "Bottom right",
   "settings.save": "Save",
   "settings.saved": "Saved.",
 
@@ -199,6 +204,11 @@ const fr: Record<Key, string> = {
   "settings.off": "Coupés",
   "settings.overlay": "Afficher qui parle par-dessus le jeu (mode fenêtré sans bordure)",
   "settings.atLogin": "Lancer Drywire à l'ouverture de session, près de l'horloge",
+  "settings.overlayCorner": "Coin de l'overlay",
+  "settings.corner.top-left": "En haut à gauche",
+  "settings.corner.top-right": "En haut à droite",
+  "settings.corner.bottom-left": "En bas à gauche",
+  "settings.corner.bottom-right": "En bas à droite",
   "settings.save": "Enregistrer",
   "settings.saved": "Enregistré.",
 
