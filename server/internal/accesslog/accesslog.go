@@ -8,8 +8,8 @@
 // rotation tool.
 //
 // Files are named access-YYYY-MM-DD.jsonl, by UTC day, readable by the
-// server's user only. A file is deleted once every line in it is older
-// than the retention: on the day after its last day plus the retention.
+// server's user only. A file is deleted once its day began more than the
+// retention ago, so no line is ever kept longer than the retention.
 package accesslog
 
 import (
@@ -79,10 +79,12 @@ func (d *Dir) Write(p []byte) (int, error) {
 			return 0, err
 		}
 		d.file, d.day = f, day
-		// A new day is when the oldest file may have expired.
-		if err := d.prune(now); err != nil {
-			return 0, err
-		}
+		// A new day is when the oldest file may have expired. The line
+		// is written first: a file that cannot be deleted must not cost
+		// the log a line. It is tried again at the next start.
+		n, err := d.file.Write(p)
+		_ = d.prune(now)
+		return n, err
 	}
 	return d.file.Write(p)
 }
@@ -99,13 +101,15 @@ func (d *Dir) Close() error {
 	return err
 }
 
-// prune deletes the files whose day ended more than `days` days before
-// now. Files that do not look like the log's are left alone.
+// prune deletes the files whose day began more than `days` days before
+// now, going on past a file it cannot delete, and returns the first
+// error. Files that do not look like the log's are left alone.
 func (d *Dir) prune(now time.Time) error {
 	entries, err := os.ReadDir(d.dir)
 	if err != nil {
 		return err
 	}
+	var first error
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
@@ -115,12 +119,12 @@ func (d *Dir) prune(now time.Time) error {
 		if err != nil {
 			continue
 		}
-		// Its last line is at most the end of that day.
-		if now.Sub(day.AddDate(0, 0, 1)) > time.Duration(d.days)*24*time.Hour {
-			if err := os.Remove(filepath.Join(d.dir, name)); err != nil && !os.IsNotExist(err) {
-				return err
+		// Its oldest line is at most as old as the start of that day.
+		if now.Sub(day) > time.Duration(d.days)*24*time.Hour {
+			if err := os.Remove(filepath.Join(d.dir, name)); err != nil && !os.IsNotExist(err) && first == nil {
+				first = err
 			}
 		}
 	}
-	return nil
+	return first
 }

@@ -53,14 +53,14 @@ func TestOneFilePerDayAndNothingPastTheRetention(t *testing.T) {
 		t.Fatalf("mode %v: readable by the server's user only", info.Mode())
 	}
 
-	// The 4th's last line is two days old at the end of the 6th: kept
-	// until then, gone on the 7th.
-	now = time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	// A line written at the very start of the 4th would be two days old
+	// at the start of the 6th: the file is kept until then, not after.
+	now = time.Date(2026, 11, 5, 23, 59, 0, 0, time.UTC)
 	write("d")
 	if !slices.Contains(names(t, dir), "access-2026-11-04.jsonl") {
 		t.Fatal("deleted before its retention ran out")
 	}
-	now = time.Date(2026, 11, 7, 0, 1, 0, 0, time.UTC)
+	now = time.Date(2026, 11, 6, 0, 1, 0, 0, time.UTC)
 	write("e")
 	if got := names(t, dir); slices.Contains(got, "access-2026-11-04.jsonl") {
 		t.Fatalf("kept past its retention: %v", got)
@@ -84,6 +84,25 @@ func TestOpeningDeletesOldFilesAndLeavesOthersAlone(t *testing.T) {
 	want := []string{"access-2026-11-03.jsonl", "access-bad.jsonl", "notes.txt"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("files %v, want %v", got, want)
+	}
+}
+
+func TestAFileThatCannotBeDeletedCostsNoLine(t *testing.T) {
+	dir := t.TempDir()
+	// An expired "file" that is a non-empty directory: Remove fails.
+	stuck := filepath.Join(dir, "access-2020-01-01.jsonl")
+	if err := os.MkdirAll(filepath.Join(stuck, "inside"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	d := &Dir{dir: dir, days: 30, now: func() time.Time { return now }}
+	if _, err := d.Write([]byte("kept\n")); err != nil {
+		t.Fatalf("the line was refused: %v", err)
+	}
+	defer d.Close()
+	data, _ := os.ReadFile(filepath.Join(dir, "access-2026-11-04.jsonl"))
+	if string(data) != "kept\n" {
+		t.Fatalf("today's file holds %q", data)
 	}
 }
 

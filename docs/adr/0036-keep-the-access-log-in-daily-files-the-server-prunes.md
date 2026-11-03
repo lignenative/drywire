@@ -19,10 +19,11 @@ point the log at a file and rotate it themselves, which most would not.
 
 - `DRYWIRE_ACCESS_LOG` may name a directory (ending in `/`). The server
   then writes one file per UTC day, `access-YYYY-MM-DD.jsonl`, readable by
-  its user only, and deletes each file once its last day is older than
-  `DRYWIRE_ACCESS_LOG_DAYS` (365 by default, and at most), at start and at
-  each new day. Files with other names are left alone. Standard library
-  only.
+  its user only, and deletes each file once its day began more than
+  `DRYWIRE_ACCESS_LOG_DAYS` ago (365 by default, and at most), at start and
+  at each new day: no line outlives the retention. A file it cannot delete
+  does not stop it from writing, nor from deleting the others. Files with
+  other names are left alone. Standard library only.
 - The Docker image and the systemd unit point it at the data volume:
   `/data/access/` and `/var/lib/drywire/access/`. Backups, which copy the
   database only, never include it.
