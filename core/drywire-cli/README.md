@@ -98,7 +98,9 @@ key.
 ## Files instead of a sound card
 
 `--input in.wav` captures from a 48 kHz WAV file and `--output out.wav`
-records what would have played; `--echo` sends back what it receives. Any
+records what would have played; `--echo` sends back what it receives,
+through a gate that only stays shut on silence (the sender already gated
+it). Any
 of them replaces the sound card entirely, paced in real time, so a call
 can run headless and **never opens the microphone**. The tests use this:
 `tests/two_clients.rs` makes a space with one CLI, joins it with the

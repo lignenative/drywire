@@ -7,6 +7,15 @@ use std::time::Duration;
 use drywire_core::gate::GateConfig;
 use drywire_core::opus::FrameSize;
 
+/// The gate of an echo bot: what it echoes was already gated by the
+/// sender, so it sends anything above digital silence. Its own gate at the
+/// default threshold would cut the soft start of words a second time.
+pub const ECHO_GATE: GateConfig = GateConfig {
+    open_dbfs: -100.0,
+    close_dbfs: -100.0,
+    hold_ms: 150,
+};
+
 /// Options of `join`.
 #[derive(Debug)]
 pub struct Join {
@@ -114,7 +123,9 @@ impl Join {
             quiet: false,
         };
         let mut flags = Flags::new(args);
+        let mut gate_set = false;
         while let Some(flag) = flags.next_flag() {
+            gate_set |= matches!(flag, "--gate-open" | "--gate-close");
             match flag {
                 "--home" => join.home = Some(PathBuf::from(flags.value(flag)?)),
                 "--space" => join.space = Some(flags.value(flag)?.to_string()),
@@ -161,6 +172,9 @@ impl Join {
         }
         if join.echo && join.input.is_some() {
             return Err("--echo and --input both say what to capture: pick one".into());
+        }
+        if join.echo && !gate_set {
+            join.gate = ECHO_GATE;
         }
         if join.gate.close_dbfs > join.gate.open_dbfs {
             return Err("--gate-close must not be above --gate-open".into());
@@ -264,6 +278,17 @@ mod tests {
         assert!(join.redundancy && join.file_mode());
         assert_eq!(join.duration, Some(Duration::from_millis(1500)));
         assert_eq!(join.gate.open_dbfs, -35.0);
+    }
+
+    #[test]
+    fn an_echo_bot_does_not_gate_again_unless_asked() {
+        let echo = Join::parse(&strings(&["--echo"])).unwrap();
+        assert_eq!(echo.gate, ECHO_GATE);
+        let asked = Join::parse(&strings(&["--echo", "--gate-open", "-30"])).unwrap();
+        assert_eq!(asked.gate.open_dbfs, -30.0);
+        assert_eq!(asked.gate.close_dbfs, GateConfig::default().close_dbfs);
+        let talker = Join::parse(&strings(&[])).unwrap();
+        assert_eq!(talker.gate, GateConfig::default());
     }
 
     #[test]

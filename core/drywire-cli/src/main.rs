@@ -64,7 +64,9 @@ join options:
                        (default 0: one frame, or more if the network asks)
   --input FILE.wav     Capture from a 48 kHz WAV file instead of the microphone
   --output FILE.wav    Play into a WAV file instead of the speakers
-  --echo               Send back what you receive (an echo bot; no sound card)
+  --echo               Send back what you receive (an echo bot; no sound card).
+                       Its gate sends anything but silence, unless --gate-open
+                       or --gate-close say otherwise
   --duration SECONDS   Stop after this long (file mode: input length + 1 s)
   --no-ping            Do not ping the relay (keepalives only; a relay
                        restart then goes unnoticed until you join again)
