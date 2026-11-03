@@ -77,6 +77,8 @@ export interface CallView {
   roomId: string;
   roomName: string;
   ended: string | null;
+  /** The server forgot this session: the app is joining again on its own. */
+  reconnecting: boolean;
   bound: boolean;
   rttMs: number | null;
   minRttMs: number | null;

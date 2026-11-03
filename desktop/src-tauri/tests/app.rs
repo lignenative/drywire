@@ -185,6 +185,70 @@ fn members_join_by_link_and_meet_in_a_room() {
     assert_eq!(status["sessions"], 0, "both sessions were freed: {status}");
 }
 
+/// Polls the call until `done` says so, or fails after `seconds`.
+fn wait_long(desktop: &Desktop, what: &str, seconds: u64, done: impl Fn(&CallView) -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(seconds);
+    loop {
+        let view = desktop.call().expect("in a call");
+        if done(&view) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{what}: {view:#?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn a_call_joins_again_after_the_server_restarts() {
+    let mut relay = Relay::start();
+    let space_key = [0x5a; 32];
+    let owner = Client::new(&relay.instance(), SigningKey::from_bytes(&[0xa1; 32])).unwrap();
+    let space = owner.create_space("Team", "general", "owner").unwrap();
+    let link = || {
+        let (invitation, _) = owner
+            .invite(&space.space.id, &space_key, None, Some(1))
+            .unwrap();
+        invitation.to_link()
+    };
+    let (sam, _) = desktop("sam-restart", devices(Vec::new()));
+    let (alex, _) = desktop("alex-restart", devices(voice()));
+    sam.accept(&link(), "sam").unwrap();
+    alex.accept(&link(), "alex").unwrap();
+    let spaces = sam.spaces().unwrap();
+    let (instance, space_id, room) = (&spaces[0].instance, &spaces[0].id, &spaces[0].rooms[0].id);
+    sam.join(instance, space_id, room).unwrap();
+    alex.join(instance, space_id, room).unwrap();
+    let view = wait_for(&sam, "sam hears alex", |v| {
+        v.participants.len() == 2 && v.participants[1].speaking
+    });
+    let alex_key = view.participants[1].public_key.clone();
+    sam.set_volume(&alex_key, 1.5).unwrap();
+    sam.set_muted(true);
+    sam.set_gate(-61.0).unwrap();
+
+    // The server restarts: it forgets every session, and both apps find
+    // out when their event streams come back.
+    relay.restart();
+    wait_long(&sam, "sam reconnecting", 15, |v| v.reconnecting);
+    assert!(sam.call().unwrap().ended.is_none());
+
+    // Both join again on their own, and sam hears alex again, with what
+    // sam had chosen before.
+    wait_long(&sam, "sam back with alex", 30, |v| {
+        !v.reconnecting && v.bound && v.participants.len() == 2 && v.participants[1].speaking
+    });
+    let view = sam.call().unwrap();
+    assert!(view.ended.is_none(), "{view:#?}");
+    assert!(view.muted, "still muted");
+    assert_eq!(view.gate_dbfs, -61.0, "same gate");
+    assert_eq!(view.participants[1].volume, 1.5, "same volume for alex");
+
+    alex.leave();
+    sam.leave();
+    let status = relay.status();
+    assert_eq!(status["sessions"], 0, "both sessions were freed: {status}");
+}
+
 /// An echo device that takes time, as a real one does: what it plays, it
 /// hears five periods (12.5 ms) later. With no latency at all, a late
 /// wake-up followed by an early one would make an echo look older than

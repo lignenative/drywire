@@ -125,8 +125,8 @@ States of the widget:
 | Muted | Button turns to Unmute, "Muted" label (screen 04) |
 | Poor link | Red dot, high round trip (screen 08) |
 | Bluetooth device | Warning in the widget |
-| Call ended by the server | Banner with the reason in English, "Join again", "Close" (screen 06). The round trip shows "–" (screen 06 predates this and still shows the last one). |
-| Reconnecting | **Coming soon**: the app will rejoin on its own when the network drops. Plan for a "Reconnecting…" state that keeps the people list. |
+| Call ended by the server | Only when it was on purpose (this device joined elsewhere, or was removed): banner with the reason in English, "Join again", "Close" (screen 06). The round trip shows "–" (screen 06 predates this and still shows the last one). |
+| Reconnecting | The server forgot the session (network drop, server restart): the app joins again on its own, every 1, 2, 4… up to 15 seconds. "Connection lost: joining again…" in the widget and as an overlay pill; the people list stays, nobody shown speaking; mute, gate and volumes carry over. No screenshot yet. |
 | Alone in the room | Only "you" in the list |
 
 ### 3. The latency lab (hidden)

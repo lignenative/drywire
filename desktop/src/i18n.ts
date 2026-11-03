@@ -33,6 +33,7 @@ const en = {
 
   "call.leave": "Leave",
   "call.connecting": "Connecting to the relay…",
+  "call.reconnecting": "Connection lost: joining again…",
   "call.ended": "The call ended: {reason}",
   "call.rejoin": "Join again",
   "call.close": "Close",
@@ -120,6 +121,7 @@ const en = {
   "error.bad_instance": "The instance's address cannot be used.",
   "error.refused": "The server refused.",
   "error.network": "The server cannot be reached.",
+  "error.unavailable": "The server is unavailable for a moment: try again shortly.",
   "error.protocol": "The server's answer was not understood: an update may be needed.",
   "error.relay": "The relay did not answer.",
   "error.audio": "The sound card could not start.",
@@ -158,6 +160,7 @@ const fr: Record<Key, string> = {
 
   "call.leave": "Quitter",
   "call.connecting": "Connexion au relais…",
+  "call.reconnecting": "Connexion perdue : reconnexion…",
   "call.ended": "L'appel est terminé : {reason}",
   "call.rejoin": "Rejoindre à nouveau",
   "call.close": "Fermer",
@@ -245,6 +248,7 @@ const fr: Record<Key, string> = {
   "error.bad_instance": "L'adresse de l'instance est inutilisable.",
   "error.refused": "Le serveur a refusé.",
   "error.network": "Le serveur est injoignable.",
+  "error.unavailable": "Le serveur est momentanément indisponible : réessayez dans un instant.",
   "error.protocol": "La réponse du serveur est incomprise : une mise à jour est peut-être nécessaire.",
   "error.relay": "Le relais n'a pas répondu.",
   "error.audio": "La carte son n'a pas pu démarrer.",

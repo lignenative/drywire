@@ -8,6 +8,14 @@
 //! to `drywire-core`, and this thread only reads the snapshot of
 //! statistics they publish when their lock is free.
 //!
+//! When the server forgets this device's session, because the network
+//! dropped long enough for the relay to time it out or the server
+//! restarted, the session thread joins the room again on its own, with
+//! growing pauses between attempts, and the interface shows it as
+//! reconnecting. Mute, the gate and the volumes carry over. Only a
+//! session the server ended on purpose (this device joined elsewhere, or
+//! was removed) ends the call.
+//!
 //! The session thread owns the sound card, because a device may not be
 //! movable between threads; it stops it before the call, as the core
 //! requires. The interface's controls reach the call without it: mute
@@ -21,7 +29,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use drywire_control::{Client, Event, Id, Presence, to_hex};
 use drywire_core::audio::{AudioIo, StreamInfo};
@@ -40,6 +48,10 @@ use crate::store::Settings;
 
 /// Opens the sound card, on the session thread.
 pub type DeviceFactory = Box<dyn FnOnce() -> Result<Box<dyn AudioIo>, String> + Send>;
+
+/// Makes the factory that opens the sound card: once per call, and again
+/// for every reconnection.
+pub type Devices = Arc<dyn Fn() -> DeviceFactory + Send + Sync>;
 
 /// Hears who comes and goes in the room, on the session thread: the app
 /// plays a sound and shows a pill for each (spec section 10, "Presence").
@@ -62,6 +74,11 @@ const TICK: Duration = Duration::from_millis(20);
 
 /// How long to wait before opening the event stream again after it ends.
 const EVENTS_RETRY: Duration = Duration::from_secs(2);
+
+/// The pause before each attempt to join again, then the longest pause:
+/// quick at first, for a blip, then every 15 seconds.
+const RECONNECT_FIRST: Duration = Duration::from_secs(1);
+const RECONNECT_MAX: Duration = Duration::from_secs(15);
 
 /// How far below the open threshold the gate closes: the core's default
 /// hysteresis, so one setting moves both.
@@ -96,6 +113,7 @@ fn gate_config(open_dbfs: f32) -> GateConfig {
 }
 
 /// Where to go, and as whom.
+#[derive(Clone)]
 pub struct JoinRequest {
     /// A client for the space's instance.
     pub client: Arc<Client>,
@@ -223,6 +241,9 @@ pub struct CallView {
     /// Why the call ended, if the server ended it. The interface then
     /// offers to join again.
     pub ended: Option<String>,
+    /// Whether the server forgot this device's session and the app is
+    /// joining again on its own.
+    pub reconnecting: bool,
     /// Whether the relay acknowledged this device and still answers.
     pub bound: bool,
     /// The last round trip to the relay, in milliseconds.
@@ -255,7 +276,9 @@ pub struct CallView {
 /// A running session. Dropping it ends the call.
 pub struct Session {
     view: Arc<Mutex<CallView>>,
-    controls: CallControls,
+    /// The running call's controls; replaced when a reconnection starts a
+    /// new call.
+    controls: Arc<Mutex<CallControls>>,
     commands: Sender<Command>,
     stop: Arc<AtomicBool>,
     /// Whether ending should also tell the control plane: not when
@@ -265,9 +288,9 @@ pub struct Session {
 }
 
 impl Session {
-    /// Joins the room and starts the sound card that `device` opens.
+    /// Joins the room and starts the sound card that `devices` opens.
     /// Returns once audio runs, or with why it could not start.
-    pub fn start(request: JoinRequest, device: DeviceFactory) -> Result<Session, AppError> {
+    pub fn start(request: JoinRequest, devices: Devices) -> Result<Session, AppError> {
         let view = Arc::new(Mutex::new(CallView::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let leave_server = Arc::new(AtomicBool::new(true));
@@ -282,21 +305,32 @@ impl Session {
             std::thread::Builder::new()
                 .name("drywire-session".into())
                 .spawn(move || {
-                    let mut live = match Live::start(request, device, inbox) {
+                    let live = match Live::start(request.clone(), devices()) {
                         Ok(live) => live,
                         Err(e) => {
                             let _ = ready.send(Err(e));
                             return;
                         }
                     };
-                    live.refresh(&view);
-                    let _ = ready.send(Ok(live.call.controls()));
+                    let controls = Arc::new(Mutex::new(live.controls.clone()));
+                    let mut thread = SessionThread {
+                        request,
+                        devices,
+                        inbox,
+                        view,
+                        controls: Arc::clone(&controls),
+                        live: Some(live),
+                        retry: None,
+                    };
+                    thread.publish();
+                    let _ = ready.send(Ok(controls));
                     while !stop.load(Ordering::Relaxed) {
                         std::thread::sleep(TICK);
-                        live.tick();
-                        live.refresh(&view);
+                        thread.tick();
                     }
-                    live.end(leave_server.load(Ordering::Relaxed));
+                    if let Some(live) = thread.live {
+                        live.end(leave_server.load(Ordering::Relaxed));
+                    }
                 })
                 .map_err(|e| AppError::new("audio", e.to_string()))?
         };
@@ -328,14 +362,17 @@ impl Session {
     /// Mutes or unmutes the microphone, at the capture callback's next
     /// call.
     pub fn set_muted(&self, muted: bool) {
-        self.controls.set_muted(muted);
+        self.controls.lock().expect("not poisoned").set_muted(muted);
         self.view.lock().expect("not poisoned").muted = muted;
     }
 
     /// Moves the voice gate's threshold (clamped to −80 through −10 dBFS).
     pub fn set_gate(&self, open_dbfs: f32) {
         let gate = gate_config(open_dbfs);
-        self.controls.set_gate(gate.open_dbfs, gate.close_dbfs);
+        self.controls
+            .lock()
+            .expect("not poisoned")
+            .set_gate(gate.open_dbfs, gate.close_dbfs);
         let mut view = self.view.lock().expect("not poisoned");
         view.gate_dbfs = gate.open_dbfs;
         view.gate_chosen = true;
@@ -370,6 +407,129 @@ impl Drop for Session {
     }
 }
 
+/// What the session thread holds: the call when one runs, and what it
+/// takes to start the next one.
+struct SessionThread {
+    request: JoinRequest,
+    devices: Devices,
+    inbox: Receiver<Command>,
+    view: Arc<Mutex<CallView>>,
+    controls: Arc<Mutex<CallControls>>,
+    /// `None` while reconnecting, and after a reconnection failed for good.
+    live: Option<Live>,
+    retry: Option<Retry>,
+}
+
+/// The next attempt to join again.
+struct Retry {
+    at: Instant,
+    pause: Duration,
+}
+
+impl SessionThread {
+    /// One tick: the call's events and counters, or the next attempt to
+    /// join again.
+    fn tick(&mut self) {
+        if let Some(live) = self.live.as_mut() {
+            live.tick(&self.inbox);
+            live.refresh(&self.view);
+            if let Some(why) = live.lost.take() {
+                self.lose(why);
+            }
+            return;
+        }
+        // Volumes chosen meanwhile apply to the next call.
+        while let Ok(Command::Volume(public_key, volume)) = self.inbox.try_recv() {
+            self.request.settings.volumes.insert(public_key, volume);
+        }
+        if self.retry.as_ref().is_some_and(|r| Instant::now() >= r.at) {
+            self.reconnect();
+        }
+    }
+
+    /// The server forgot this device's session: stops the call, keeps
+    /// what the next one needs, and schedules the first attempt.
+    fn lose(&mut self, why: String) {
+        let Some(live) = self.live.take() else {
+            return;
+        };
+        let controls = live.controls.clone();
+        self.request.settings.volumes = live.volumes.clone();
+        if live.view.gate_chosen {
+            self.request.settings.gate_open_dbfs = Some(controls.gate().0);
+        }
+        let mut view = live.view.clone();
+        // The session is already gone: nothing to tell the server.
+        live.end(false);
+        view.reconnecting = true;
+        view.bound = false;
+        view.rtt_ms = None;
+        view.input_dbfs = METER_FLOOR_DBFS;
+        for person in &mut view.participants {
+            person.speaking = false;
+        }
+        log_reconnection(&why);
+        *self.view.lock().expect("not poisoned") = view;
+        self.retry = Some(Retry {
+            at: Instant::now() + RECONNECT_FIRST,
+            pause: RECONNECT_FIRST,
+        });
+    }
+
+    /// One attempt to join the room again.
+    fn reconnect(&mut self) {
+        let Some(retry) = self.retry.take() else {
+            return;
+        };
+        let (muted, gate) = {
+            let controls = self.controls.lock().expect("not poisoned");
+            (controls.is_muted(), controls.gate())
+        };
+        match Live::start(self.request.clone(), (self.devices)()) {
+            Ok(live) => {
+                live.controls.set_muted(muted);
+                live.controls.set_gate(gate.0, gate.1);
+                *self.controls.lock().expect("not poisoned") = live.controls.clone();
+                self.live = Some(live);
+                self.publish();
+            }
+            Err(e) if e.is_temporary() => {
+                let pause = (retry.pause * 2).min(RECONNECT_MAX);
+                self.retry = Some(Retry {
+                    at: Instant::now() + retry.pause,
+                    pause,
+                });
+            }
+            Err(e) => {
+                let mut view = self.view.lock().expect("not poisoned");
+                view.reconnecting = false;
+                view.ended = Some(e.message);
+            }
+        }
+    }
+
+    /// Shows the running call.
+    fn publish(&mut self) {
+        if let Some(live) = self.live.as_mut() {
+            live.refresh(&self.view);
+        }
+    }
+}
+
+/// Why the call was lost goes to the app's log: never an address, a key
+/// or a name.
+fn log_reconnection(why: &str) {
+    eprintln!("drywire: reconnecting: {why}");
+}
+
+/// How a call ends, when an event ends it.
+enum End {
+    /// The server ended this session on purpose: the call is over.
+    Final(String),
+    /// The server forgot this session: join again.
+    Lost(String),
+}
+
 /// Someone the session knows is in the room.
 struct Known {
     name: String,
@@ -382,7 +542,9 @@ struct Live {
     call: Call,
     members: CallMembers,
     controls: CallControls,
-    commands: Receiver<Command>,
+    /// Set when the server forgot this session: the session thread then
+    /// joins again.
+    lost: Option<String>,
     /// Each person's volume other than 1, by public key.
     volumes: BTreeMap<String, f32>,
     notices: Notices,
@@ -401,11 +563,7 @@ struct Live {
 }
 
 impl Live {
-    fn start(
-        request: JoinRequest,
-        device: DeviceFactory,
-        commands: Receiver<Command>,
-    ) -> Result<Live, AppError> {
+    fn start(request: JoinRequest, device: DeviceFactory) -> Result<Live, AppError> {
         let client = request.client;
         let space = client.space(&request.space_id)?;
         let room = space
@@ -475,7 +633,7 @@ impl Live {
             call,
             members,
             controls,
-            commands,
+            lost: None,
             volumes,
             notices: request.notices,
             quality: HashMap::new(),
@@ -506,8 +664,8 @@ impl Live {
     }
 
     /// Applies the commands and events that arrived since the last tick.
-    fn tick(&mut self) {
-        while let Ok(command) = self.commands.try_recv() {
+    fn tick(&mut self, commands: &Receiver<Command>) {
+        while let Ok(command) = commands.try_recv() {
             match command {
                 Command::Volume(public_key, volume) => {
                     for (session, person) in &self.people {
@@ -528,18 +686,23 @@ impl Live {
                     continue;
                 }
             }
-            if let Some(why) = self.on_event(event)
-                && self.view.ended.is_none()
-            {
-                self.view.ended = Some(why);
-                self.stop_audio();
+            if self.view.ended.is_some() || self.lost.is_some() {
+                continue;
+            }
+            match self.on_event(event) {
+                Some(End::Final(why)) => {
+                    self.view.ended = Some(why);
+                    self.stop_audio();
+                }
+                Some(End::Lost(why)) => self.lost = Some(why),
+                None => {}
             }
         }
     }
 
-    /// Applies one event. Returns why the call must end, if it must: this
-    /// device's own session ended.
-    fn on_event(&mut self, event: Event) -> Option<String> {
+    /// Applies one event. Returns how the call ends, if this device's own
+    /// session ended.
+    fn on_event(&mut self, event: Event) -> Option<End> {
         match event {
             Event::Join(p) => self.add(&p),
             Event::Snapshot(everyone) => {
@@ -554,7 +717,9 @@ impl Live {
                     .map(|p| p.session)
                     .collect();
                 if !present.contains(&self.me) {
-                    return Some("this session ended while the event stream was down".into());
+                    return Some(End::Lost(
+                        "this session ended while the event stream was down".into(),
+                    ));
                 }
                 let (me, members, notices) = (self.me, &self.members, &self.notices);
                 self.people.retain(|session, person| {
@@ -569,11 +734,17 @@ impl Live {
                     keep
                 });
             }
-            Event::Leave(p) | Event::Disconnect(p) if p.session == self.me => {
-                return Some(
-                    "the server ended this session: joined elsewhere, removed, or silent too long"
-                        .into(),
-                );
+            // Joined elsewhere, or removed: on purpose.
+            Event::Leave(p) if p.session == self.me => {
+                return Some(End::Final(
+                    "the server ended this session: joined elsewhere, or removed".into(),
+                ));
+            }
+            // The relay stopped hearing from this device.
+            Event::Disconnect(p) if p.session == self.me => {
+                return Some(End::Lost(
+                    "the relay stopped hearing from this device".into(),
+                ));
             }
             Event::Leave(p) => self.remove(p.session, "leave"),
             Event::Disconnect(p) => self.remove(p.session, "disconnect"),

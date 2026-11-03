@@ -11,9 +11,7 @@ use drywire_proto::invite::Invitation;
 use serde::Serialize;
 
 use crate::error::AppError;
-use crate::session::{
-    CallView, DeviceFactory, DeviceView, JoinRequest, Notices, Session, clamp_gate, printable,
-};
+use crate::session::{CallView, DeviceView, JoinRequest, Notices, Session, clamp_gate, printable};
 use crate::store::{KnownSpace, Settings, Store};
 
 /// What the loopback test measured.
@@ -61,8 +59,7 @@ pub struct Preferences {
     pub overlay: bool,
 }
 
-/// Makes the factory that opens the sound card for each call.
-pub type Devices = Arc<dyn Fn() -> DeviceFactory + Send + Sync>;
+pub use crate::session::Devices;
 
 /// A room, for display.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -209,7 +206,7 @@ impl Desktop {
         if let Some(previous) = self.take_session() {
             previous.end(false);
         }
-        let session = Session::start(request, (self.devices)())?;
+        let session = Session::start(request, Arc::clone(&self.devices))?;
         let view = session.view();
         *self.session.lock().expect("not poisoned") = Some(session);
         Ok(view)

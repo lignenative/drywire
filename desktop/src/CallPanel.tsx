@@ -62,7 +62,10 @@ export function CallPanel({ call, onLeave }: { call: CallView; onLeave: () => vo
         </div>
       </div>
 
-      {!call.bound && !call.ended && <p className="muted">{t("call.connecting")}</p>}
+      {call.reconnecting && <p className="warn">{t("call.reconnecting")}</p>}
+      {!call.bound && !call.ended && !call.reconnecting && (
+        <p className="muted">{t("call.connecting")}</p>
+      )}
       {call.ended && (
         <div className="banner">
           <p>{t("call.ended", { reason: call.ended })}</p>

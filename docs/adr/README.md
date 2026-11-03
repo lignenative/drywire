@@ -52,3 +52,4 @@ Status: Accepted · YYYY-MM-DD
 | [0032](0032-control-a-running-call-without-touching-the-audio-path.md) | Control a running call without touching the audio path |
 | [0033](0033-play-presence-sounds-outside-the-call.md) | Play the presence sounds outside the call |
 | [0034](0034-ask-for-gate-calibration-and-lean-the-default-towards-sending.md) | Ask for gate calibration, and lean the default towards sending |
+| [0035](0035-join-again-when-the-server-forgets-the-session.md) | Join again when the server forgets the session |

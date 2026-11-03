@@ -8,7 +8,8 @@ use serde::Serialize;
 pub struct AppError {
     /// What kind of failure, for the interface to translate:
     /// `storage`, `invalid_link`, `bad_instance`, `refused`, `network`,
-    /// `protocol`, `relay`, `audio`, `not_found`, `shortcut`, `busy`.
+    /// `unavailable`, `protocol`, `relay`, `audio`, `not_found`,
+    /// `shortcut`, `busy`.
     pub code: &'static str,
     /// The detail, in English.
     pub message: String,
@@ -21,6 +22,12 @@ impl AppError {
             code,
             message: message.into(),
         }
+    }
+
+    /// Whether trying again later may succeed: the server or the relay
+    /// could not be reached, or was busy.
+    pub fn is_temporary(&self) -> bool {
+        matches!(self.code, "network" | "relay" | "unavailable")
     }
 
     /// The app's own files could not be read or written.
@@ -40,6 +47,10 @@ impl std::error::Error for AppError {}
 impl From<drywire_control::Error> for AppError {
     fn from(e: drywire_control::Error) -> AppError {
         let code = match &e {
+            // Restarting, overloaded, or a proxy with nothing behind it.
+            drywire_control::Error::Refused { status, .. } if *status >= 500 || *status == 429 => {
+                "unavailable"
+            }
             drywire_control::Error::Refused { .. } => "refused",
             drywire_control::Error::Network(_) => "network",
             drywire_control::Error::Protocol(_) => "protocol",

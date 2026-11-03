@@ -91,6 +91,8 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 /// A running relay, stopped when dropped.
 pub struct Relay {
     child: Child,
+    /// Its database's directory.
+    dir: PathBuf,
     /// Where it receives UDP.
     pub udp: SocketAddr,
     /// Where its HTTP API listens.
@@ -109,34 +111,33 @@ impl Relay {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create the relay's directory");
-        let mut child = Command::new(server_binary())
-            .env("DRYWIRE_DB", dir.join("drywire.db"))
-            .env("DRYWIRE_ACCESS_LOG", "off")
-            .env("DRYWIRE_SPACE_CREATORS", "*")
-            .env("DRYWIRE_UDP_ADDR", "127.0.0.1:0")
-            .env("DRYWIRE_HTTP_ADDR", "127.0.0.1:0")
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("start drywire-server");
+        let (child, udp, http) = spawn(&dir, "127.0.0.1:0", "127.0.0.1:0");
+        Relay {
+            child,
+            dir,
+            udp,
+            http,
+        }
+    }
 
-        // The server logs the addresses it got in its "started" line.
-        let mut lines = BufReader::new(child.stderr.take().expect("piped"));
-        let mut line = String::new();
-        let (udp, http) = loop {
-            line.clear();
-            let n = lines.read_line(&mut line).expect("read the relay's log");
-            assert!(n > 0, "drywire-server exited before it started");
-            if line.contains("drywire-server started") {
-                break (field(&line, "udp"), field(&line, "http"));
+    /// Stops the relay and starts it again on the same addresses and
+    /// database, as an operator's restart does: spaces and members stay,
+    /// sessions and presence, kept in memory, are gone.
+    #[allow(dead_code)] // not every test binary restarts its relay
+    pub fn restart(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        // The system may hold the ports for a moment after the old
+        // process ends (on Windows especially): try again for a while.
+        let (udp, http) = (self.udp.to_string(), self.http.to_string());
+        for _ in 0..40 {
+            if let Some((child, ..)) = try_spawn(&self.dir, &udp, &http) {
+                self.child = child;
+                return;
             }
-        };
-        // Keep reading its log, so the pipe never fills and blocks it.
-        std::thread::spawn(move || {
-            for line in lines.lines().map_while(Result::ok) {
-                eprintln!("relay: {line}");
-            }
-        });
-        Relay { child, udp, http }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        panic!("drywire-server did not start again on {udp} and {http}");
     }
 
     /// The control plane's origin, as clients reach it.
@@ -202,6 +203,48 @@ impl Relay {
         let body = response.split_once("\r\n\r\n").expect("an HTTP response").1;
         serde_json::from_str(body).expect("JSON status")
     }
+}
+
+/// Starts the server on `dir`'s database and these addresses, and returns
+/// it with the addresses it got.
+fn spawn(dir: &Path, udp: &str, http: &str) -> (Child, SocketAddr, SocketAddr) {
+    try_spawn(dir, udp, http).expect("drywire-server exited before it started")
+}
+
+/// [`spawn`], or `None` if the server exits before it starts.
+fn try_spawn(dir: &Path, udp: &str, http: &str) -> Option<(Child, SocketAddr, SocketAddr)> {
+    let mut child = Command::new(server_binary())
+        .env("DRYWIRE_DB", dir.join("drywire.db"))
+        .env("DRYWIRE_ACCESS_LOG", "off")
+        .env("DRYWIRE_SPACE_CREATORS", "*")
+        .env("DRYWIRE_UDP_ADDR", udp)
+        .env("DRYWIRE_HTTP_ADDR", http)
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start drywire-server");
+
+    // The server logs the addresses it got in its "started" line.
+    let mut lines = BufReader::new(child.stderr.take().expect("piped"));
+    let mut line = String::new();
+    let (udp, http) = loop {
+        line.clear();
+        let n = lines.read_line(&mut line).expect("read the relay's log");
+        if n == 0 {
+            eprintln!("relay: exited before it started");
+            let _ = child.wait();
+            return None;
+        }
+        if line.contains("drywire-server started") {
+            break (field(&line, "udp"), field(&line, "http"));
+        }
+    };
+    // Keep reading its log, so the pipe never fills and blocks it.
+    std::thread::spawn(move || {
+        for line in lines.lines().map_while(Result::ok) {
+            eprintln!("relay: {line}");
+        }
+    });
+    Some((child, udp, http))
 }
 
 impl Drop for Relay {
