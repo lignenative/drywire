@@ -162,6 +162,9 @@ fn members_join_by_link_and_meet_in_a_room() {
     });
     alex.set_gate(-30.0).unwrap();
     assert_eq!(alex.call().unwrap().gate_dbfs, -30.0);
+    // Chosen, and still chosen after the session thread's next refresh.
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(alex.call().unwrap().gate_chosen);
     alex.set_gate(-500.0).unwrap();
     assert_eq!(alex.call().unwrap().gate_dbfs, -80.0, "clamped");
 

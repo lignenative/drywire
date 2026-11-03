@@ -279,6 +279,8 @@ pub struct Session {
     /// The running call's controls; replaced when a reconnection starts a
     /// new call.
     controls: Arc<Mutex<CallControls>>,
+    /// Whether the person moved the gate during this session.
+    gate_moved: Arc<AtomicBool>,
     commands: Sender<Command>,
     stop: Arc<AtomicBool>,
     /// Whether ending should also tell the control plane: not when
@@ -294,13 +296,15 @@ impl Session {
         let view = Arc::new(Mutex::new(CallView::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let leave_server = Arc::new(AtomicBool::new(true));
+        let gate_moved = Arc::new(AtomicBool::new(false));
         let (ready, started) = mpsc::channel();
         let (commands, inbox) = mpsc::channel();
         let thread = {
-            let (view, stop, leave_server) = (
+            let (view, stop, leave_server, gate_moved) = (
                 Arc::clone(&view),
                 Arc::clone(&stop),
                 Arc::clone(&leave_server),
+                Arc::clone(&gate_moved),
             );
             std::thread::Builder::new()
                 .name("drywire-session".into())
@@ -319,6 +323,7 @@ impl Session {
                         inbox,
                         view,
                         controls: Arc::clone(&controls),
+                        gate_moved,
                         live: Some(live),
                         retry: None,
                     };
@@ -338,6 +343,7 @@ impl Session {
             Ok(Ok(controls)) => Ok(Session {
                 view,
                 controls,
+                gate_moved,
                 commands,
                 stop,
                 leave_server,
@@ -356,14 +362,21 @@ impl Session {
 
     /// A copy of what the interface shows.
     pub fn view(&self) -> CallView {
-        self.view.lock().expect("not poisoned").clone()
+        let mut view = self.view.lock().expect("not poisoned").clone();
+        // Mute and the gate straight from the call's controls: the copy
+        // the session thread refreshes may predate a change made a moment
+        // ago, and would show it undone until the next tick.
+        let controls = self.controls.lock().expect("not poisoned");
+        view.muted = controls.is_muted();
+        view.gate_dbfs = controls.gate().0;
+        view.gate_chosen |= self.gate_moved.load(Ordering::Relaxed);
+        view
     }
 
     /// Mutes or unmutes the microphone, at the capture callback's next
     /// call.
     pub fn set_muted(&self, muted: bool) {
         self.controls.lock().expect("not poisoned").set_muted(muted);
-        self.view.lock().expect("not poisoned").muted = muted;
     }
 
     /// Moves the voice gate's threshold (clamped to −80 through −10 dBFS).
@@ -373,9 +386,7 @@ impl Session {
             .lock()
             .expect("not poisoned")
             .set_gate(gate.open_dbfs, gate.close_dbfs);
-        let mut view = self.view.lock().expect("not poisoned");
-        view.gate_dbfs = gate.open_dbfs;
-        view.gate_chosen = true;
+        self.gate_moved.store(true, Ordering::Relaxed);
     }
 
     /// Plays the person with this public key (hex) at `volume`, within a
@@ -415,6 +426,7 @@ struct SessionThread {
     inbox: Receiver<Command>,
     view: Arc<Mutex<CallView>>,
     controls: Arc<Mutex<CallControls>>,
+    gate_moved: Arc<AtomicBool>,
     /// `None` while reconnecting, and after a reconnection failed for good.
     live: Option<Live>,
     retry: Option<Retry>,
@@ -455,7 +467,7 @@ impl SessionThread {
         };
         let controls = live.controls.clone();
         self.request.settings.volumes = live.volumes.clone();
-        if live.view.gate_chosen {
+        if live.view.gate_chosen || self.gate_moved.load(Ordering::Relaxed) {
             self.request.settings.gate_open_dbfs = Some(controls.gate().0);
         }
         let mut view = live.view.clone();
