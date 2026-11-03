@@ -56,8 +56,8 @@ join options:
   --frame MS           Opus frame size: 2.5, 5 or 10 (default 5)
   --bitrate BPS        Opus bitrate (default 64000)
   --redundancy         Also send the previous frame in each packet
-  --gate-open DBFS     Level that opens the voice gate (default -40)
-  --gate-close DBFS    Level under which it starts closing (default -46)
+  --gate-open DBFS     Level that opens the voice gate (default -50)
+  --gate-close DBFS    Level under which it starts closing (default -56)
   --hold MS            How long it stays open after that (default 150)
   --buffer FRAMES      Ask the sound card for this I/O buffer (default: smallest)
   --min-buffer MS      Never let the jitter buffers aim below this delay

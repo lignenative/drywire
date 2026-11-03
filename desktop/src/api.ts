@@ -86,6 +86,8 @@ export interface CallView {
   /** The microphone's level for the meter, from -90 dBFS up. */
   inputDbfs: number;
   gateDbfs: number;
+  /** Whether the person chose the threshold, or it is still the default. */
+  gateChosen: boolean;
   uplinkLossPct: number;
   participants: Participant[];
   devices: DeviceView[];
@@ -93,7 +95,8 @@ export interface CallView {
 
 /** The person's preferences (settings.json). */
 export interface Settings {
-  gateOpenDbfs: number;
+  /** Null until the person calibrates or moves the slider. */
+  gateOpenDbfs: number | null;
   volumes: Record<string, number>;
   muteShortcut: string;
   /** 0 (off) to 1. */

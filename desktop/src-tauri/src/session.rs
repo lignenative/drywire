@@ -241,6 +241,8 @@ pub struct CallView {
     pub input_dbfs: f32,
     /// The level at which the voice gate opens, in dBFS.
     pub gate_dbfs: f32,
+    /// Whether the person chose that level, or it is still the default.
+    pub gate_chosen: bool,
     /// Our packets the relay expected and never got, over the call, in
     /// percent.
     pub uplink_loss_pct: f64,
@@ -334,7 +336,9 @@ impl Session {
     pub fn set_gate(&self, open_dbfs: f32) {
         let gate = gate_config(open_dbfs);
         self.controls.set_gate(gate.open_dbfs, gate.close_dbfs);
-        self.view.lock().expect("not poisoned").gate_dbfs = gate.open_dbfs;
+        let mut view = self.view.lock().expect("not poisoned");
+        view.gate_dbfs = gate.open_dbfs;
+        view.gate_chosen = true;
     }
 
     /// Plays the person with this public key (hex) at `volume`, within a
@@ -435,7 +439,12 @@ impl Live {
             members,
         };
         // The defaults of `drywire join`: 5 ms frames at 64 kb/s.
-        let gate = gate_config(request.settings.gate_open_dbfs);
+        let gate = gate_config(
+            request
+                .settings
+                .gate_open_dbfs
+                .unwrap_or(GateConfig::default().open_dbfs),
+        );
         let options = CallOptions {
             relay,
             sender: SenderConfig {
@@ -485,6 +494,7 @@ impl Live {
                 room_name: printable(&room.name),
                 devices: streams.iter().map(DeviceView::new).collect(),
                 gate_dbfs: gate.open_dbfs,
+                gate_chosen: request.settings.gate_open_dbfs.is_some(),
                 input_dbfs: METER_FLOOR_DBFS,
                 device_ms: request.settings.device_loopback_ms.unwrap_or_else(|| {
                     streams.iter().map(|s| s.buffer_ms() + s.latency_ms()).sum()

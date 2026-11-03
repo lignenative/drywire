@@ -28,11 +28,15 @@ pub struct GateConfig {
     pub hold_ms: u32,
 }
 
+/// The default thresholds are for a microphone nobody calibrated yet, so
+/// they lean towards sending: a little background noise costs bandwidth,
+/// a cut word costs the conversation. A headset microphone calibrated
+/// near −58 dBFS lost the start of its words at −40 (ADR 0034).
 impl Default for GateConfig {
     fn default() -> GateConfig {
         GateConfig {
-            open_dbfs: -40.0,
-            close_dbfs: -46.0,
+            open_dbfs: -50.0,
+            close_dbfs: -56.0,
             hold_ms: 150,
         }
     }
@@ -259,8 +263,10 @@ mod tests {
 
     #[test]
     fn hysteresis_keeps_an_open_gate_open_between_thresholds() {
-        let mut gate = VoiceGate::new(GateConfig::default(), FRAME);
-        let between = frame_at(-43.0); // under open (−40), over close (−46)
+        let config = GateConfig::default();
+        let mut gate = VoiceGate::new(config, FRAME);
+        // Under the open threshold, over the close one.
+        let between = frame_at((config.open_dbfs + config.close_dbfs) / 2.0);
 
         // Closed: a level between the thresholds does not open it.
         assert_eq!(gate.process(&between), GateDecision::Silent);

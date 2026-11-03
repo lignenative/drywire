@@ -268,7 +268,7 @@ impl Desktop {
     pub fn set_gate(&self, open_dbfs: f32) -> Result<(), AppError> {
         let open_dbfs = clamp_gate(open_dbfs);
         let mut settings = self.store.settings();
-        settings.gate_open_dbfs = open_dbfs;
+        settings.gate_open_dbfs = Some(open_dbfs);
         self.store
             .save_settings(&settings)
             .map_err(AppError::storage)?;

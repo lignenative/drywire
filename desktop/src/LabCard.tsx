@@ -8,13 +8,13 @@ import { errorText, useLanguage } from "./lang";
 
 const CALIBRATION_SECONDS = 10;
 
-export function LabCard() {
+export function LabCard({ onGateChosen }: { onGateChosen: () => void }) {
   const { t } = useLanguage();
   return (
     <section className="card">
       <h2>{t("lab.title")}</h2>
       <DeviceTest />
-      <Calibration />
+      <Calibration onApplied={onGateChosen} />
       <p className="muted small">{t("lab.network")}</p>
     </section>
   );
@@ -63,7 +63,7 @@ function DeviceTest() {
   );
 }
 
-function Calibration() {
+function Calibration({ onApplied }: { onApplied: () => void }) {
   const { t } = useLanguage();
   const [left, setLeft] = useState<number | null>(null);
   const [found, setFound] = useState<CalibrationView | null>(null);
@@ -93,6 +93,7 @@ function Calibration() {
     if (!found) return;
     try {
       await api.setGate(found.gateDbfs);
+      onApplied();
       setMessage({ text: t("lab.applied", { gate: `${Math.round(found.gateDbfs)} dB` }), error: false });
       setFound(null);
     } catch (e) {
@@ -102,7 +103,7 @@ function Calibration() {
 
   const dB = (value: number) => `${Math.round(value)} dB`;
   return (
-    <div className="lab-step">
+    <div className="lab-step" id="calibration">
       <div className="row spread">
         <strong>{t("lab.calibrate")}</strong>
         <button onClick={run} disabled={left !== null}>

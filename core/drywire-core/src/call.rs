@@ -815,9 +815,13 @@ mod tests {
 
     #[test]
     fn a_new_gate_reaches_the_sender_during_the_call() {
-        // A steady tone at about -42 dBFS: under the default gate (opens at
-        // -40), over one retuned to open at -45.
-        let quiet: Vec<f32> = (0..240).map(|i| 0.0112 * (i as f32 * 0.3).sin()).collect();
+        // A steady tone 2 dB under the default gate, and over one retuned
+        // to open 5 dB lower.
+        let level = crate::gate::GateConfig::default().open_dbfs - 2.0;
+        let amplitude = 10f32.powf(level / 20.0) * std::f32::consts::SQRT_2;
+        let quiet: Vec<f32> = (0..240)
+            .map(|i| amplitude * (i as f32 * 0.3).sin())
+            .collect();
         let mut c = capture();
         for _ in 0..20 {
             c.process(&quiet);
@@ -825,7 +829,7 @@ mod tests {
         assert_eq!(c.sender.stats().spurts, 0, "the default gate stays shut");
         c.shared
             .gate
-            .store(pack_gate(-45.0, -50.0), Ordering::Relaxed);
+            .store(pack_gate(level - 3.0, level - 8.0), Ordering::Relaxed);
         for _ in 0..20 {
             c.process(&quiet);
         }

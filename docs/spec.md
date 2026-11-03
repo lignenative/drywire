@@ -411,7 +411,8 @@ and honest numbers on screen. English and French from the first release.
   indicator and an estimated latency per person, input level meter, mute
   button, gate threshold.
 - **Gate calibration**: a 10-second wizard, controller in hand, that sets the
-  threshold just above the player's background noise.
+  threshold just above the player's background noise. The app asks for it
+  until a threshold is chosen (ADR 0034).
 - Volume per person, from 0 to 200 %.
 - Transparent reconnection, hot-swapping audio devices.
 - Warning when a Bluetooth device is active.

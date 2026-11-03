@@ -17,6 +17,8 @@ export function App() {
   const { lang, setLang, t } = useLanguage();
   const [call, setCall] = useState<CallView | null>(null);
   const soundVolume = useRef(0.5);
+  // Unknown until the settings are read: no banner flashes meanwhile.
+  const [gateChosen, setGateChosen] = useState(true);
 
   // The tray menu speaks the interface's language.
   useEffect(() => {
@@ -26,7 +28,10 @@ export function App() {
   // The presence sounds. Events, not polling: they arrive even while
   // the window is hidden in the tray and its timers are slowed down.
   useEffect(() => {
-    api.getSettings().then((s) => (soundVolume.current = s.soundVolume), () => {});
+    api.getSettings().then((s) => {
+      soundVolume.current = s.soundVolume;
+      setGateChosen(s.gateOpenDbfs !== null);
+    }, () => {});
     const unlisten = api.onPresence((notice) => playPresence(notice.kind, soundVolume.current));
     return () => {
       unlisten.then((f) => f());
@@ -49,9 +54,11 @@ export function App() {
   }, []);
 
   const leave = useCallback(async () => {
+    // The slider may have chosen a threshold during the call.
+    if (call?.gateChosen) setGateChosen(true);
     await api.leaveRoom();
     setCall(null);
-  }, []);
+  }, [call?.gateChosen]);
 
   return (
     <div className="app">
@@ -77,10 +84,32 @@ export function App() {
         </div>
       </header>
       <main>
+        {!call && !gateChosen && <CalibrateBanner />}
         {call ? <CallPanel call={call} onLeave={leave} /> : <Home onJoined={setCall} />}
-        {!call && <LabCard />}
+        {!call && <LabCard onGateChosen={() => setGateChosen(true)} />}
         {!call && <SettingsCard onSaved={(s) => (soundVolume.current = s.soundVolume)} />}
       </main>
     </div>
+  );
+}
+
+/** Asks for the voice gate's calibration until a threshold was chosen: the
+    default cannot suit every microphone (ADR 0034). */
+function CalibrateBanner() {
+  const { t } = useLanguage();
+  return (
+    <section className="banner">
+      <strong>{t("calibrate.title")}</strong>
+      <p className="small">{t("calibrate.help")}</p>
+      <div>
+        <button
+          onClick={() =>
+            document.getElementById("calibration")?.scrollIntoView({ behavior: "smooth" })
+          }
+        >
+          {t("calibrate.go")}
+        </button>
+      </div>
+    </section>
   );
 }

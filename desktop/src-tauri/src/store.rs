@@ -63,8 +63,10 @@ impl KnownSpace {
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
     /// The level, in dBFS, at which the voice gate opens; it closes 6 dB
-    /// lower.
-    pub gate_open_dbfs: f32,
+    /// lower. `None` until the person chooses one, by calibrating or by
+    /// moving the slider: until then the core's default applies, and the
+    /// interface asks for a calibration (ADR 0034).
+    pub gate_open_dbfs: Option<f32>,
     /// The volume of each person other than 1 (100 %), by the hex of their
     /// public key: it follows them from room to room.
     pub volumes: BTreeMap<String, f32>,
@@ -84,7 +86,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
-            gate_open_dbfs: drywire_core::gate::GateConfig::default().open_dbfs,
+            gate_open_dbfs: None,
             volumes: BTreeMap::new(),
             mute_shortcut: "Ctrl+Shift+M".into(),
             sound_volume: 0.5,
@@ -268,7 +270,7 @@ mod tests {
         let (dir, store) = temp_store("settings");
         assert_eq!(store.settings(), Settings::default());
         let settings = Settings {
-            gate_open_dbfs: -52.0,
+            gate_open_dbfs: Some(-52.0),
             volumes: [("ab".repeat(32), 1.5)].into(),
             sound_volume: 0.0,
             ..Settings::default()
@@ -279,7 +281,7 @@ mod tests {
         assert_eq!(store.settings(), Settings::default());
         // A file from an older version, without the newer fields.
         std::fs::write(dir.join("settings.json"), r#"{"gateOpenDbfs": -45}"#).unwrap();
-        assert_eq!(store.settings().gate_open_dbfs, -45.0);
+        assert_eq!(store.settings().gate_open_dbfs, Some(-45.0));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

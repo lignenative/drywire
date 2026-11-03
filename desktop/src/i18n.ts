@@ -51,6 +51,7 @@ const en = {
   "call.gate": "Voice gate",
   "call.gateHelp":
     "Your voice is sent only above this level. Set it just above your background noise.",
+  "call.gateDefault": "Default threshold: calibrate it in the latency lab, out of a call.",
   "call.volume": "Volume of {name}",
   "call.loss": "loss {loss}",
   "call.jitter": "buffer {buffer}",
@@ -72,6 +73,11 @@ const en = {
   "overlay.disconnect": "{name} lost their connection",
 
   "error.shortcut": "This shortcut cannot be used: another app may hold it.",
+  "calibrate.title": "Calibrate your voice gate first",
+  "calibrate.help":
+    "Microphones differ by tens of decibels. Until it is calibrated, the gate may cut the start of your words, or send your background noise. It takes ten seconds, below.",
+  "calibrate.go": "Calibrate now",
+
   "lab.title": "Latency lab",
   "lab.device": "Device test",
   "lab.deviceHelp":
@@ -167,6 +173,7 @@ const fr: Record<Key, string> = {
   "call.gate": "Seuil de voix",
   "call.gateHelp":
     "Votre voix n'est envoyée qu'au-dessus de ce niveau. Placez-le juste au-dessus de votre bruit de fond.",
+  "call.gateDefault": "Seuil par défaut : calibrez-le dans le labo de latence, hors appel.",
   "call.volume": "Volume de {name}",
   "call.loss": "pertes {loss}",
   "call.jitter": "tampon {buffer}",
@@ -188,6 +195,11 @@ const fr: Record<Key, string> = {
   "overlay.disconnect": "{name} a perdu la connexion",
 
   "error.shortcut": "Ce raccourci est inutilisable : une autre application le détient peut-être.",
+  "calibrate.title": "Calibrez d'abord votre seuil de voix",
+  "calibrate.help":
+    "Les micros diffèrent de plusieurs dizaines de décibels. Tant qu'il n'est pas calibré, le seuil peut couper le début de vos mots, ou envoyer votre bruit de fond. Dix secondes suffisent, juste en dessous.",
+  "calibrate.go": "Calibrer maintenant",
+
   "lab.title": "Labo de latence",
   "lab.device": "Test des périphériques",
   "lab.deviceHelp":

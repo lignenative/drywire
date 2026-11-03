@@ -172,6 +172,7 @@ function Microphone({ call }: { call: CallView }) {
           }}
         />
       </label>
+      {!call.gateChosen && <p className="warn small">{t("call.gateDefault")}</p>}
     </div>
   );
 }
