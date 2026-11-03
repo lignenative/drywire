@@ -3,9 +3,13 @@
 //! calibration"):
 //!
 //! - [`Loopback`]: clicks played on the output and heard back by the
-//!   microphone, the earphone held against it. The delay between writing
+//!   microphone, the earphone held close to it. The delay between writing
 //!   a click and capturing it is the device latency, input plus output,
-//!   as the system really delivers it, a wireless headset's included.
+//!   as the system really delivers it, a wireless headset's included. A
+//!   click is heard when the microphone rises well above the background
+//!   it captured just before, not above a fixed level: headset
+//!   microphones are often so quiet that a click loud in the ear arrives
+//!   faint.
 //! - [`LevelRecorder`]: the level of every microphone frame for a few
 //!   seconds, from which [`calibrate`](crate::gate::calibrate) picks the
 //!   voice gate's threshold.
@@ -38,10 +42,17 @@ const CLICK_LEN: usize = 96;
 const CLICK_HALF_PERIOD: usize = 12;
 const CLICK_AMPLITUDE: f32 = 0.5;
 
-/// The level, in amplitude, at which the microphone is taken to hear the
-/// click. An earphone held against it is far louder than this; a room's
-/// noise far quieter.
-pub const DETECT_THRESHOLD: f32 = 0.1;
+/// How far above the loudest sample of the background a click must rise
+/// to be heard: four times, 12 dB.
+const ABOVE_BACKGROUND: f32 = 4.0;
+
+/// The quietest click that can be heard, in amplitude (−50 dBFS): below
+/// it, a near-silent microphone's faintest noise would pass for one.
+const QUIETEST_CLICK: f32 = 0.003;
+
+/// After a click is heard or given up, how long its echo may still ring
+/// before the microphone counts as background again.
+const RING_US: u64 = 100_000;
 
 /// A click not heard within this long is given up.
 const MAX_DELAY_US: u64 = 400_000;
@@ -78,6 +89,34 @@ impl LoopbackShared {
     }
 }
 
+/// What the input callback remembers between buffers: the background it
+/// has heard, and the threshold of the click it waits for.
+struct Ear {
+    /// The loudest sample of the background since the last click, if
+    /// there was a quiet moment to measure it.
+    background: Option<f32>,
+    /// The background the threshold was set from: the last one measured.
+    reference: f32,
+    /// The click the threshold was set for.
+    armed_for: u64,
+    threshold: f32,
+    /// Background is measured from this time on, once the last click's
+    /// echo has died out.
+    quiet_from_us: u64,
+}
+
+impl Ear {
+    fn new() -> Ear {
+        Ear {
+            background: None,
+            reference: 0.0,
+            armed_for: NONE,
+            threshold: QUIETEST_CLICK,
+            quiet_from_us: 0,
+        }
+    }
+}
+
 /// A running loopback test; read it while the device plays its callbacks.
 pub struct Loopback(Arc<LoopbackShared>);
 
@@ -102,8 +141,10 @@ impl Loopback {
         };
         let input = {
             let shared = Arc::clone(&shared);
-            Box::new(move |samples: &[f32]| hear_clicks(&shared, samples, shared.now_us()))
-                as InputCallback
+            let mut ear = Ear::new();
+            Box::new(move |samples: &[f32]| {
+                hear_clicks(&shared, &mut ear, samples, shared.now_us());
+            }) as InputCallback
         };
         (Loopback(shared), input, output)
     }
@@ -159,13 +200,27 @@ fn play_clicks(shared: &LoopbackShared, position: &mut usize, out: &mut [f32], n
     *position += out.len();
 }
 
-/// The input callback's work: records the delay of the click waiting to
-/// be heard, if this buffer holds it. `now` is when its last sample was
-/// captured; the others came before, one sample period apart.
-fn hear_clicks(shared: &LoopbackShared, samples: &[f32], now: u64) {
+/// The input callback's work: measures the background between clicks,
+/// and records the delay of the click waiting to be heard, if this
+/// buffer holds it. `now` is when its last sample was captured; the
+/// others came before, one sample period apart.
+fn hear_clicks(shared: &LoopbackShared, ear: &mut Ear, samples: &[f32], now: u64) {
     let emitted = shared.emitted_us.load(Ordering::Relaxed);
     if emitted == NONE {
+        if now >= ear.quiet_from_us {
+            let peak = samples.iter().fold(0.0f32, |m, x| m.max(x.abs()));
+            ear.background = Some(ear.background.unwrap_or(0.0).max(peak));
+        }
         return;
+    }
+    if ear.armed_for != emitted {
+        ear.armed_for = emitted;
+        // No quiet moment since the last click: the background has not
+        // changed as far as anyone can tell.
+        if let Some(background) = ear.background.take() {
+            ear.reference = background;
+        }
+        ear.threshold = (ear.reference * ABOVE_BACKGROUND).max(QUIETEST_CLICK);
     }
     // Only what was captured after the click was written can be its echo:
     // a knock or a word just before it would read as a delay of zero.
@@ -173,12 +228,13 @@ fn hear_clicks(shared: &LoopbackShared, samples: &[f32], now: u64) {
     let first = samples.len().saturating_sub(samples_in_us(since));
     let heard = samples[first..]
         .iter()
-        .position(|x| x.abs() > DETECT_THRESHOLD)
+        .position(|x| x.abs() > ear.threshold)
         .map(|i| now.saturating_sub(us_per_samples(samples.len() - first - i)));
     match heard {
         Some(at) => {
             // Only the click still waiting: a new one written meanwhile
             // keeps its own time.
+            ear.quiet_from_us = now + RING_US;
             if shared
                 .emitted_us
                 .compare_exchange(emitted, NONE, Ordering::Relaxed, Ordering::Relaxed)
@@ -310,17 +366,41 @@ mod tests {
         assert!((5.0..50.0).contains(&median), "{delays:?}");
     }
 
-    /// Runs a loopback test for `seconds` on a simulated device whose
-    /// microphone hears the output `delay` samples late, in 5 ms buffers,
-    /// on a clock the test sets. `knock` adds a loud sample to the input
-    /// just before each click is written. Returns the median, in µs.
-    fn simulated_median_us(delay: usize, knock: bool, seconds: usize) -> u64 {
+    /// A simulated device for a loopback test.
+    #[derive(Clone, Copy)]
+    struct Sim {
+        /// How late the microphone hears the output, in samples.
+        delay: usize,
+        /// How loud the microphone hears it: 1 for full scale.
+        gain: f32,
+        /// The background's loudest sample, as uniform noise.
+        noise: f32,
+        /// A loud sample in the input just before each click is written.
+        knock: bool,
+    }
+
+    const SIM: Sim = Sim {
+        delay: 517,
+        gain: 1.0,
+        noise: 0.0,
+        knock: false,
+    };
+
+    /// Runs a loopback test for `seconds` on `sim`, in 5 ms buffers, on a
+    /// clock the test sets. Returns the delays measured, in µs, sorted.
+    fn simulate(sim: Sim, seconds: usize) -> Vec<u64> {
         let (test, _, _) = Loopback::new();
         let shared = &test.0;
+        let mut ear = Ear::new();
         let period = 240;
         let mut position = 0;
         let mut played = Vec::new();
         let mut out = vec![0.0f32; period];
+        let mut seed = 1u32;
+        let mut noise = || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed as f32 / u32::MAX as f32 * 2.0 - 1.0) * sim.noise
+        };
         for k in 0..seconds * 200 {
             let now = k as u64 * 5_000;
             play_clicks(shared, &mut position, &mut out, now);
@@ -330,25 +410,28 @@ mod tests {
             // `delay` samples earlier.
             let mut heard: Vec<f32> = (0..period)
                 .map(|i| {
-                    let t = (k * period + i).checked_sub(period + delay);
-                    t.map_or(0.0, |t| played[t])
+                    let t = (k * period + i).checked_sub(period + sim.delay);
+                    t.map_or(0.0, |t| played[t]) * sim.gain + noise()
                 })
                 .collect();
-            if knock && k > 0 && (k * period).is_multiple_of(CLICK_EVERY) {
+            if sim.knock && k > 0 && (k * period).is_multiple_of(CLICK_EVERY) {
                 // 1 ms before this buffer's click.
                 heard[period - 48] = 0.9;
             }
-            hear_clicks(shared, &heard, now);
+            hear_clicks(shared, &mut ear, &heard, now);
         }
-        assert!(
-            test.delays_ms().len() >= seconds * 2 - 2,
-            "{:?}",
-            test.delays_ms()
-        );
         let mut delays: Vec<u64> = (0..shared.count.load(Ordering::Acquire))
             .map(|i| shared.delays_us[i].load(Ordering::Relaxed))
             .collect();
         delays.sort();
+        delays
+    }
+
+    /// The median of a [`simulate`]d test, which must have heard nearly
+    /// every click.
+    fn simulated_median_us(sim: Sim, seconds: usize) -> u64 {
+        let delays = simulate(sim, seconds);
+        assert!(delays.len() >= seconds * 2 - 2, "{delays:?}");
         delays[delays.len() / 2]
     }
 
@@ -357,7 +440,7 @@ mod tests {
         // 0, one buffer, and a delay that is not a whole number of buffers.
         for delay in [0, 240, 517, 4_800] {
             let expected = us_per_samples(delay);
-            let median = simulated_median_us(delay, false, 3);
+            let median = simulated_median_us(Sim { delay, ..SIM }, 3);
             assert!(
                 median.abs_diff(expected) <= 21,
                 "{delay} samples: {median} µs, not {expected}"
@@ -369,8 +452,41 @@ mod tests {
     fn a_sound_before_the_click_is_not_its_echo() {
         // Without the rule, the knock 1 ms before each click would be
         // taken for it, at a delay of 0.
-        let median = simulated_median_us(517, true, 3);
+        let median = simulated_median_us(Sim { knock: true, ..SIM }, 3);
         assert!(median.abs_diff(us_per_samples(517)) <= 21, "{median} µs");
+    }
+
+    #[test]
+    fn a_faint_click_is_heard_over_a_quiet_background() {
+        // A headset microphone that hears the click at −46 dBFS, far below
+        // what a fixed threshold for loud clicks would wait for.
+        let sim = Sim {
+            gain: 0.01,
+            noise: 0.000_3,
+            ..SIM
+        };
+        let median = simulated_median_us(sim, 3);
+        assert!(median.abs_diff(us_per_samples(517)) <= 21, "{median} µs");
+    }
+
+    #[test]
+    fn a_noisy_background_is_not_taken_for_a_click() {
+        // Loud noise between the clicks, still well under them.
+        let sim = Sim {
+            gain: 0.5,
+            noise: 0.05,
+            ..SIM
+        };
+        let median = simulated_median_us(sim, 3);
+        assert!(median.abs_diff(us_per_samples(517)) <= 21, "{median} µs");
+        // A click buried in the noise is not heard at all, rather than
+        // measured wrong.
+        let buried = Sim {
+            gain: 0.02,
+            noise: 0.05,
+            ..SIM
+        };
+        assert_eq!(simulate(buried, 3), Vec::<u64>::new());
     }
 
     #[test]
