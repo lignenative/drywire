@@ -76,6 +76,17 @@ export function SettingsCard({ onSaved }: { onSaved: (settings: Settings) => voi
           onPointerUp={() => playPresence("join", soundVolume / 100)}
         />
       </label>
+      <div className="row">
+        {(["join", "leave", "disconnect"] as const).map((kind) => (
+          <button
+            key={kind}
+            className="ghost small"
+            onClick={() => playPresence(kind, Math.max(soundVolume, 20) / 100)}
+          >
+            {t(`settings.preview.${kind}`)}
+          </button>
+        ))}
+      </div>
       <label className="check">
         <input type="checkbox" checked={overlay} onChange={(e) => setOverlay(e.target.checked)} />
         <span>{t("settings.overlay")}</span>

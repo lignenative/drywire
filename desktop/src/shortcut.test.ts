@@ -25,11 +25,19 @@ test("what a game needs is refused", () => {
 
 test("the three presence sounds differ", () => {
   const shapes = (["join", "leave", "disconnect"] as const).map((k) =>
-    JSON.stringify(recipe(k).map((n) => n.hz)),
+    JSON.stringify(recipe(k).notes.map((n) => n.hz)),
   );
   expect(new Set(shapes).size).toBe(3);
   for (const k of ["join", "leave", "disconnect"] as const) {
-    const end = Math.max(...recipe(k).map((n) => n.at + n.length));
+    const sound = recipe(k);
+    const end = Math.max(...sound.notes.map((n) => n.at + n.length));
     expect(end).toBeLessThan(0.3);
+    // Never louder than the loudest one was tuned to.
+    expect(sound.level).toBeLessThanOrEqual(1.1);
   }
+  // A join rises and a leave falls.
+  const [a, b] = recipe("join").notes;
+  expect(b.hz).toBeGreaterThan(a.hz);
+  const [c, d] = recipe("leave").notes;
+  expect(d.hz).toBeLessThan(c.hz);
 });

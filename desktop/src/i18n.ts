@@ -63,6 +63,9 @@ const en = {
   "settings.shortcutHelp":
     "Click, then press the keys; Backspace removes it. It works while a game has the focus.",
   "settings.sounds": "Sounds when someone joins or leaves",
+  "settings.preview.join": "▶ Joins",
+  "settings.preview.leave": "▶ Leaves",
+  "settings.preview.disconnect": "▶ Connection lost",
   "settings.off": "Off",
   "settings.overlay": "Show who is speaking over the game (borderless window mode)",
   "settings.save": "Save",
@@ -185,6 +188,9 @@ const fr: Record<Key, string> = {
   "settings.shortcutHelp":
     "Cliquez, puis appuyez sur les touches ; Retour arrière l'efface. Il fonctionne pendant que le jeu a le focus.",
   "settings.sounds": "Sons quand quelqu'un arrive ou part",
+  "settings.preview.join": "▶ Arrivée",
+  "settings.preview.leave": "▶ Départ",
+  "settings.preview.disconnect": "▶ Connexion perdue",
   "settings.off": "Coupés",
   "settings.overlay": "Afficher qui parle par-dessus le jeu (mode fenêtré sans bordure)",
   "settings.save": "Enregistrer",
