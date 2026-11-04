@@ -971,7 +971,7 @@ impl Live {
             }
             Event::Leave(p) => self.remove(p.session, "leave"),
             Event::Disconnect(p) => self.remove(p.session, "disconnect"),
-            Event::Other(_) => {}
+            Event::Mls(_) | Event::Other(_) => {}
         }
         None
     }

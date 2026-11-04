@@ -22,7 +22,9 @@
 
 #![forbid(unsafe_code)]
 
+mod accounts;
 mod events;
+mod mls;
 mod types;
 mod vault;
 
@@ -38,7 +40,9 @@ use serde_json::{Value, json};
 use ureq::Agent;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
+pub use accounts::{AccountDevice, PendingInvitation, SignedIn, User};
 pub use events::Events;
+pub use mls::PendingKeyPackage;
 pub use types::*;
 pub use vault::{DeviceVault, VaultContents, VaultKind, VaultSpace, new_code, open_vault};
 
@@ -61,6 +65,23 @@ pub enum Error {
     BadInstance(String),
     /// A vault's code is not one, or does not open the vault (section 15).
     BadCode(String),
+    /// A sign-in code that does not match (section 13.8): this many tries
+    /// are left before a new code is needed.
+    WrongCode {
+        /// Tries left; 0 means ask for a new code.
+        tries_left: u32,
+    },
+    /// A user name someone has, with free ones like it.
+    UsernameTaken {
+        /// User names that were free.
+        suggestions: Vec<String>,
+    },
+    /// An MLS commit made in an epoch the group has left (section 16):
+    /// catch up from here and commit again.
+    StaleEpoch {
+        /// The group's epoch now.
+        current: u64,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -70,11 +91,26 @@ impl std::fmt::Display for Error {
             Error::Network(e) => write!(f, "cannot reach the server: {e}"),
             Error::Protocol(e) => write!(f, "unexpected answer from the server: {e}"),
             Error::BadInstance(e) | Error::BadCode(e) => f.write_str(e),
+            Error::WrongCode { tries_left } => {
+                write!(f, "this code does not match ({tries_left} tries left)")
+            }
+            Error::UsernameTaken { .. } => f.write_str("this user name is taken"),
+            Error::StaleEpoch { current } => write!(f, "the group moved on to epoch {current}"),
         }
     }
 }
 
 impl std::error::Error for Error {}
+
+/// The error an answer with an error status means.
+fn refused(status: u16, value: &Value) -> Error {
+    let message = value
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or("the server refused")
+        .to_string();
+    Error::Refused { status, message }
+}
 
 impl From<ureq::Error> for Error {
     fn from(e: ureq::Error) -> Error {
@@ -245,6 +281,22 @@ impl Client {
         body: Option<&Value>,
         token: Option<&str>,
     ) -> Result<T, Error> {
+        let (status, value) = self.request(method, path, body, token)?;
+        if status >= 400 {
+            return Err(refused(status, &value));
+        }
+        serde_json::from_value(value).map_err(|e| Error::Protocol(e.to_string()))
+    }
+
+    /// One request; the status and the JSON answer, an error's included
+    /// (a 409 or a 401 says more than its message in a few places).
+    fn request(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&Value>,
+        token: Option<&str>,
+    ) -> Result<(u16, Value), Error> {
         let url = format!("{}{path}", self.instance);
         let auth = token.map(|t| format!("Bearer {t}"));
         macro_rules! with_auth {
@@ -270,19 +322,33 @@ impl Client {
         }?;
         let status = response.status().as_u16();
         let mut body = response.into_body();
-        if status >= 400 {
-            let message = body
-                .read_json::<Value>()
-                .ok()
-                .and_then(|v| v.get("error")?.as_str().map(String::from))
-                .unwrap_or_else(|| "the server refused".into());
-            return Err(Error::Refused { status, message });
-        }
         if status == 204 {
-            return serde_json::from_value(Value::Null).map_err(|e| Error::Protocol(e.to_string()));
+            return Ok((status, Value::Null));
         }
-        body.read_json::<T>()
-            .map_err(|e| Error::Protocol(e.to_string()))
+        match body.read_json::<Value>() {
+            Ok(value) => Ok((status, value)),
+            Err(_) if status >= 400 => Ok((status, Value::Null)),
+            Err(e) => Err(Error::Protocol(e.to_string())),
+        }
+    }
+
+    /// [`Client::request`] with the token, logging in again once if it
+    /// expired.
+    fn call_value(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<(u16, Value), Error> {
+        let token = self.token()?;
+        match self.request(method, path, body, Some(&token))? {
+            (401, _) => {
+                self.login()?;
+                let token = self.token()?;
+                self.request(method, path, body, Some(&token))
+            }
+            other => Ok(other),
+        }
     }
 
     /// The caller's identity, if it has one on this instance.

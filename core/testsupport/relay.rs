@@ -180,6 +180,26 @@ impl Relay {
     }
 
     /// The control plane's origin, as clients reach it.
+    /// The last sign-in code this server mailed to `to`.
+    pub fn mail_code(&self, to: &str) -> String {
+        let mut files: Vec<_> = std::fs::read_dir(self.dir.join("mail"))
+            .expect("no mail sent yet")
+            .map(|e| e.expect("a mail file").path())
+            .collect();
+        files.sort();
+        for path in files.iter().rev() {
+            let text = std::fs::read_to_string(path).expect("a mail");
+            if text.contains(&format!("To: {to}\r\n")) {
+                let subject = text
+                    .lines()
+                    .find_map(|l| l.strip_prefix("Subject: "))
+                    .expect("a subject");
+                return subject[..6].to_string();
+            }
+        }
+        panic!("no mail to {to}");
+    }
+
     pub fn instance(&self) -> String {
         format!("http://{}", self.http)
     }
@@ -256,6 +276,8 @@ fn try_spawn(dir: &Path, udp: &str, http: &str) -> Option<(Child, SocketAddr, So
         .env("DRYWIRE_DB", dir.join("drywire.db"))
         .env("DRYWIRE_ACCESS_LOG", "off")
         .env("DRYWIRE_SPACE_CREATORS", "*")
+        // Sign-in codes (ADR 0055) land in files, read by mail_code.
+        .env("DRYWIRE_MAIL_DIR", dir.join("mail"))
         .env("DRYWIRE_UDP_ADDR", udp)
         .env("DRYWIRE_HTTP_ADDR", http)
         .stderr(Stdio::piped())
