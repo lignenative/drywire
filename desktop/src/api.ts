@@ -125,10 +125,8 @@ export interface CallView {
   uplinkLossPct: number;
   participants: Participant[];
   devices: DeviceView[];
-  /** The encryption lock's state. Absent when unknown: the Rust side on
-      main does not report it yet (TODO: merge the branch that adds it),
-      and the interface then shows no lock rather than a wrong one. */
-  encryption?: EncryptionView;
+  /** The encryption lock's state, from the core (ADR 0041). */
+  encryption: EncryptionView;
 }
 
 /** The person's preferences (settings.json). */
