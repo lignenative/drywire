@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { invitationProblem } from "@/invite";
+import { invitationProblem, offerInvitation, offeredInvitation } from "@/invite";
 import { errorText, useLanguage } from "@/lang";
 import { NAME_KEY, type AppState } from "@/state";
 
@@ -17,10 +17,11 @@ export function InviteDialog({ app, narrow }: { app: AppState; narrow: boolean }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Each opening starts afresh, with the last name typed.
+  // Each opening starts afresh: the link the window was opened with, if
+  // any (forgotten once the form closes), and the last name typed.
   useEffect(() => {
-    if (!app.inviteOpen) return;
-    setLink("");
+    if (!app.inviteOpen) return offerInvitation(null);
+    setLink(offeredInvitation() ?? "");
     setName(localStorage.getItem(NAME_KEY) ?? app.displayName);
     setError(null);
   }, [app.inviteOpen]);

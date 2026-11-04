@@ -3,7 +3,7 @@
 import { Play } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "cn";
-import { api, type CalibrationView, type LoopbackView, type OverlayCorner, type Preferences } from "@/api";
+import { api, platform, type CalibrationView, type LoopbackView, type OverlayCorner, type Preferences } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -89,7 +89,7 @@ export function VoiceSection({ app, narrow }: { app: AppState; narrow: boolean }
 
   return (
     <>
-      <Row title={t("settings.gate")} help={t("settings.gateHelp")} narrow={narrow} last={false}>
+      <Row title={t("settings.gate")} help={t("settings.gateHelp")} narrow={narrow} last={platform === "web"}>
         <div className={narrow ? "min-w-0 flex-1" : "w-37.5"}>
           <GateMeter
             levelDbfs={level}
@@ -103,7 +103,8 @@ export function VoiceSection({ app, narrow }: { app: AppState; narrow: boolean }
         <span className="w-13 text-right font-mono text-[0.8125rem] font-medium">{formatDb(gate)}</span>
         <Calibration app={app} narrow={narrow} />
       </Row>
-      <ShortcutRow app={app} narrow={narrow} />
+      {/* A browser's shortcut would not work while a game has the focus. */}
+      {platform === "app" && <ShortcutRow app={app} narrow={narrow} />}
     </>
   );
 }
@@ -357,12 +358,36 @@ export function DisplaySection({ app, narrow }: { app: AppState; narrow: boolean
   const [atLogin, setAtLogin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    api.launchAtLogin().then(setAtLogin, () => {});
+    if (platform === "app") api.launchAtLogin().then(setAtLogin, () => {});
   }, []);
 
   const pickLanguage = (next: string) => {
     if (next === "en" || next === "fr") setLang(next);
   };
+
+  const language = (
+    <Row title={t("language.label")} narrow={narrow} last={platform === "web"}>
+      <ToggleGroup
+        aria-label={t("language.label")}
+        value={[lang]}
+        onValueChange={(v: string[]) => v[0] && pickLanguage(v[0])}
+        spacing={0}
+        className="rounded-[0.625rem] bg-card p-0.75"
+      >
+        {LANGUAGES.map((l) => (
+          <ToggleGroupItem
+            key={l}
+            value={l}
+            className="h-7 rounded-[0.4375rem]! px-3 text-[0.8125rem] font-semibold text-subtle hover:bg-transparent aria-pressed:bg-border aria-pressed:text-foreground"
+          >
+            {t(`language.${l}`)}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    </Row>
+  );
+  // A browser has no overlay and does not start with the session.
+  if (platform === "web") return language;
 
   return (
     <>
@@ -397,25 +422,7 @@ export function DisplaySection({ app, narrow }: { app: AppState; narrow: boolean
           ))}
         </ToggleGroup>
       </Row>
-      <Row title={t("language.label")} narrow={narrow}>
-        <ToggleGroup
-          aria-label={t("language.label")}
-          value={[lang]}
-          onValueChange={(v: string[]) => v[0] && pickLanguage(v[0])}
-          spacing={0}
-          className="rounded-[0.625rem] bg-card p-0.75"
-        >
-          {LANGUAGES.map((l) => (
-            <ToggleGroupItem
-              key={l}
-              value={l}
-              className="h-7 rounded-[0.4375rem]! px-3 text-[0.8125rem] font-semibold text-subtle hover:bg-transparent aria-pressed:bg-border aria-pressed:text-foreground"
-            >
-              {t(`language.${l}`)}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-      </Row>
+      {language}
       <Row
         title={t("settings.atLogin")}
         help={
@@ -448,9 +455,21 @@ export function DisplaySection({ app, narrow }: { app: AppState; narrow: boolean
 export function AdvancedSection({ narrow }: { narrow: boolean }) {
   return (
     <>
-      <DeviceTest narrow={narrow} />
+      {platform === "web" ? <BrowserNote /> : <DeviceTest narrow={narrow} />}
       <DeviceKey narrow={narrow} />
     </>
+  );
+}
+
+/** In the web client, in place of the loopback test: what a browser
+    costs, and what only the app has. */
+function BrowserNote() {
+  const { t } = useLanguage();
+  return (
+    <div className="flex flex-col gap-1 border-b border-line py-4.5">
+      <div className="text-[0.9375rem] font-medium">{t("settings.browser")}</div>
+      <div className="text-[0.8125rem] text-muted-foreground">{t("settings.browserHelp")}</div>
+    </div>
   );
 }
 

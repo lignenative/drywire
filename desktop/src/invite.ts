@@ -20,3 +20,16 @@ export function invitationProblem(link: string, name: string): "invalid_link" | 
   if (result.success) return null;
   return result.error.issues.some((i) => i.path[0] === "link") ? "invalid_link" : "name_missing";
 }
+
+/** An invitation link the window was opened with, offered to the
+    invitation form: the web client's address carries one in its fragment
+    (apps/web). The form opens with it filled in, until it closes. */
+let offered: string | null = null;
+
+export function offerInvitation(link: string | null): void {
+  offered = link;
+}
+
+export function offeredInvitation(): string | null {
+  return offered;
+}
