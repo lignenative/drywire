@@ -71,4 +71,4 @@ Status: Accepted · YYYY-MM-DD
 | [0052](0052-take-space-keys-out-of-invitation-links-with-mls.md) | Take space keys out of invitation links with MLS (accepted, steps 1 and 2 of 5 built, step 3 in the core) |
 | [0053](0053-compare-a-safety-code-to-check-who-a-key-belongs-to.md) | Compare a safety code to check who a key belongs to |
 | [0054](0054-let-the-operator-hand-out-codes-that-create-a-space.md) | Let the operator hand out codes that create a space (to be replaced by 0055) |
-| [0055](0055-sign-in-with-an-email-code-and-a-unique-user-name.md) | Sign in with an e-mail code and a unique user name (accepted, not built) |
+| [0055](0055-sign-in-with-an-email-code-and-a-unique-user-name.md) | Sign in with an e-mail code and a unique user name (accepted, server built) |

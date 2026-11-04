@@ -63,6 +63,7 @@ wait_for() {
 export DRYWIRE_HTTP_ADDR WEB_PORT
 DRYWIRE_UDP_ADDR="$DRYWIRE_UDP_ADDR" DRYWIRE_WEB_ADDR="$DRYWIRE_WEB_ADDR" \
 	DRYWIRE_DB="$state/drywire.db" DRYWIRE_ACCESS_LOG=off DRYWIRE_SPACE_CREATORS='*' \
+	DRYWIRE_MAIL_DIR="$root/.dev/mail" \
 	"$root/.dev/drywire-server" 2>.dev/web-server.log &
 pids="$pids $!"
 wait_for "$!" .dev/web-server.log "drywire-server started" "the server" || {

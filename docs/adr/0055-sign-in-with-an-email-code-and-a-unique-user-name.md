@@ -1,7 +1,7 @@
 # 0055. Sign in with an e-mail code and a unique user name
 
-Status: Accepted · 2026-11-04 · direction decided, screens on the
-canvas's V4 page, nothing built yet
+Status: Accepted · 2026-11-04 · screens on the canvas's V4 page; the
+server's part built (protocol section 13.8), the apps not yet
 
 ## Context
 

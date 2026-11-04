@@ -17,6 +17,7 @@ import (
 	"github.com/lignenative/drywire/server/internal/accesslog"
 	"github.com/lignenative/drywire/server/internal/api"
 	"github.com/lignenative/drywire/server/internal/auth"
+	"github.com/lignenative/drywire/server/internal/mail"
 	"github.com/lignenative/drywire/server/internal/store"
 	"github.com/lignenative/drywire/server/internal/web"
 )
@@ -42,6 +43,12 @@ const defaultAddr = "127.0.0.1:10050"
 //	DRYWIRE_SPACE_CREATORS  who may create spaces: * for anyone, or public
 //	                        keys in hex separated by commas; default nobody
 //	DRYWIRE_MAX_MEMBERS     member limit of a new space, default 50
+//	DRYWIRE_SMTP_ADDR       where sign-in codes are sent from (ADR 0055): a
+//	                        provider's submission port, host:465 or :587,
+//	                        with DRYWIRE_SMTP_USER, DRYWIRE_SMTP_PASSWORD and
+//	                        DRYWIRE_MAIL_FROM ("Drywire <no-reply@…>")
+//	DRYWIRE_MAIL_DIR        or, in development, a directory the codes are
+//	                        written to; with neither, no e-mail sign-in
 //	DRYWIRE_TLS_CERT and DRYWIRE_TLS_KEY
 //	                        serve HTTPS (TLS 1.3) from these PEM files
 //	DRYWIRE_TRUST_PROXY     where the reverse proxy in front connects
@@ -95,6 +102,11 @@ func loadConfig() (config, error) {
 		RelayAddr:     os.Getenv("DRYWIRE_PUBLIC_RELAY"),
 		MaxMembers:    50,
 	}
+	mailer, err := mailSender()
+	if err != nil {
+		return c, err
+	}
+	c.api.Mail = mailer
 	proxies, err := trustedProxies(os.Getenv("DRYWIRE_TRUST_PROXY"))
 	if err != nil {
 		return c, fmt.Errorf("DRYWIRE_TRUST_PROXY: %w", err)
@@ -241,4 +253,26 @@ func (c *config) setPublicAddresses(httpAddr, udpAddr, webAddr string) error {
 		}
 	}
 	return nil
+}
+
+// mailSender is where sign-in codes go: SMTP, a directory in development,
+// or nowhere.
+func mailSender() (mail.Sender, error) {
+	from := envOr("DRYWIRE_MAIL_FROM", "Drywire <no-reply@drywire.invalid>")
+	switch smtpAddr, dir := os.Getenv("DRYWIRE_SMTP_ADDR"), os.Getenv("DRYWIRE_MAIL_DIR"); {
+	case smtpAddr != "" && dir != "":
+		return nil, errors.New("set DRYWIRE_SMTP_ADDR or DRYWIRE_MAIL_DIR, not both")
+	case smtpAddr != "":
+		if _, _, err := net.SplitHostPort(smtpAddr); err != nil {
+			return nil, fmt.Errorf("DRYWIRE_SMTP_ADDR: %w", err)
+		}
+		if os.Getenv("DRYWIRE_MAIL_FROM") == "" {
+			return nil, errors.New("DRYWIRE_SMTP_ADDR needs DRYWIRE_MAIL_FROM")
+		}
+		return mail.SMTP{Addr: smtpAddr, Username: os.Getenv("DRYWIRE_SMTP_USER"),
+			Password: os.Getenv("DRYWIRE_SMTP_PASSWORD"), From: from}, nil
+	case dir != "":
+		return mail.Dir{Path: dir, From: from}, nil
+	}
+	return nil, nil
 }

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/lignenative/drywire/server/internal/auth"
+	"github.com/lignenative/drywire/server/internal/mail"
 	"github.com/lignenative/drywire/server/internal/presence"
 	"github.com/lignenative/drywire/server/internal/ratelimit"
 	"github.com/lignenative/drywire/server/internal/relay"
@@ -69,6 +70,9 @@ type Config struct {
 	AnyoneCreates bool
 	// MaxMembers is the member limit of a new space.
 	MaxMembers int
+	// Mail sends the sign-in codes (ADR 0055). Nil, signing in by e-mail
+	// answers 503.
+	Mail mail.Sender
 	// TrustedProxies are where the reverse proxies in front of the server
 	// connect from: a request from an address in one of them names its
 	// client in the last X-Forwarded-For entry. Empty, the peer's address
@@ -156,11 +160,20 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("POST /v1/auth/challenge", s.challenge)
 	mux.HandleFunc("POST /v1/auth/login", s.login)
+	mux.HandleFunc("POST /v1/auth/email", s.emailCode)
+	mux.HandleFunc("POST /v1/auth/email/verify", s.emailVerify)
 
 	mux.HandleFunc("GET /v1/me", s.authed(s.me))
 	mux.HandleFunc("PATCH /v1/me", s.authed(s.rename))
 	mux.HandleFunc("DELETE /v1/me", s.authed(s.deleteMe))
 	mux.HandleFunc("GET /v1/me/export", s.authed(s.export))
+	mux.HandleFunc("PUT /v1/me/username", s.authed(s.setUsername))
+	mux.HandleFunc("GET /v1/me/devices", s.authed(s.devices))
+	mux.HandleFunc("DELETE /v1/me/devices/{key}", s.authed(s.removeDevice))
+	mux.HandleFunc("GET /v1/me/invitations", s.authed(s.myInvitations))
+	mux.HandleFunc("POST /v1/me/invitations/{space}", s.authed(s.acceptInvitation))
+	mux.HandleFunc("DELETE /v1/me/invitations/{space}", s.authed(s.declineInvitation))
+	mux.HandleFunc("GET /v1/users/{username}", s.authed(s.user))
 	mux.HandleFunc("PUT /v1/me/vault", s.authed(s.putRecoveryVault))
 	mux.HandleFunc("DELETE /v1/me/vault", s.authed(s.deleteRecoveryVault))
 	mux.HandleFunc("POST /v1/me/device-vaults", s.authed(s.putDeviceVault))
@@ -179,6 +192,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/spaces/{space}/bans/{key}", s.authed(s.unban))
 	mux.HandleFunc("GET /v1/spaces/{space}/invitations", s.authed(s.listInvitations))
 	mux.HandleFunc("POST /v1/spaces/{space}/invitations", s.authed(s.createInvitation))
+	mux.HandleFunc("POST /v1/spaces/{space}/invitations/users", s.authed(s.inviteUser))
 	mux.HandleFunc("DELETE /v1/spaces/{space}/invitations/{id}", s.authed(s.revokeInvitation))
 	mux.HandleFunc("POST /v1/invitations/redeem", s.authed(s.redeem))
 

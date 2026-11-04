@@ -16,6 +16,8 @@ mkdir -p ../.dev
 : "${DRYWIRE_SPACE_CREATORS:=*}"
 # Browsers reach the relay over WebTransport on a UDP port of its own.
 : "${DRYWIRE_WEB_ADDR:=127.0.0.1:10058}"
-export DRYWIRE_DB DRYWIRE_SPACE_CREATORS DRYWIRE_WEB_ADDR
+# Sign-in codes (ADR 0055) are written to files there, never sent.
+: "${DRYWIRE_MAIL_DIR:=../.dev/mail}"
+export DRYWIRE_DB DRYWIRE_SPACE_CREATORS DRYWIRE_WEB_ADDR DRYWIRE_MAIL_DIR
 
 exec go run ./cmd/drywire-server

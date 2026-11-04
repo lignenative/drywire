@@ -235,6 +235,9 @@ func (s *Store) PurgeInactive(ctx context.Context) (Purged, error) {
 	if err := s.purgeExpiredMLS(ctx); err != nil {
 		return p, err
 	}
+	if err := s.purgeExpiredAccountRows(ctx); err != nil {
+		return p, err
+	}
 	return p, nil
 }
 

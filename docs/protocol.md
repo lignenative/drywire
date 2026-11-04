@@ -729,6 +729,46 @@ The rights of spec section 9, in the API:
 - Identities that have not logged in for 12 months are purged the same
   way, daily.
 
+### 13.8 Accounts by e-mail
+
+An account (ADR 0055) is an e-mail address, a unique user name and a
+display name; each of its devices logs in with a key of its own, as in
+section 13.2. The address signs a new device in with a 6-digit code.
+
+| Request | Who | Body → answer |
+| --- | --- | --- |
+| `POST /v1/auth/email` | anyone | `{email, lang}` → `202` `{expires_in}`: a code is sent; `429` within 30 s of the last one; `503` on an instance that sends no mail |
+| `POST /v1/auth/email/verify` | anyone | `{email, code, public_key, challenge, signature}` → `{token, expires_in, new_account, username}`; `401` `{error, tries_left}` for a wrong code; `409` for a device signed in to another account |
+| `PUT /v1/me/username` | an account | `{username, display_name}` → the account; `409` `{error, suggestions}` for a taken name |
+| `GET /v1/me/devices` | an account | → `[{public_key, created_at, last_seen_at, this_device}]` |
+| `DELETE /v1/me/devices/{key}` | an account | → `204`: that device's tokens, streams and session end |
+| `GET /v1/users/{username}` | an account | → `{username, name}`, exact name only |
+| `POST /v1/spaces/{space}/invitations/users` | admin | `{username}` → `201`; `409` for a member |
+| `GET /v1/me/invitations` | an account | → `[{space_id, space_name, invited_by, created_at, expires_at}]` |
+| `POST /v1/me/invitations/{space}` | the invited | → the space, as a redeemed code gives it |
+| `DELETE /v1/me/invitations/{space}` | the invited | → `204` |
+
+- **The code** is 6 random digits, valid 10 minutes for 5 tries; a new
+  one replaces it. The server keeps its SHA-256 only, never logs it, and
+  answers the same whether the address has an account or not.
+- The mail's subject starts with the code, so that a notification shows
+  it and iPhone and Mac offer it: apps ask for it in **one** field with
+  `autocomplete="one-time-code"` and `inputmode="numeric"`. The server
+  ignores anything but digits in what it receives, so a pasted
+  `482 931` works.
+- The verify request carries a signed login challenge (section 13.2):
+  the device proves its key, and the token is the login's.
+- An address new to the instance makes an account whose user name is
+  empty until `PUT /v1/me/username`. A device that already had an
+  account without an address, from before ADR 0055, brings it along.
+- **User names** are 2 to 32 of `a`–`z`, `0`–`9`, `_` and `.`, no dot at
+  either end or two in a row, compared in lower case. A display name
+  left empty is the user name.
+- Members (section 13.4) list each member's `username` and the keys of
+  all their `devices`; each device signs its own announcements.
+- An invitation by user name waits 30 days; accepting it holds bans and
+  the member limit, as a code does.
+
 ## 14. Invitation links
 
 An invitation carries everything a new member needs: where the instance

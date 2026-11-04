@@ -26,11 +26,15 @@ type Room struct {
 
 // Member is one member of a space, as the other members see them.
 type Member struct {
-	IdentityID int64     `json:"-"`
-	PublicKey  Key       `json:"public_key"`
-	Name       string    `json:"name"`
-	Role       Role      `json:"role"`
-	JoinedAt   time.Time `json:"joined_at"`
+	IdentityID int64  `json:"-"`
+	PublicKey  Key    `json:"public_key"`
+	Name       string `json:"name"`
+	Username   string `json:"username,omitempty"`
+	// Devices are the keys of all the member's devices (ADR 0055), the
+	// first one included: each signs its own announcements.
+	Devices  []Key     `json:"devices"`
+	Role     Role      `json:"role"`
+	JoinedAt time.Time `json:"joined_at"`
 }
 
 // Membership is one space as seen by one of its members.
@@ -157,7 +161,8 @@ func (s *Store) Memberships(ctx context.Context, identityID int64) ([]Membership
 // Members returns the members of a space, owner first.
 func (s *Store) Members(ctx context.Context, space ID) ([]Member, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT i.id, i.public_key, i.name, m.role, m.joined_at
+		SELECT i.id, i.public_key, i.name, coalesce(i.username, ''), m.role, m.joined_at,
+			coalesce((SELECT group_concat(hex(d.public_key)) FROM devices d WHERE d.identity_id = i.id), '')
 		FROM members m JOIN identities i ON i.id = m.identity_id
 		WHERE m.space_id = ?
 		ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, m.joined_at, i.id`,
@@ -171,10 +176,17 @@ func (s *Store) Members(ctx context.Context, space ID) ([]Member, error) {
 		var m Member
 		var key []byte
 		var joined int64
-		if err := rows.Scan(&m.IdentityID, &key, &m.Name, &m.Role, &joined); err != nil {
+		var devices string
+		if err := rows.Scan(&m.IdentityID, &key, &m.Name, &m.Username, &m.Role, &joined, &devices); err != nil {
 			return nil, err
 		}
 		copy(m.PublicKey[:], key)
+		m.Devices = []Key{}
+		for _, h := range strings.Split(devices, ",") {
+			if k, err := ParseKey(strings.ToLower(h)); err == nil {
+				m.Devices = append(m.Devices, k)
+			}
+		}
 		m.JoinedAt = fromUnix(joined)
 		out = append(out, m)
 	}

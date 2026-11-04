@@ -8,23 +8,26 @@ import (
 	"time"
 )
 
-// Identity is one device's key pair as the server knows it: the public key
-// and the name its owner chose.
+// Identity is a person's account (ADR 0055): their e-mail address, user
+// name and display name, and the key of their first device. Each device
+// logs in with a key of its own (devices).
 type Identity struct {
 	ID         int64     `json:"-"`
 	PublicKey  Key       `json:"public_key"`
 	Name       string    `json:"name"`
+	Email      string    `json:"-"` // never shown to others
+	Username   string    `json:"username,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	LastSeenAt time.Time `json:"last_seen_at"`
 }
 
-const identityColumns = `id, public_key, name, created_at, last_seen_at`
+const identityColumns = `i.id, i.public_key, i.name, coalesce(i.email, ''), coalesce(i.username, ''), i.created_at, i.last_seen_at`
 
 func scanIdentity(row interface{ Scan(...any) error }) (Identity, error) {
 	var id Identity
 	var key []byte
 	var created, seen int64
-	err := row.Scan(&id.ID, &key, &id.Name, &created, &seen)
+	err := row.Scan(&id.ID, &key, &id.Name, &id.Email, &id.Username, &created, &seen)
 	if errors.Is(err, sql.ErrNoRows) {
 		return id, ErrNotFound
 	}
@@ -36,17 +39,18 @@ func scanIdentity(row interface{ Scan(...any) error }) (Identity, error) {
 	return id, nil
 }
 
-// IdentityByKey returns the identity with this public key, or ErrNotFound.
+// IdentityByKey returns the identity one of whose devices has this public
+// key, or ErrNotFound.
 func (s *Store) IdentityByKey(ctx context.Context, key Key) (Identity, error) {
 	return scanIdentity(s.db.QueryRowContext(ctx,
-		`SELECT `+identityColumns+` FROM identities WHERE public_key = ?`, key[:]))
+		`SELECT `+identityColumns+` FROM devices d JOIN identities i ON i.id = d.identity_id WHERE d.public_key = ?`, key[:]))
 }
 
 // ensureIdentity returns the identity with this key, creating it with name
 // if it does not exist. An existing identity keeps its name.
 func (s *Store) ensureIdentity(ctx context.Context, tx *sql.Tx, key Key, name string) (Identity, error) {
 	id, err := scanIdentity(tx.QueryRowContext(ctx,
-		`SELECT `+identityColumns+` FROM identities WHERE public_key = ?`, key[:]))
+		`SELECT `+identityColumns+` FROM devices d JOIN identities i ON i.id = d.identity_id WHERE d.public_key = ?`, key[:]))
 	if !errors.Is(err, ErrNotFound) {
 		return id, err
 	}
@@ -61,13 +65,23 @@ func (s *Store) ensureIdentity(ctx context.Context, tx *sql.Tx, key Key, name st
 		return id, err
 	}
 	rowID, _ := res.LastInsertId()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO devices (public_key, identity_id, created_at, last_seen_at) VALUES (?, ?, ?, ?)`,
+		key[:], rowID, now, now); err != nil {
+		return id, err
+	}
 	return Identity{ID: rowID, PublicKey: key, Name: name, CreatedAt: fromUnix(now), LastSeenAt: fromUnix(now)}, nil
 }
 
 // Touch records that the identity logged in now. Identities not seen for
 // a year are purged (PurgeInactive).
 func (s *Store) Touch(ctx context.Context, key Key) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE identities SET last_seen_at = ? WHERE public_key = ?`, s.unix(), key[:])
+	now := s.unix()
+	if _, err := s.db.ExecContext(ctx, `UPDATE devices SET last_seen_at = ? WHERE public_key = ?`, now, key[:]); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE identities SET last_seen_at = ? WHERE id = (SELECT identity_id FROM devices WHERE public_key = ?)`, now, key[:])
 	return err
 }
 
@@ -92,6 +106,9 @@ func (s *Store) Rename(ctx context.Context, identityID int64, name string) (stri
 // presence is not stored and so not part of it.
 type Export struct {
 	Identity    Identity           `json:"identity"`
+	Email       string             `json:"email,omitempty"`
+	Devices     []AccountDevice    `json:"devices"`
+	Received    []UserInvitation   `json:"invitations_received"`
 	Memberships []ExportMembership `json:"memberships"`
 	Invitations []ExportInvitation `json:"invitations_created"`
 	Vaults      []ExportVault      `json:"vaults"`
@@ -143,7 +160,7 @@ func (s *Store) Export(ctx context.Context, identityID int64) (Export, error) {
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		var err error
 		e.Identity, err = scanIdentity(tx.QueryRowContext(ctx,
-			`SELECT `+identityColumns+` FROM identities WHERE id = ?`, identityID))
+			`SELECT `+identityColumns+` FROM identities i WHERE i.id = ?`, identityID))
 		if err != nil {
 			return err
 		}
@@ -246,6 +263,12 @@ func (s *Store) Export(ctx context.Context, identityID int64) (Export, error) {
 		}
 		return devices.Err()
 	})
+	if err == nil {
+		e.Email = e.Identity.Email
+		if e.Devices, err = s.Devices(ctx, identityID); err == nil {
+			e.Received, err = s.UserInvitations(ctx, identityID)
+		}
+	}
 	e.Note = "Everything this Drywire server stores about this identity. " +
 		"Presence (who is in which room) is kept in memory only and never stored; " +
 		"audio is end-to-end encrypted and never stored. " +

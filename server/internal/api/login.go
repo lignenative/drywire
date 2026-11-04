@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/lignenative/drywire/server/internal/auth"
 	"github.com/lignenative/drywire/server/internal/store"
@@ -39,22 +40,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	var challenge [auth.ChallengeSize]byte
-	raw, err := hex.DecodeString(req.Challenge)
-	sig, sigErr := hex.DecodeString(req.Signature)
-	if err != nil || sigErr != nil || len(raw) != len(challenge) {
-		writeError(w, http.StatusUnauthorized, auth.ErrDenied.Error())
-		return
-	}
-	copy(challenge[:], raw)
-	token, expires, err := s.auth.Login(req.PublicKey, challenge, sig)
-	if errors.Is(err, auth.ErrBusy) {
-		w.Header().Set("Retry-After", "5")
-		writeError(w, http.StatusServiceUnavailable, err.Error())
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+	token, expires, ok := s.checkLogin(w, req)
+	if !ok {
 		return
 	}
 	if err := s.store.Touch(r.Context(), req.PublicKey); err != nil {
@@ -65,4 +52,28 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		"token":      token,
 		"expires_in": int(expires.Sub(s.now()).Seconds()),
 	})
+}
+
+// checkLogin checks a signed challenge and gives a token for the key, or
+// answers the error.
+func (s *Server) checkLogin(w http.ResponseWriter, req loginRequest) (string, time.Time, bool) {
+	var challenge [auth.ChallengeSize]byte
+	raw, err := hex.DecodeString(req.Challenge)
+	sig, sigErr := hex.DecodeString(req.Signature)
+	if err != nil || sigErr != nil || len(raw) != len(challenge) {
+		writeError(w, http.StatusUnauthorized, auth.ErrDenied.Error())
+		return "", time.Time{}, false
+	}
+	copy(challenge[:], raw)
+	token, expires, err := s.auth.Login(req.PublicKey, challenge, sig)
+	if errors.Is(err, auth.ErrBusy) {
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return "", time.Time{}, false
+	}
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return "", time.Time{}, false
+	}
+	return token, expires, true
 }
