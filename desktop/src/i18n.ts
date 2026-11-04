@@ -123,9 +123,13 @@ const en = {
   "calibrate.help": "Ten seconds of silence, controller in hand. Then your voice goes out only when you speak.",
   "calibrate.go": "Calibrate now",
 
-  "empty.title": "No space yet",
-  "empty.help": "A friend sends you an invitation link: paste it here to join their space.",
-  "empty.paste": "Paste an invitation link",
+  "welcome.title": "Welcome to Drywire",
+  "welcome.lead": "Voice rooms among friends, end-to-end encrypted.",
+  "welcome.accountApp": "No phone number, no email, no password: your account is a key made on this device.",
+  "welcome.accountWeb": "No phone number, no email, no password: your account is a key made in this browser.",
+  "welcome.join": "Join with an invitation",
+  "welcome.create": "Create a space",
+  "welcome.restore": "I already have an account",
 
   "invite.title": "Join a space",
   "invite.link": "Invitation link",
@@ -403,9 +407,13 @@ const fr: Record<Key, string> = {
   "calibrate.help": "Dix secondes en silence, manette en main. Votre voix ne part ensuite que quand vous parlez.",
   "calibrate.go": "Calibrer maintenant",
 
-  "empty.title": "Aucun espace pour l’instant",
-  "empty.help": "Un ami vous envoie un lien d’invitation : collez-le ici pour rejoindre son espace.",
-  "empty.paste": "Coller un lien d’invitation",
+  "welcome.title": "Bienvenue sur Drywire",
+  "welcome.lead": "Des salons vocaux entre amis, chiffrés de bout en bout.",
+  "welcome.accountApp": "Ni numéro, ni e-mail, ni mot de passe : votre compte est une clé créée sur cet appareil.",
+  "welcome.accountWeb": "Ni numéro, ni e-mail, ni mot de passe : votre compte est une clé créée dans ce navigateur.",
+  "welcome.join": "Rejoindre avec une invitation",
+  "welcome.create": "Créer un espace",
+  "welcome.restore": "J’ai déjà un compte",
 
   "invite.title": "Rejoindre un espace",
   "invite.link": "Lien d’invitation",
