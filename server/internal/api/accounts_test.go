@@ -13,6 +13,7 @@ import (
 
 	"github.com/lignenative/drywire/server/internal/auth"
 	"github.com/lignenative/drywire/server/internal/mail"
+	"github.com/lignenative/drywire/server/internal/store"
 )
 
 // outbox keeps the messages the server sends.
@@ -184,5 +185,27 @@ func TestPeopleInviteEachOtherByUserName(t *testing.T) {
 		if m.Username == "" || len(m.Devices) != 1 {
 			t.Fatalf("member %+v", m)
 		}
+	}
+}
+
+func TestAnAccountWithAUserNameCreatesSpaces(t *testing.T) {
+	o := &outbox{}
+	h := newHarness(t, Config{Mail: o})
+	alex := h.client(1)
+	alex.signIn(o, "alex@example.com", same)
+	body := map[string]string{"name": "Team", "display_name": "alex"}
+	if status := alex.do("POST", "/v1/spaces", body, nil); status != http.StatusForbidden {
+		t.Fatalf("no user name yet: %d", status)
+	}
+	alex.must(http.StatusOK, "PUT", "/v1/me/username", map[string]string{"username": "alex"}, nil)
+	alex.must(http.StatusCreated, "POST", "/v1/spaces", body, nil)
+
+	// An operator's list restricts creation to the keys it names.
+	h2 := newHarness(t, Config{Mail: o, SpaceCreators: []store.Key{h.client(9).key}})
+	sam := h2.client(2)
+	sam.signIn(o, "sam@example.com", same)
+	sam.must(http.StatusOK, "PUT", "/v1/me/username", map[string]string{"username": "sam"}, nil)
+	if status := sam.do("POST", "/v1/spaces", body, nil); status != http.StatusForbidden {
+		t.Fatalf("not listed: %d", status)
 	}
 }

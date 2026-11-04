@@ -768,6 +768,9 @@ section 13.2. The address signs a new device in with a 6-digit code.
   all their `devices`; each device signs its own announcements.
 - An invitation by user name waits 30 days; accepting it holds bans and
   the member limit, as a code does.
+- An account with a user name creates spaces (`POST /v1/spaces`, section
+  13.4), unless the operator lists who may (`DRYWIRE_SPACE_CREATORS`):
+  then only the keys listed, or a creation code, as before.
 
 ## 14. Invitation links
 
