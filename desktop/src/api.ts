@@ -13,10 +13,11 @@ export interface AppError {
 export interface RoomView {
   id: string;
   name: string;
-  /** Who sits in the room, for a room this device is not in. Absent when
-      unknown: the Rust side does not report it yet (TODO: a command that
-      reads the room's presence from the server), and the interface then
-      shows the room without names. */
+  /** Who sits in the room, sorted by name, from the space's event stream
+      (the Rust side's `rooms.rs`). Absent when unknown: the stream is not
+      open yet, or the instance has too many spaces to follow them all;
+      the interface then shows the room without names. For the call's own
+      room the interface shows the call's participants instead. */
   occupants?: string[];
 }
 
@@ -92,9 +93,10 @@ export interface EncryptionView {
 export interface EncryptionPerson {
   publicKey: string;
   verified: boolean;
-  /** Whose voice was rejected, when known. The Rust side does not say yet
-      (TODO: name the person behind a "failed" state), and the interface
-      then words the failure without a name. */
+  /** Whose voice was rejected: a packet in their name failed its signature
+      or authentication lately, and was dropped. The Rust side always says;
+      a client that cannot leaves it out, and the interface then words the
+      failure without a name. */
   rejected?: boolean;
 }
 
@@ -107,9 +109,10 @@ export interface CallView {
   ended: string | null;
   /** The server forgot this session: the app is joining again on its own. */
   reconnecting: boolean;
-  /** Seconds until the next attempt while reconnecting. Absent when
-      unknown: the Rust side does not report it yet (TODO: add it to the
-      session's view), and the interface then leaves the countdown out. */
+  /** Seconds until the next attempt while reconnecting, rounded up
+      (ADR 0035); null during an attempt and out of a reconnection. A
+      client that cannot say leaves it out, and the interface then leaves
+      the countdown out. */
   retryInS?: number | null;
   bound: boolean;
   rttMs: number | null;
@@ -188,8 +191,17 @@ const tauri = {
   setLanguage: (language: string) => invoke<void>("set_language", { language }),
   loopbackTest: () => invoke<LoopbackView>("loopback_test"),
   calibrateGate: () => invoke<CalibrationView>("calibrate_gate"),
+  /** The microphone's level, in dBFS from -90 up: the call's in a call.
+      Out of one, the first request opens the microphone, and the Rust side
+      closes it a second after the last: poll it only while a meter shows. */
+  inputLevel: () => invoke<number>("input_level"),
   launchAtLogin: () => invoke<boolean>("launch_at_login"),
   setLaunchAtLogin: (enabled: boolean) => invoke<boolean>("set_launch_at_login", { enabled }),
+  /** Calls `f` with the spaces whenever someone sits down in or leaves a
+      room of any of them: what `listSpaces` would answer, without asking
+      the servers again. */
+  onSpaces: (f: (spaces: SpaceView[]) => void): Promise<UnlistenFn> =>
+    listen<SpaceView[]>("spaces", (event) => f(event.payload)),
   /** Calls `f` for every arrival and departure in the room. */
   onPresence: (f: (notice: Notice) => void): Promise<UnlistenFn> =>
     listen<Notice>("presence", (event) => f(event.payload)),

@@ -71,7 +71,7 @@ pub struct Notice {
 
 /// How often the session thread wakes up: to apply the space's events and
 /// refresh the [`CallView`].
-const TICK: Duration = Duration::from_millis(20);
+pub(crate) const TICK: Duration = Duration::from_millis(20);
 
 /// How long to wait before opening the event stream again after it ends.
 const EVENTS_RETRY: Duration = Duration::from_secs(2);
@@ -90,7 +90,7 @@ pub const METER_FLOOR_DBFS: f32 = -90.0;
 
 /// How fast the meter falls, per tick: 50 dB a second, so a word's peak
 /// stays visible between two polls of the interface.
-const METER_FALL_DB: f32 = 1.0;
+pub(crate) const METER_FALL_DB: f32 = 1.0;
 
 /// How many ticks the loss figures are measured over: one second.
 const QUALITY_TICKS: u32 = 50;
@@ -235,6 +235,10 @@ pub struct PersonLock {
     /// nothing in their name failed lately. `false` for someone silent
     /// since this device joined, who does not hold the room back.
     pub verified: bool,
+    /// Whether a packet in their name failed its signature or
+    /// authentication lately: the person behind a `failed` lock, whose
+    /// voice was dropped.
+    pub rejected: bool,
 }
 
 /// One audio stream, as the system opened it.
@@ -293,6 +297,9 @@ pub struct CallView {
     /// Whether the server forgot this device's session and the app is
     /// joining again on its own.
     pub reconnecting: bool,
+    /// While reconnecting, the seconds until the next attempt, rounded up;
+    /// `None` during an attempt, and out of a reconnection.
+    pub retry_in_s: Option<u32>,
     /// Whether the relay acknowledged this device and still answers.
     pub bound: bool,
     /// The last round trip to the relay, in milliseconds.
@@ -531,6 +538,19 @@ impl SessionThread {
         if self.retry.as_ref().is_some_and(|r| Instant::now() >= r.at) {
             self.reconnect();
         }
+        if self.live.is_none() {
+            self.show_countdown();
+        }
+    }
+
+    /// Shows how long until the next attempt, for the interface's
+    /// countdown.
+    fn show_countdown(&self) {
+        let seconds = self
+            .retry
+            .as_ref()
+            .map(|r| seconds_until(r.at, Instant::now()));
+        self.view.lock().expect("not poisoned").retry_in_s = seconds;
     }
 
     /// The server forgot this device's session: stops the call, keeps
@@ -558,6 +578,7 @@ impl SessionThread {
         view.encryption.state = LockState::Pending;
         for person in &mut view.encryption.people {
             person.verified = false;
+            person.rejected = false;
         }
         log_reconnection(&why);
         *self.view.lock().expect("not poisoned") = view;
@@ -565,6 +586,7 @@ impl SessionThread {
             at: Instant::now() + RECONNECT_FIRST,
             pause: RECONNECT_FIRST,
         });
+        self.show_countdown();
     }
 
     /// One attempt to join the room again.
@@ -572,6 +594,8 @@ impl SessionThread {
         let Some(retry) = self.retry.take() else {
             return;
         };
+        // No countdown while the attempt runs: it may take seconds.
+        self.show_countdown();
         let muted = self.controls.lock().expect("not poisoned").is_muted();
         self.attempting.store(true, Ordering::Relaxed);
         let attempt = Live::start(
@@ -620,6 +644,13 @@ impl SessionThread {
             live.refresh(&self.view);
         }
     }
+}
+
+/// Whole seconds from `now` until `at`, rounded up, so the countdown
+/// never shows 0 before the attempt starts.
+fn seconds_until(at: Instant, now: Instant) -> u32 {
+    let left = at.saturating_duration_since(now);
+    u32::try_from(left.as_millis().div_ceil(1000)).unwrap_or(u32::MAX)
 }
 
 /// Why the call was lost goes to the app's log: never an address, a key
@@ -1031,11 +1062,16 @@ impl Live {
                 .participants
                 .iter()
                 .filter(|p| !p.me)
-                .map(|p| PersonLock {
-                    public_key: p.public_key.clone(),
-                    verified: senders
+                .map(|p| {
+                    let state = senders
                         .iter()
-                        .any(|s| s.session == p.session && s.state == SenderState::Verified),
+                        .find(|s| s.session == p.session)
+                        .map(|s| s.state);
+                    PersonLock {
+                        public_key: p.public_key.clone(),
+                        verified: state == Some(SenderState::Verified),
+                        rejected: state == Some(SenderState::Failed),
+                    }
                 })
                 .collect(),
         }
@@ -1084,7 +1120,9 @@ fn public_key(p: &Presence) -> Result<VerifyingKey, AppError> {
 }
 
 /// Reads the space's events on a thread of its own, opening the stream
-/// again whenever it ends, until the receiver is dropped.
+/// again whenever it ends, until the receiver is dropped. A stream ends
+/// at its first error, a silent one included (`drywire_control::Events`),
+/// and the next begins with a snapshot that puts the call right.
 fn follow(client: &Arc<Client>, space: &Id) -> Result<Receiver<Event>, AppError> {
     let first = client.events(space)?;
     let (tx, rx) = mpsc::channel();
@@ -1127,17 +1165,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_countdown_rounds_up() {
+        let now = Instant::now();
+        assert_eq!(seconds_until(now + Duration::from_millis(14_001), now), 15);
+        assert_eq!(seconds_until(now + Duration::from_secs(1), now), 1);
+        assert_eq!(seconds_until(now + Duration::from_millis(1), now), 1);
+        assert_eq!(
+            seconds_until(now, now + Duration::from_secs(1)),
+            0,
+            "overdue"
+        );
+        let json = serde_json::to_value(CallView {
+            retry_in_s: Some(4),
+            ..CallView::default()
+        })
+        .unwrap();
+        assert_eq!(json["retryInS"], 4);
+    }
+
+    #[test]
     fn the_lock_reaches_the_interface_in_camel_case() {
         let view = EncryptionView {
             state: LockState::Verified,
             people: vec![PersonLock {
                 public_key: "ab".into(),
                 verified: true,
+                rejected: false,
             }],
         };
         assert_eq!(
             serde_json::to_string(&view).unwrap(),
-            r#"{"state":"verified","people":[{"publicKey":"ab","verified":true}]}"#
+            r#"{"state":"verified","people":[{"publicKey":"ab","verified":true,"rejected":false}]}"#
         );
         let json = serde_json::to_value(CallView::default()).unwrap();
         assert_eq!(json["encryption"]["state"], "pending");

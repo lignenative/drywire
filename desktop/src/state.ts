@@ -87,6 +87,16 @@ export function useAppState(): AppState {
     api.setLanguage(lang).catch(() => {});
   }, [lang]);
 
+  // Who sits in each room, pushed at every change: the side menu lists
+  // names under every room, and asking the servers would cost a request
+  // per space.
+  useEffect(() => {
+    const unlisten = api.onSpaces(setSpaces);
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+
   // The presence sounds. Events, not polling: they arrive even while
   // the window is hidden in the tray and its timers are slowed down.
   useEffect(() => {

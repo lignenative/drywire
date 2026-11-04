@@ -13,6 +13,8 @@
 //! - [`LevelRecorder`]: the level of every microphone frame for a few
 //!   seconds, from which [`calibrate`](crate::gate::calibrate) picks the
 //!   voice gate's threshold.
+//! - [`LevelMeter`]: the loudest microphone frame since it was last read,
+//!   for as long as it runs: the settings' level meter out of a call.
 //!
 //! Both hand out ordinary [`InputCallback`] and [`OutputCallback`]s for any
 //! [`AudioIo`](crate::audio::AudioIo), and keep the rules of a call's
@@ -330,6 +332,49 @@ impl LevelRecorder {
     }
 }
 
+/// The loudest 5 ms microphone frame since the last read, as a call's
+/// [`take_input_peak_dbfs`](crate::call::CallControls::take_input_peak_dbfs)
+/// gives it, but with no call: what a level meter shows out of a call. The
+/// output plays silence.
+pub struct LevelMeter(Arc<AtomicU32>);
+
+impl LevelMeter {
+    /// A meter and the callbacks to give the device.
+    pub fn new() -> (LevelMeter, InputCallback, OutputCallback) {
+        // The mean square of the loudest frame, as `f32` bits: for
+        // positive floats, a larger value has larger bits, so `fetch_max`
+        // keeps the loudest without a lock.
+        let peak = Arc::new(AtomicU32::new(0));
+        let input = {
+            let peak = Arc::clone(&peak);
+            let mut frame = [0.0f32; LEVEL_FRAME];
+            let mut filled = 0;
+            Box::new(move |samples: &[f32]| {
+                for &x in samples {
+                    frame[filled] = x;
+                    filled += 1;
+                    if filled < LEVEL_FRAME {
+                        continue;
+                    }
+                    filled = 0;
+                    let power = mean_square(&frame);
+                    if power.is_finite() {
+                        peak.fetch_max(power.to_bits(), Ordering::Relaxed);
+                    }
+                }
+            }) as InputCallback
+        };
+        let output = Box::new(|out: &mut [f32]| out.fill(0.0)) as OutputCallback;
+        (LevelMeter(peak), input, output)
+    }
+
+    /// The loudest frame since the last call, in dBFS (`-inf` for silence,
+    /// or when nothing was captured).
+    pub fn take_peak_dbfs(&self) -> f32 {
+        power_to_dbfs(f32::from_bits(self.0.swap(0, Ordering::Relaxed)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -519,5 +564,20 @@ mod tests {
         assert!((levels[1] - -9.03).abs() < 0.01, "{levels:?}");
         assert_eq!(recorder.recent_dbfs(4), levels[0]);
         assert_eq!(recorder.recent_dbfs(2), f32::NEG_INFINITY);
+    }
+
+    #[test]
+    fn a_meter_gives_the_loudest_frame_since_it_was_read() {
+        let (meter, mut input, _) = LevelMeter::new();
+        assert_eq!(meter.take_peak_dbfs(), f32::NEG_INFINITY, "nothing yet");
+        input(&vec![0.5f32; LEVEL_FRAME / 2]);
+        assert_eq!(meter.take_peak_dbfs(), f32::NEG_INFINITY, "half a frame");
+        // The frame completes, then a quieter one follows.
+        input(&vec![0.5f32; LEVEL_FRAME / 2]);
+        input(&vec![0.1f32; LEVEL_FRAME]);
+        assert!((meter.take_peak_dbfs() - -6.02).abs() < 0.01, "the loudest");
+        assert_eq!(meter.take_peak_dbfs(), f32::NEG_INFINITY, "read once");
+        input(&vec![0.1f32; LEVEL_FRAME]);
+        assert!((meter.take_peak_dbfs() - -20.0).abs() < 0.01);
     }
 }

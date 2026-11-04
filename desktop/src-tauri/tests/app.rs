@@ -10,6 +10,7 @@ mod relay;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -17,7 +18,7 @@ use drywire_control::Client;
 use drywire_core::audio::file::{FileIo, Source};
 use drywire_core::audio::{AudioError, AudioIo, InputCallback, OutputCallback, StreamInfo};
 use drywire_core::opus::SAMPLE_RATE;
-use drywire_desktop::app::{Desktop, Devices, Preferences};
+use drywire_desktop::app::{Desktop, Devices, Preferences, SpaceView};
 use drywire_desktop::session::{CallView, LockState, Notice, Notices, PersonLock};
 use drywire_desktop::store::Store;
 use drywire_proto::crypto::SigningKey;
@@ -57,7 +58,12 @@ fn desktop(name: &str, devices: Devices) -> (Desktop, Heard) {
         let heard = Arc::clone(&heard);
         Arc::new(move |n: Notice| heard.lock().unwrap().push(format!("{} {}", n.kind, n.name)))
     };
-    let app = Desktop::new(Store::open(&temp_dir(name)).unwrap(), devices, notices);
+    let app = Desktop::new(
+        Store::open(&temp_dir(name)).unwrap(),
+        devices,
+        notices,
+        Arc::new(|| {}),
+    );
     (app, heard)
 }
 
@@ -153,6 +159,7 @@ fn members_join_by_link_and_meet_in_a_room() {
     let alex_lock = PersonLock {
         public_key: alex_key.clone(),
         verified: true,
+        rejected: false,
     };
     assert_eq!(view.encryption.people, [alex_lock]);
 
@@ -266,6 +273,11 @@ fn a_call_joins_again_after_the_server_restarts() {
     relay.start_again();
     wait_long(&sam, "sam reconnecting", 15, |v| v.reconnecting);
     assert!(sam.call().unwrap().ended.is_none());
+    // The first attempt comes a second after the loss: a countdown shows
+    // until then.
+    wait_long(&sam, "the countdown", 5, |v| {
+        v.reconnecting && v.retry_in_s.is_some_and(|s| (1..=15).contains(&s))
+    });
     // Muted while joining again: it must hold in the new call.
     sam.set_muted(true);
     assert!(sam.call().unwrap().muted);
@@ -277,6 +289,7 @@ fn a_call_joins_again_after_the_server_restarts() {
     });
     let view = sam.call().unwrap();
     assert!(view.ended.is_none(), "{view:#?}");
+    assert_eq!(view.retry_in_s, None, "no countdown in a call");
     assert!(view.muted, "the mute made while reconnecting holds");
     assert_eq!(view.gate_dbfs, -61.0, "same gate");
     assert_eq!(view.participants[1].volume, 1.5, "same volume for alex");
@@ -333,4 +346,214 @@ fn the_lab_measures_the_device_and_calibrates_the_gate() {
     assert!((found.noise_dbfs - -60.0).abs() < 0.1, "{found:?}");
     assert!((found.gate_dbfs - -56.0).abs() < 0.1, "{found:?}");
     assert!(!found.too_loud);
+}
+
+/// A device that counts how many of its kind run at once, and the most
+/// that ever did.
+struct Counted {
+    inner: FileIo,
+    running: Arc<Mutex<(usize, usize)>>,
+}
+
+impl AudioIo for Counted {
+    fn start(
+        &mut self,
+        input: InputCallback,
+        output: OutputCallback,
+    ) -> Result<Vec<StreamInfo>, AudioError> {
+        let mut running = self.running.lock().unwrap();
+        running.0 += 1;
+        running.1 = running.1.max(running.0);
+        drop(running);
+        self.inner.start(input, output)
+    }
+
+    fn stop(&mut self) {
+        self.inner.stop();
+        self.running.lock().unwrap().0 -= 1;
+    }
+}
+
+#[test]
+fn the_meter_hears_the_microphone_out_of_a_call() {
+    let running = Arc::new(Mutex::new((0, 0)));
+    let counted: Devices = {
+        let running = Arc::clone(&running);
+        Arc::new(move || {
+            let running = Arc::clone(&running);
+            Box::new(move || {
+                let inner = FileIo::new(Source::Samples(voice()), 120, None);
+                Ok(Box::new(Counted { inner, running }) as Box<dyn AudioIo>)
+            })
+        })
+    };
+    let (app, _) = desktop("meter", counted);
+
+    // The first request opens the microphone; the voice shows within a
+    // few polls, at its level (-13.5 dBFS).
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let level = app.input_level().unwrap();
+        if level > -16.0 {
+            assert!(level < -12.0, "{level}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "the meter stays at {level}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(running.lock().unwrap().0, 1, "one sound card open");
+
+    // The lab takes the sound card: the meter closes first.
+    app.calibrate(Duration::from_millis(200)).unwrap();
+    assert_eq!(*running.lock().unwrap(), (0, 1), "never two at once");
+
+    // Asked again, it opens again; then, unasked, it closes by itself.
+    app.input_level().unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(running.lock().unwrap().0, 1);
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(
+        running.lock().unwrap().0,
+        0,
+        "closed after a second unasked"
+    );
+}
+
+/// Polls `check` until it holds, or fails after five seconds.
+fn eventually(what: &str, check: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !check() {
+        assert!(Instant::now() < deadline, "{what}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn the_side_menu_sees_who_sits_in_every_room() {
+    let relay = Relay::start();
+    let space_key = [0x5a; 32];
+    let owner = Client::new(&relay.instance(), SigningKey::from_bytes(&[0xa1; 32])).unwrap();
+    let space = owner.create_space("Team", "general", "owner").unwrap();
+    owner.create_room(&space.space.id, "games").unwrap();
+    let link = || {
+        let (invitation, _) = owner
+            .invite(&space.space.id, &space_key, None, Some(1))
+            .unwrap();
+        invitation.to_link()
+    };
+
+    // Sam's app is told of every change, and asks no server to show it.
+    let changes = Arc::new(AtomicUsize::new(0));
+    let sam = {
+        let changes = Arc::clone(&changes);
+        Desktop::new(
+            Store::open(&temp_dir("sam-rooms")).unwrap(),
+            devices(Vec::new()),
+            Arc::new(|_| {}),
+            Arc::new(move || {
+                changes.fetch_add(1, Ordering::Relaxed);
+            }),
+        )
+    };
+    sam.accept(&link(), "sam").unwrap();
+    let spaces = sam.spaces().unwrap();
+    let (instance, space_id) = (spaces[0].instance.clone(), spaces[0].id.clone());
+    let room = |name: &str| {
+        spaces[0]
+            .rooms
+            .iter()
+            .find(|r| r.name == name)
+            .unwrap()
+            .id
+            .clone()
+    };
+    let (general, games) = (room("general"), room("games"));
+    let occupants = |id: &str| {
+        let now = sam.spaces_now();
+        let room = now[0].rooms.iter().find(|r| r.id == id).unwrap().clone();
+        room.occupants
+    };
+    eventually("the first snapshot", || {
+        occupants(&general) == Some(vec![]) && occupants(&games) == Some(vec![])
+    });
+
+    // Alex sits down in one room, then moves: Sam sees both without joining.
+    let (alex, _) = desktop("alex-rooms", devices(Vec::new()));
+    alex.accept(&link(), "alex").unwrap();
+    alex.join(&instance, &space_id, &games).unwrap();
+    eventually("alex in games", || {
+        occupants(&games) == Some(vec!["alex".into()]) && occupants(&general) == Some(vec![])
+    });
+    alex.join(&instance, &space_id, &general).unwrap();
+    eventually("alex moved to general", || {
+        occupants(&general) == Some(vec!["alex".into()]) && occupants(&games) == Some(vec![])
+    });
+    // In a call, the names stay: the call's stream is its own.
+    sam.join(&instance, &space_id, &games).unwrap();
+    eventually("sam in games", || {
+        occupants(&games) == Some(vec!["sam".into()])
+    });
+    assert_eq!(occupants(&general), Some(vec!["alex".into()]));
+    alex.leave();
+    eventually("alex left", || occupants(&general) == Some(vec![]));
+    assert!(changes.load(Ordering::Relaxed) >= 4, "each change was told");
+    // Serialized for the window: unknown occupants are left out.
+    let json = serde_json::to_value(sam.spaces_now()).unwrap();
+    assert!(json[0]["rooms"][0]["occupants"].is_array());
+    sam.leave();
+}
+
+#[test]
+fn names_are_unknown_while_the_server_is_away() {
+    let mut relay = Relay::start();
+    let space_key = [0x5a; 32];
+    let owner = Client::new(&relay.instance(), SigningKey::from_bytes(&[0xa1; 32])).unwrap();
+    // Seven spaces: one more than an instance has followed.
+    let mut links = Vec::new();
+    for n in 0..7 {
+        let space = owner
+            .create_space(&format!("Team {n}"), "general", "owner")
+            .unwrap();
+        let (invitation, _) = owner
+            .invite(&space.space.id, &space_key, None, Some(1))
+            .unwrap();
+        if n == 0 {
+            // Someone sits in the first one.
+            owner.join(&space.rooms[0].id).unwrap();
+        }
+        links.push(invitation.to_link());
+    }
+    let (sam, _) = desktop("sam-away", devices(Vec::new()));
+    for link in &links {
+        sam.accept(link, "sam").unwrap();
+    }
+    sam.spaces().unwrap();
+    let known = |space: &SpaceView| space.rooms[0].occupants.is_some();
+    eventually("six spaces followed", || {
+        sam.spaces_now().iter().filter(|s| known(s)).count() == 6
+    });
+    // Let a seventh stream try its luck: still six.
+    std::thread::sleep(Duration::from_millis(300));
+    let now = sam.spaces_now();
+    assert_eq!(now.iter().filter(|s| known(s)).count(), 6, "{now:#?}");
+    let team0 = |now: &[SpaceView]| now.iter().find(|s| s.name == "Team 0").unwrap().clone();
+    assert_eq!(team0(&now).rooms[0].occupants, Some(vec!["owner".into()]));
+
+    // The server goes down: the names are no longer known, rather than
+    // shown as current, as soon as the streams end, before the first
+    // attempt to open them again (2 seconds later).
+    relay.stop();
+    let deadline = Instant::now() + Duration::from_millis(1500);
+    while sam.spaces_now().iter().any(known) {
+        assert!(Instant::now() < deadline, "{:#?}", sam.spaces_now());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // It comes back, having forgotten every session: the streams open
+    // again and say so.
+    relay.start_again();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while team0(&sam.spaces_now()).rooms[0].occupants != Some(vec![]) {
+        assert!(Instant::now() < deadline, "{:#?}", sam.spaces_now());
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }

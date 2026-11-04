@@ -11,7 +11,11 @@ use drywire_proto::invite::Invitation;
 use serde::Serialize;
 
 use crate::error::AppError;
-use crate::session::{CallView, DeviceView, JoinRequest, Notices, Session, clamp_gate, printable};
+use crate::meter::Meter;
+use crate::rooms::{Changed, Rooms};
+use crate::session::{
+    CallView, DeviceView, JoinRequest, METER_FLOOR_DBFS, Notices, Session, clamp_gate, printable,
+};
 use crate::store::{KnownSpace, Settings, Store};
 
 /// What the loopback test measured.
@@ -72,6 +76,11 @@ pub struct RoomView {
     pub id: String,
     /// Its name.
     pub name: String,
+    /// Who sits in it, sorted by name; absent when unknown (the space's
+    /// event stream is not open, or [`crate::rooms::MAX_PER_INSTANCE`]
+    /// spaces of its instance are already followed).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub occupants: Option<Vec<String>>,
 }
 
 /// A space this device knows, with its rooms as the server lists them.
@@ -103,6 +112,13 @@ pub struct Desktop {
     /// polling the call never waits for a join.
     switching: Mutex<()>,
     session: Mutex<Option<Session>>,
+    /// The microphone's meter out of a call, while the settings show it.
+    meter: Mutex<Option<Meter>>,
+    /// Who sits in the rooms of the known spaces.
+    rooms: Rooms,
+    /// The spaces as last listed, without their occupants: what a change
+    /// of occupants is shown with, without asking the servers again.
+    listed: Mutex<Vec<SpaceView>>,
     /// One logged-in client per instance, kept for the app's lifetime:
     /// logging in for every command would spend the login budget the
     /// server gives each network.
@@ -111,14 +127,24 @@ pub struct Desktop {
 
 impl Desktop {
     /// The app on `store`, opening sound cards with `devices`, telling
-    /// `notices` who comes and goes in the room.
-    pub fn new(store: Store, devices: Devices, notices: Notices) -> Desktop {
+    /// `notices` who comes and goes in the room, and `rooms_changed` when
+    /// someone sits down in or leaves any room of the known spaces
+    /// ([`Desktop::spaces_now`] then has the new names).
+    pub fn new(
+        store: Store,
+        devices: Devices,
+        notices: Notices,
+        rooms_changed: Changed,
+    ) -> Desktop {
         Desktop {
             store,
             devices,
             notices,
             switching: Mutex::new(()),
             session: Mutex::new(None),
+            meter: Mutex::new(None),
+            rooms: Rooms::new(rooms_changed),
+            listed: Mutex::new(Vec::new()),
             clients: Mutex::new(HashMap::new()),
         }
     }
@@ -147,15 +173,19 @@ impl Desktop {
         Ok(space_view(client.instance(), &view))
     }
 
-    /// Every space this device knows, with its rooms. A server that cannot
-    /// be reached does not hide the others: its spaces carry the error.
+    /// Every space this device knows, with its rooms and who sits in
+    /// them. A server that cannot be reached does not hide the others: its
+    /// spaces carry the error. Each space listed is then followed, so its
+    /// occupants stay current ([`Desktop::spaces_now`]).
     pub fn spaces(&self) -> Result<Vec<SpaceView>, AppError> {
         let spaces = self.store.spaces().map_err(AppError::storage)?;
-        Ok(spaces
+        let mut reached = Vec::new();
+        let listing: Vec<SpaceView> = spaces
             .iter()
             .map(|known| {
-                let listed = self
-                    .client(&known.instance)
+                let client = self.client(&known.instance);
+                let listed = client
+                    .clone()
                     .and_then(|client| Ok(client.space(&known.space_id)?));
                 match listed {
                     Ok(view) => {
@@ -164,6 +194,9 @@ impl Desktop {
                             let mut renamed = known.clone();
                             renamed.name = view.space.name.clone();
                             let _ = self.store.remember(renamed);
+                        }
+                        if let Ok(client) = client {
+                            reached.push((client, known.space_id));
                         }
                         space_view(&known.instance, &view)
                     }
@@ -177,7 +210,29 @@ impl Desktop {
                     },
                 }
             })
-            .collect())
+            .collect();
+        // The listing first: a change of occupants is shown with it.
+        *self.listed.lock().expect("not poisoned") = listing;
+        for (client, space) in &reached {
+            self.rooms.follow(client, *space);
+        }
+        Ok(self.spaces_now())
+    }
+
+    /// The spaces as last listed, with who sits in their rooms now. Asks
+    /// no server: what the window shows when someone comes or goes.
+    pub fn spaces_now(&self) -> Vec<SpaceView> {
+        let mut spaces = self.listed.lock().expect("not poisoned").clone();
+        for space in &mut spaces {
+            let Some(space_id) = Id::parse(&space.id) else {
+                continue;
+            };
+            for room in &mut space.rooms {
+                room.occupants = Id::parse(&room.id)
+                    .and_then(|id| self.rooms.occupants(&space.instance, &space_id, &id));
+            }
+        }
+        spaces
     }
 
     /// Joins a room of a known space, leaving the current call first.
@@ -204,6 +259,8 @@ impl Desktop {
             settings: self.store.settings(),
             notices: Arc::clone(&self.notices),
         };
+        // The call needs the sound card.
+        self.close_meter();
         // The next join replaces this device's session on the server, so
         // there is no need to tell it we left.
         if let Some(previous) = self.take_session() {
@@ -311,6 +368,7 @@ impl Desktop {
     pub fn loopback_test(&self, duration: Duration) -> Result<LoopbackView, AppError> {
         let _switching = self.switching.lock().expect("not poisoned");
         self.refuse_in_a_call()?;
+        self.close_meter();
         let (test, input, output) = drywire_core::lab::Loopback::new();
         let mut device = (self.devices)()().map_err(|e| AppError::new("audio", e))?;
         let streams = device
@@ -343,6 +401,7 @@ impl Desktop {
     pub fn calibrate(&self, duration: Duration) -> Result<CalibrationView, AppError> {
         let _switching = self.switching.lock().expect("not poisoned");
         self.refuse_in_a_call()?;
+        self.close_meter();
         let frames = (duration.as_millis() / 5) as usize;
         let (recorder, input, output) = drywire_core::lab::LevelRecorder::new(frames);
         let mut device = (self.devices)()().map_err(|e| AppError::new("audio", e))?;
@@ -363,6 +422,46 @@ impl Desktop {
             gate_dbfs: clamp_gate(found.gate.open_dbfs),
             too_loud: found.too_loud,
         })
+    }
+
+    /// The microphone's level for the settings' meter, in dBFS from
+    /// [`METER_FLOOR_DBFS`] up. In a call, the call's. Out of one, the
+    /// first request opens the sound card, and it closes by itself a
+    /// second after the last ([`crate::meter`]). While a join or the lab
+    /// holds the sound card, the floor.
+    pub fn input_level(&self) -> Result<f32, AppError> {
+        if let Some(call) = self.call() {
+            return Ok(call.input_dbfs);
+        }
+        // Never wait for a join, which can take seconds: the interface
+        // asks again a moment later.
+        let Ok(_switching) = self.switching.try_lock() else {
+            return Ok(METER_FLOOR_DBFS);
+        };
+        if let Some(call) = self.call() {
+            return Ok(call.input_dbfs);
+        }
+        let mut meter = self.meter.lock().expect("not poisoned");
+        if let Some(running) = meter.as_ref() {
+            match running.level() {
+                Err(why) => {
+                    *meter = None;
+                    return Err(AppError::new("audio", why));
+                }
+                Ok(level) if !running.is_finished() => return Ok(level),
+                // It closed after a pause in the requests: open it again.
+                Ok(_) => {}
+            }
+        }
+        let started = Meter::start((self.devices)()).map_err(|e| AppError::new("audio", e))?;
+        let level = started.level().map_err(|e| AppError::new("audio", e))?;
+        *meter = Some(started);
+        Ok(level)
+    }
+
+    /// Closes the meter's sound card, if open, and waits until it is.
+    pub fn close_meter(&self) {
+        self.meter.lock().expect("not poisoned").take();
     }
 
     fn refuse_in_a_call(&self) -> Result<(), AppError> {
@@ -417,6 +516,7 @@ fn space_view(instance: &str, view: &drywire_control::SpaceView) -> SpaceView {
             .map(|r| RoomView {
                 id: r.id.to_hex(),
                 name: printable(&r.name),
+                occupants: None,
             })
             .collect(),
         error: None,

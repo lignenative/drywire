@@ -103,6 +103,13 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
+/// Whether the main window is shown and not minimized: hidden in the
+/// tray, it needs no microphone meter, whatever its page asks.
+pub fn main_on_screen(app: &AppHandle) -> bool {
+    app.get_webview_window(MAIN)
+        .is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
+}
+
 /// What the global shortcut and the tray's entry do.
 pub fn toggle_mute(app: &AppHandle) {
     if let Some(muted) = app.state::<Desktop>().toggle_muted() {

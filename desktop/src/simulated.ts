@@ -311,11 +311,18 @@ export const simulated: Api = {
     new Promise<CalibrationView>((done) =>
       setTimeout(() => done({ noiseDbfs: -67, peakDbfs: -61, gateDbfs: -58, tooLoud: false }), 1200),
     ),
+  // Out of a call, someone testing their voice: words, then pauses.
+  inputLevel: () => {
+    if (state.call) return resolve(view(state.call).inputDbfs);
+    return resolve(-62 + wave(Date.now() / 1000, 1.1, 0.5) * 34);
+  },
   launchAtLogin: () => resolve(state.launchAtLogin),
   setLaunchAtLogin: (enabled: boolean) => {
     state.launchAtLogin = enabled;
     return resolve(enabled);
   },
+  // The simulated rooms keep their people: nothing to push.
+  onSpaces: (_f: (spaces: SpaceView[]) => void): Promise<UnlistenFn> => resolve(() => {}),
   onPresence: (f: (notice: Notice) => void): Promise<UnlistenFn> => {
     state.listeners.add(f);
     return resolve(() => {

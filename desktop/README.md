@@ -11,6 +11,8 @@ desktop/
   src-tauri/       The Rust side: a Cargo workspace of its own (ADR 0030)
     src/app.rs       What each command does, without the window
     src/session.rs   A call in progress, on a thread of its own
+    src/rooms.rs     Who sits in each room of the known spaces
+    src/meter.rs     The microphone's level out of a call
     src/shell.rs     The tray icon, the global shortcut and the overlay
     src/latency.rs   The per-person latency estimate
     src/store.rs     The identity and the space keys on disk
@@ -29,7 +31,7 @@ mobile ones it adds).
   first"). Wide, a permanent menu on the left lists the spaces this device
   knows: a space with one room is a single row named after the space, a
   space with several lists its rooms under its name, and each room shows
-  who sits in it. Under the spaces, the call this device is in (one click
+  who sits in it, kept current from each space's event stream (ADR 0045). Under the spaces, the call this device is in (one click
   back to it, one to leave), then its own bar: name, mute, settings.
 - Beside the menu, the room picked in it. Out of a call: who is there and
   a button to join (joining another room leaves the current one). In a
@@ -46,9 +48,8 @@ mobile ones it adds).
 - A lock next to the space's name says whether the call is end-to-end
   verified: closed when everyone heard is verified, open while someone is
   being checked, open and amber when a voice is rejected (its audio is
-  dropped, and its name dimmed). A click lists who is verified. The Rust
-  side on `main` does not report it yet, so the lock is shown only in the
-  simulated call until the branch that adds it is merged.
+  dropped, and its name dimmed). A click lists who is verified, and whose
+  voice was rejected.
 - Narrow (under 640 of the canvas's pixels), the spaces are the first
   screen and a bar at the bottom keeps the call one click away; a click
   on a room joins it.
@@ -57,8 +58,9 @@ mobile ones it adds).
   overlay stays at 1.
 - Accepts an invitation link and the name to show in that space. With no
   space yet, the window asks for one.
-- The settings have their own menu: Voice (the gate's threshold and its
-  10-second calibration, the mute shortcut), Sounds, Display (the overlay
+- The settings have their own menu: Voice (the gate's threshold against
+  the microphone's live level, in a call or not, its 10-second
+  calibration, the mute shortcut), Sounds, Display (the overlay
   and its corner, the language, starting with the session), and Advanced
   (the loopback device test, and the device key an operator lists to let
   the device create spaces). Every setting applies at once. The gate and
@@ -76,9 +78,12 @@ mobile ones it adds).
   or goes. The game must run in borderless windowed mode; nothing is
   injected into it.
 - When the network drops long enough for the server to forget the
-  session, or the server restarts, the call shows "reconnecting" and
-  joins the room again on its own, keeping mute, the gate and the volumes
-  (ADR 0035).
+  session, or the server restarts, the call shows "reconnecting" with a
+  countdown to the next attempt, and joins the room again on its own,
+  keeping mute, the gate and the volumes (ADR 0035).
+- A call keeps the sound card it started on: after changing the system's
+  default device, or unplugging the one in use, leave and join again.
+  Following the default during a call is designed, not built (ADR 0046).
 - Starting with the session, hidden in the tray, if the person ticks it
   in the settings; off by default. On Windows this is a value under the
   current user's `Run` registry key, removed when unticked (untick it
@@ -103,17 +108,17 @@ and can be switched in the settings (Display).
   times a second. No callback ever reaches JavaScript.
 - **The encryption lock is computed in the core, never in the
   interface.** The call view carries `encryption: { state, people:
-  [{ publicKey, verified }] }`. `state` is `verified` when every person
+  [{ publicKey, verified, rejected }] }`. `state` is `verified` when every person
   heard has had their signed announcement verified with the public key
   the server gave and their frames authenticated, and at least one has;
   `pending` when alone, when nobody spoke yet, or while someone's audio
   arrives before their announcement; `failed` for 10 seconds after a
-  forged announcement or a tampered frame, which are dropped. A person
+  forged announcement or a tampered frame, which are dropped; `rejected`
+  names the person it came in the name of, for those 10 seconds. A person
   silent since this device joined shows `verified: false` without holding
   the room back. A reconnection shows `pending` until the new call
   verifies again. The definition, and what a closed lock does not prove,
-  are in ADR 0041. The window does not draw the lock yet: its design is
-  on its way to the canvas first.
+  are in ADR 0041.
 - **The commands are thin.** Each Tauri command (`commands.rs`) calls one
   method of `Desktop` (`app.rs`), so `tests/app.rs` drives the whole app
   against the real Go server, with in-memory sound cards.
@@ -127,10 +132,22 @@ and can be switched in the settings (Display).
   canvas (ADR 0037). Drywire's screens (`src/components/`) are made of
   them; `src/state.ts` holds the window's state and `src/model.ts` what
   the screens derive from the Rust side's views, tested without a
-  browser. Where the Rust side does not report something the canvas shows
-  yet (who sits in a room you are not in, the reconnection countdown, the
-  microphone's level out of a call), `src/api.ts` marks the field
-  optional with a TODO and the interface leaves it out.
+  browser. A few fields are optional in `src/api.ts` (who sits in a room,
+  the reconnection countdown, whose voice was rejected): the Rust side
+  always sends them, and the interface leaves out what a client does not.
+- **Who sits in each room is pushed, never polled.** Each space listed
+  is followed on a thread of its own (`rooms.rs`), at most 6 per
+  instance, under the server's limit of 8 event streams per identity
+  (past which a new stream ends the oldest, ADR 0047);
+  every change sends the spaces to the window as a `spaces` event, built
+  from the last listing without asking a server (ADR 0045). A stream that
+  ends, breaks or stays silent for 45 seconds (three of the server's
+  keepalives) shows its rooms without names until a new one opens:
+  names are never shown as current when they may not be.
+- **The microphone opens out of a call only for the settings' meter**, and
+  only while the Voice page asks for its level and the window is on
+  screen: the sound card closes a second after the last request, and
+  before a call or the lab takes it (ADR 0044).
 - **The binary is `drywire-desktop`**, never `drywire`, which is the
   command-line client (ADR 0029). The installer and the window say
   "Drywire".
@@ -204,8 +221,15 @@ run. What only a person on a Windows PC can check:
 - [ ] **A real call.** Paste an invitation link, join a room on the
       default sound card, hear a teammate and be heard; leave, and the
       teammate sees you go at once.
+- [ ] **Who sits where.** Out of a call, a teammate who joins or leaves a
+      room shows under it in the side menu within a second or two, and
+      the names disappear while the server is unreachable.
 - [ ] **Devices.** The connection (the signal chip) shows WASAPI and small buffers; a
       Bluetooth headset is flagged.
+- [ ] **Meter out of a call.** Settings, Voice: the meter moves with your
+      voice and the system's microphone indicator shows; it goes out about
+      a second after leaving the page, hiding the window in the tray, or
+      minimizing it.
 - [ ] **Call.** The voice gate's meter moves with your voice and turns green
       above the white mark; muting stops your teammate hearing you within a word;
       a teammate at 200 % is clearly louder, at 0 % silent.
