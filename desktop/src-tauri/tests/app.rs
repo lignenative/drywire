@@ -696,3 +696,35 @@ fn an_account_moves_to_another_app_with_a_code() {
     );
     assert_eq!(members.len(), 3, "{names:?}");
 }
+
+#[test]
+fn an_app_creates_a_space_and_invites_into_it() {
+    let relay = Relay::start();
+    let (owner, _) = desktop("create-owner", devices(Vec::new()));
+    // This relay lets anyone create spaces: no code is needed.
+    let space = owner
+        .create_space(&relay.instance(), None, "Scrims", "alex")
+        .unwrap();
+    assert_eq!(
+        (space.name.as_str(), space.role.as_str()),
+        ("Scrims", "owner")
+    );
+    assert_eq!(space.rooms[0].name, "general");
+    let invitation = owner.create_invitation(&space.instance, &space.id).unwrap();
+    assert!(
+        invitation.link.starts_with("https://drywire.gg/i#"),
+        "{invitation:?}"
+    );
+    assert_eq!(invitation.uses, 10);
+
+    std::thread::sleep(Duration::from_millis(1500));
+    let (guest, _) = desktop("create-guest", devices(Vec::new()));
+    let joined = guest.accept(&invitation.link, "sam").unwrap();
+    assert_eq!(joined.name, "Scrims");
+    assert_eq!(joined.role, "member");
+    // A member can join; only admins invite.
+    let err = guest
+        .create_invitation(&joined.instance, &joined.id)
+        .unwrap_err();
+    assert_eq!(err.code, "refused");
+}

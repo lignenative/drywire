@@ -126,6 +126,19 @@ pub struct RestoredView {
     pub spaces: Vec<SpaceView>,
 }
 
+/// An invitation link made for a space.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvitationView {
+    /// The link, which holds the space key: shown to the person who
+    /// invites, never logged.
+    pub link: String,
+    /// How many people can use it.
+    pub uses: u32,
+    /// When it stops working, RFC 3339.
+    pub expires_at: String,
+}
+
 /// A device code, waiting on an instance.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -355,6 +368,60 @@ impl Desktop {
         Ok(RestoredView {
             name: contents.name.clone(),
             spaces: self.spaces()?,
+        })
+    }
+
+    /// Creates a space on `instance`, with a creation code when this
+    /// account is not one the instance lets create spaces (ADR 0054), and
+    /// a fresh space key that only its members will hold.
+    pub fn create_space(
+        &self,
+        instance: &str,
+        creator_code: Option<&str>,
+        name: &str,
+        display_name: &str,
+    ) -> Result<SpaceView, AppError> {
+        let client = self.client(instance)?;
+        let code = creator_code.map(str::trim).filter(|c| !c.is_empty());
+        let view = client
+            .create_space_with_code(name.trim(), "general", display_name.trim(), code)
+            .map_err(|e| match e.status() {
+                Some(404) => AppError::new("creator_code_unknown", e.to_string()),
+                Some(400) if code.is_some() => AppError::new("bad_code", e.to_string()),
+                Some(403) => AppError::new("creator_code_needed", e.to_string()),
+                _ => AppError::from(e),
+            })?;
+        let mut space_key = [0u8; 32];
+        getrandom::fill(&mut space_key).map_err(|e| AppError::storage(e.to_string()))?;
+        self.store
+            .remember(KnownSpace::new(
+                client.instance(),
+                view.space.id,
+                &view.space.name,
+                &space_key,
+            ))
+            .map_err(AppError::storage)?;
+        self.seal_recovery_again();
+        Ok(space_view(client.instance(), &view))
+    }
+
+    /// Makes an invitation link to a space, for 10 people and 7 days.
+    pub fn create_invitation(
+        &self,
+        instance: &str,
+        space_id: &str,
+    ) -> Result<InvitationView, AppError> {
+        let id = parse_id(space_id)?;
+        let known = self
+            .store
+            .space(instance, &id)
+            .map_err(|e| AppError::new("not_found", e))?;
+        let key = known.space_key().map_err(AppError::storage)?;
+        let (invitation, info) = self.client(instance)?.invite(&id, &key, None, None)?;
+        Ok(InvitationView {
+            link: invitation.to_link(),
+            uses: info.max_uses,
+            expires_at: info.expires_at,
         })
     }
 

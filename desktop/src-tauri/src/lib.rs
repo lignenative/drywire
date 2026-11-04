@@ -108,6 +108,8 @@ pub fn run() {
             commands::new_recovery_code,
             commands::new_device_code,
             commands::restore_account,
+            commands::create_space,
+            commands::create_invitation,
             commands::accept_invitation,
             commands::list_spaces,
             commands::join_room,

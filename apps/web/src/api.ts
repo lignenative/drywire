@@ -10,6 +10,7 @@ import type {
   AppError,
   CalibrationView,
   DeviceCodeView,
+  InvitationView,
   LoopbackView,
   Notice,
   Preferences,
@@ -22,6 +23,7 @@ import { recordLevels, WebCall } from "./call";
 import { type EncoderSettings, SAMPLE_RATE } from "./codec";
 import { ControlError, ControlPlane } from "./control";
 import { fromSeed, type Identity, saveIdentity } from "./identity";
+import { invitationLink } from "./links";
 import { hex, type Protocol, ProtocolError, unhex } from "./protocol";
 import {
   loadRecovery,
@@ -216,6 +218,51 @@ export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec:
         return { code: formatCode(secret), instance, expiresInS: waiting.expires_in };
       } catch (e) {
         throw "code" in (e as object) && !(e instanceof Error) ? e : asAppError(e);
+      }
+    },
+
+    createSpace: async (instance: string, creatorCode: string | null, name: string, displayName: string) => {
+      const code = creatorCode?.trim() || null;
+      let answer;
+      try {
+        answer = await control(instance).createSpace(name.trim(), displayName.trim(), code);
+      } catch (e) {
+        if (e instanceof ControlError && e.code === "not_found") throw appError("creator_code_unknown", e.message);
+        if (e instanceof ControlError && e.code === "refused" && code && /: 400 /.test(e.message)) {
+          throw appError("bad_code", e.message);
+        }
+        if (e instanceof ControlError && e.code === "refused" && /: 403 /.test(e.message)) {
+          throw appError("creator_code_needed", e.message);
+        }
+        throw asAppError(e);
+      }
+      // 256 random bits that only the members will ever hold.
+      const spaceKey = crypto.getRandomValues(new Uint8Array(32));
+      const stored: StoredSpace = {
+        instance,
+        id: answer.space.id,
+        name: answer.space.name,
+        role: answer.role,
+        spaceKey: hex(spaceKey),
+        rooms: answer.rooms.map((r) => ({ id: r.id, name: r.name })),
+      };
+      saveSpaces([...loadSpaces(), stored]);
+      void sealRecoveryAgain();
+      return view(stored, null);
+    },
+
+    createInvitation: async (instance: string, spaceId: string): Promise<InvitationView> => {
+      const known = loadSpaces().find((s) => s.instance === instance && s.id === spaceId);
+      if (!known) throw appError("not_found", "no such space in this browser");
+      try {
+        const created = await control(instance).createInvitation(spaceId);
+        return {
+          link: invitationLink(unhex(created.code), unhex(known.spaceKey), instance),
+          uses: created.invitation.max_uses,
+          expiresAt: created.invitation.expires_at,
+        };
+      } catch (e) {
+        throw asAppError(e);
       }
     },
 
