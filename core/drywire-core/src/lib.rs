@@ -5,6 +5,7 @@
 //! - [`config`]: what a call starts from, as the control plane hands it out.
 //! - [`sender`]: microphone frames to sealed packets.
 //! - [`inbound`]: packets from the relay to checked, decrypted frames.
+//! - [`encryption`]: whether everyone heard is verified, for the lock.
 //! - [`mixer`]: one jitter buffer and decoder per sender, mixed for the
 //!   sound card.
 //! - [`link`]: `hello`, `ping` and `keepalive` with the relay.
@@ -22,6 +23,7 @@
 pub mod audio;
 pub mod call;
 pub mod config;
+pub mod encryption;
 pub mod gate;
 pub mod inbound;
 pub mod jitter;

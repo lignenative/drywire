@@ -10,7 +10,8 @@
 //!   once is dropped and counted, never waited for (ADR 0016).
 //! - **Network** (a thread of its own): receives, checks and decrypts with
 //!   [`Inbound`], drives the [`Link`] (pings, keepalives, new hellos), and
-//!   passes decrypted frames to playback through a wait-free ring.
+//!   passes decrypted frames to playback through a wait-free ring. It also
+//!   tells whether everyone heard is verified ([`EncryptionMonitor`]).
 //! - **Playback** (the audio output callback): drains that ring into the
 //!   [`Mixer`] and renders the mix.
 //!
@@ -36,6 +37,7 @@ use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::audio::{InputCallback, OutputCallback};
 use crate::config::ClientConfig;
+use crate::encryption::{Encryption, EncryptionMonitor};
 use crate::gate::{GateConfig, mean_square, power_to_dbfs};
 use crate::inbound::{Event, Inbound, InboundStats};
 use crate::jitter::JitterStats;
@@ -78,6 +80,8 @@ pub struct CallStats {
     pub send_errors: u64,
     /// What was received and dropped before playback.
     pub inbound: InboundStats,
+    /// Whether everyone heard is verified: the lock (ADR 0041).
+    pub encryption: Encryption,
     /// Frames dropped because playback had not taken the previous ones yet
     /// (see [`PLAYBACK_QUEUE`]): playback stalled.
     pub playback_queue_full: u64,
@@ -521,6 +525,8 @@ fn network_loop(
     let mut buf = [0u8; MAX_PACKET_SIZE];
     let mut next_stats_us = 0;
     let mut queue_full = 0;
+    let mut monitor = EncryptionMonitor::new();
+    let mut encryption = Encryption::default();
     while !shared.stop.load(Ordering::Relaxed) {
         let now = shared.now_us();
         members.apply(now, &mut inbound, &mut events);
@@ -563,17 +569,27 @@ fn network_loop(
         }
         if now >= next_stats_us {
             next_stats_us = now + 100_000;
-            publish_network(shared, &link, &inbound, queue_full);
+            monitor.update(now, inbound.senders(), &mut encryption);
+            publish_network(shared, &link, &inbound, &encryption, queue_full);
         }
     }
     // The final numbers, after the last packet.
-    publish_network(shared, &link, &inbound, queue_full);
+    monitor.update(shared.now_us(), inbound.senders(), &mut encryption);
+    publish_network(shared, &link, &inbound, &encryption, queue_full);
 }
 
-fn publish_network(shared: &Shared, link: &Link, inbound: &Inbound, queue_full: u64) {
+fn publish_network(
+    shared: &Shared,
+    link: &Link,
+    inbound: &Inbound,
+    encryption: &Encryption,
+    queue_full: u64,
+) {
     let mut stats = shared.stats.lock().expect("not poisoned");
     stats.link = link.stats();
     stats.inbound = inbound.stats();
+    // Derived before taking the lock, which the audio callbacks try for.
+    stats.encryption.clone_from(encryption);
     stats.playback_queue_full = queue_full;
 }
 

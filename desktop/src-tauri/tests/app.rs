@@ -18,7 +18,7 @@ use drywire_core::audio::file::{FileIo, Source};
 use drywire_core::audio::{AudioError, AudioIo, InputCallback, OutputCallback, StreamInfo};
 use drywire_core::opus::SAMPLE_RATE;
 use drywire_desktop::app::{Desktop, Devices, Preferences};
-use drywire_desktop::session::{CallView, Notice, Notices};
+use drywire_desktop::session::{CallView, LockState, Notice, Notices, PersonLock};
 use drywire_desktop::store::Store;
 use drywire_proto::crypto::SigningKey;
 use relay::Relay;
@@ -120,6 +120,9 @@ fn members_join_by_link_and_meet_in_a_room() {
     assert_eq!(names(&view), ["sam"]);
     assert!(view.participants[0].me);
     assert_eq!(view.devices.len(), 2, "both streams are shown");
+    // Alone, nothing is verified: the lock never shows closed for nothing.
+    assert_eq!(view.encryption.state, LockState::Pending);
+    assert!(view.encryption.people.is_empty());
     wait_for(&sam, "the relay answers pings", |v| {
         v.bound && v.rtt_ms.is_some()
     });
@@ -143,6 +146,15 @@ fn members_join_by_link_and_meet_in_a_room() {
     });
     let view = wait_for(&sam, "sam hears alex", |v| v.participants[1].speaking);
     let alex_key = view.participants[1].public_key.clone();
+    // Alex's signed announcement verified: the lock closes.
+    let view = wait_for(&sam, "alex verified", |v| {
+        v.encryption.state == LockState::Verified
+    });
+    let alex_lock = PersonLock {
+        public_key: alex_key.clone(),
+        verified: true,
+    };
+    assert_eq!(view.encryption.people, [alex_lock]);
 
     // Sam turns Alex up; Alex mutes, and Sam sees them stop.
     sam.set_volume(&alex_key, 1.5).unwrap();

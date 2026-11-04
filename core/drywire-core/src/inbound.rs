@@ -6,6 +6,9 @@
 //! per epoch. For an audio packet it finds the key, decrypts, drops
 //! duplicates, and splits the payload into frames (protocol sections 7
 //! and 8). Everything it drops is counted under the codes of section 9.
+//! It also keeps, per member, what it checked of their packets
+//! ([`SenderCheck`]), from which [`encryption`](crate::encryption) tells
+//! whether everyone heard is verified.
 //!
 //! It does no I/O and keeps no clock. Its output feeds the jitter buffers of
 //! the [`mixer`](crate::mixer).
@@ -77,6 +80,43 @@ pub struct InboundStats {
     pub too_old: u64,
 }
 
+/// What a receiver checked of one member's packets, over the call.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SenderCheck {
+    /// The member's session.
+    pub session: u32,
+    /// The public key the control plane gave for them, which their
+    /// announcements must verify with.
+    pub public_key: VerifyingKey,
+    /// Whether one of their announcements verified with `public_key`: the
+    /// key their audio decrypts with comes from a salt they signed.
+    pub verified: bool,
+    /// Whether audio of theirs arrived, whatever became of it.
+    pub heard: bool,
+    /// Their announcements whose signature did not verify.
+    pub bad_signature: u64,
+    /// Their audio packets that failed authentication (AES-GCM).
+    pub bad_tag: u64,
+}
+
+impl SenderCheck {
+    fn new(session: u32, public_key: VerifyingKey) -> SenderCheck {
+        SenderCheck {
+            session,
+            public_key,
+            verified: false,
+            heard: false,
+            bad_signature: 0,
+            bad_tag: 0,
+        }
+    }
+
+    /// Signature and authentication failures together.
+    pub fn failures(&self) -> u64 {
+        self.bad_signature + self.bad_tag
+    }
+}
+
 /// The key of one sender's epoch, and the packets seen in it.
 struct EpochKey {
     epoch: u8,
@@ -87,10 +127,19 @@ struct EpochKey {
 
 /// What a receiver knows about one other member.
 struct Peer {
-    public_key: VerifyingKey,
+    check: SenderCheck,
     /// The last two epochs announced, newest last, so packets reordered
     /// across an epoch change still decrypt.
     epochs: Vec<EpochKey>,
+}
+
+impl Peer {
+    fn new(session: u32, public_key: VerifyingKey) -> Peer {
+        Peer {
+            check: SenderCheck::new(session, public_key),
+            epochs: Vec::with_capacity(2),
+        }
+    }
 }
 
 /// Checks and decrypts the packets a client receives.
@@ -114,10 +163,7 @@ impl Inbound {
             room_key: room_key(space_key, &room_id),
             peers: members
                 .into_iter()
-                .map(|(session, public_key)| {
-                    let epochs = Vec::with_capacity(2);
-                    (session, Peer { public_key, epochs })
-                })
+                .map(|(session, public_key)| (session, Peer::new(session, public_key)))
                 .collect(),
             stats: InboundStats::default(),
         }
@@ -129,8 +175,7 @@ impl Inbound {
         if self.peers.contains_key(&session) {
             return false;
         }
-        let epochs = Vec::with_capacity(2);
-        self.peers.insert(session, Peer { public_key, epochs });
+        self.peers.insert(session, Peer::new(session, public_key));
         true
     }
 
@@ -143,6 +188,12 @@ impl Inbound {
     /// The counters so far.
     pub fn stats(&self) -> InboundStats {
         self.stats
+    }
+
+    /// What was checked of each member's packets so far, in no particular
+    /// order.
+    pub fn senders(&self) -> impl Iterator<Item = SenderCheck> + '_ {
+        self.peers.values().map(|peer| peer.check)
     }
 
     /// Handles an `audio` or `announce` packet from the relay. Other types
@@ -167,15 +218,18 @@ impl Inbound {
             self.stats.unknown_sender += 1;
             return None;
         };
-        let Ok(salt) = verify_announce(&peer.public_key, &self.room_id, packet) else {
+        let public_key = peer.check.public_key;
+        let Ok(salt) = verify_announce(&public_key, &self.room_id, packet) else {
             self.stats.bad_signature += 1;
+            peer.check.bad_signature += 1;
             return None;
         };
         self.stats.announces += 1;
+        peer.check.verified = true;
         let fresh = || EpochKey {
             epoch,
             salt,
-            key: AudioKey::new(&sender_key(&self.room_key, &salt, &peer.public_key)),
+            key: AudioKey::new(&sender_key(&self.room_key, &salt, &public_key)),
             window: ReplayWindow::new(),
         };
         match peer.epochs.iter().position(|e| e.epoch == epoch) {
@@ -201,11 +255,12 @@ impl Inbound {
     }
 
     fn audio(&mut self, session: u32, epoch: u8, packet: &[u8]) -> Option<Event> {
-        let Some(epoch_key) = self
-            .peers
-            .get_mut(&session)
-            .and_then(|peer| peer.epochs.iter_mut().find(|e| e.epoch == epoch))
-        else {
+        let Some(peer) = self.peers.get_mut(&session) else {
+            self.stats.no_key += 1;
+            return None;
+        };
+        peer.check.heard = true;
+        let Some(epoch_key) = peer.epochs.iter_mut().find(|e| e.epoch == epoch) else {
             self.stats.no_key += 1;
             return None;
         };
@@ -213,6 +268,7 @@ impl Inbound {
             Ok(plaintext) => plaintext,
             Err(_) => {
                 self.stats.bad_tag += 1;
+                peer.check.bad_tag += 1;
                 return None;
             }
         };
@@ -323,6 +379,35 @@ mod tests {
         assert_eq!(r.stats().bad_tag, 1);
         assert_eq!(r.handle(&[1, 2, 3]), None);
         assert_eq!(r.stats().invalid, 1);
+    }
+
+    #[test]
+    fn each_sender_s_checks_are_counted_apart() {
+        let mut s = sender();
+        let packets = loud_packets(&mut s);
+        let mut r = inbound();
+        let check = |r: &Inbound| r.senders().next().unwrap();
+        assert!(!check(&r).heard && !check(&r).verified);
+        // Audio before the announcement: heard, not verified.
+        r.handle(&packets[1]);
+        assert!(check(&r).heard && !check(&r).verified);
+        r.handle(&packets[0]);
+        assert!(check(&r).verified);
+        // A forged announcement and a tampered frame, both in session 7.
+        let config = SenderConfig::new(FrameSize::Ms5);
+        let forger = SigningKey::from_bytes(&[9; 32]);
+        let mut forger = Sender::new(forger, 7, ROOM, &SPACE, config).unwrap();
+        r.handle(&forger.announce());
+        let mut tampered = loud_packets(&mut s).pop().unwrap();
+        tampered[16] ^= 1;
+        r.handle(&tampered);
+        let c = check(&r);
+        assert_eq!((c.bad_signature, c.bad_tag, c.failures()), (1, 1, 2));
+        assert!(c.verified, "the real announcement still counts");
+        // A stranger's packets are nobody's.
+        let mut stranger = Sender::new(SigningKey::from_bytes(&[1; 32]), 8, ROOM, &SPACE, config);
+        r.handle(&stranger.as_mut().unwrap().announce());
+        assert_eq!(r.senders().count(), 1);
     }
 
     #[test]

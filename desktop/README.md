@@ -97,6 +97,19 @@ and can be switched in the settings (Display).
   (`session.rs`) owns the call and the sound card; every 20 ms it copies
   the call's counters into a view, and the interface polls that copy a few
   times a second. No callback ever reaches JavaScript.
+- **The encryption lock is computed in the core, never in the
+  interface.** The call view carries `encryption: { state, people:
+  [{ publicKey, verified }] }`. `state` is `verified` when every person
+  heard has had their signed announcement verified with the public key
+  the server gave and their frames authenticated, and at least one has;
+  `pending` when alone, when nobody spoke yet, or while someone's audio
+  arrives before their announcement; `failed` for 10 seconds after a
+  forged announcement or a tampered frame, which are dropped. A person
+  silent since this device joined shows `verified: false` without holding
+  the room back. A reconnection shows `pending` until the new call
+  verifies again. The definition, and what a closed lock does not prove,
+  are in ADR 0041. The window does not draw the lock yet: its design is
+  on its way to the canvas first.
 - **The commands are thin.** Each Tauri command (`commands.rs`) calls one
   method of `Desktop` (`app.rs`), so `tests/app.rs` drives the whole app
   against the real Go server, with in-memory sound cards.

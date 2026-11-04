@@ -58,4 +58,5 @@ Status: Accepted · YYYY-MM-DD
 | [0038](0038-reach-the-relay-from-browsers-over-webtransport.md) | Reach the relay from browsers over WebTransport, on a port of its own |
 | [0039](0039-pin-the-web-relay-certificate-by-its-hash.md) | Pin the web relay's certificate by its hash |
 | [0040](0040-run-the-protocol-in-the-browser-as-webassembly.md) | Run the protocol in the browser as WebAssembly, and Opus through WebCodecs for now |
+| [0041](0041-close-the-lock-only-when-everyone-heard-is-verified.md) | Close the lock only when everyone heard is verified |
 | [0043](0043-keep-the-website-and-the-hosted-offer-out-of-this-repository.md) | Keep the website and the hosted offer out of this repository |
