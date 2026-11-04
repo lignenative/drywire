@@ -6,8 +6,8 @@
 
    Every size is in rem, and 1rem is 16 of the canvas's pixels: the root
    font size below scales the whole interface at once, and follows the
-   browser's own text size. The canvas draws its V3 page at the same
-   scale. */
+   browser's own text size. The canvas's components take the same scale
+   as a prop. */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./shadcn.css";
@@ -78,9 +78,10 @@
   color-scheme: dark;
   --radius: 0.75rem;
 
-  /* The interface drawn larger than the canvas's pixels: clearer, and
-     friendlier. The overlay keeps 1 (overlay.css). */
-  --ui-scale: 1.2;
+  /* How large the interface is drawn against the canvas's pixels. 1 for
+     now; a setting may let each person choose it later. The overlay
+     always keeps 1 (overlay.css). */
+  --ui-scale: 1;
 
   /* Graphite. */
   --background: #0f1012;
