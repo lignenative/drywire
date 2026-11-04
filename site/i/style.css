@@ -72,3 +72,20 @@ button {
   color: var(--muted);
   font-size: 0.9rem;
 }
+
+/* Everything that can be clicked shows the pointing hand, as everywhere
+   on the web: browsers leave buttons on the default arrow. */
+a[href],
+button:not(:disabled),
+summary,
+select:not(:disabled),
+label:has(> input:not(:disabled)),
+input:is([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="button"], [type="submit"], [type="reset"]):not(:disabled),
+:is([role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"]):not([aria-disabled="true"], [data-disabled]) {
+  cursor: pointer;
+}
+:disabled,
+[aria-disabled="true"],
+[data-disabled]:not([data-disabled="false"]) {
+  cursor: not-allowed;
+}

@@ -8,6 +8,9 @@
       body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 48rem; }
       input { width: 100%; font: inherit; }
       pre { background: #f4f4f4; padding: 1rem; white-space: pre-wrap; }
+      /* Clickable things show the pointing hand: CLAUDE.md, "Interfaces". */
+      a[href], button:not(:disabled), summary, label:has(> input) { cursor: pointer; }
+      :disabled { cursor: not-allowed; }
     </style>
   </head>
   <body>

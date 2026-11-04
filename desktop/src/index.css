@@ -144,6 +144,23 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Everything that can be clicked shows the pointing hand, as everywhere
+     on the web: browsers and Tailwind 4 leave buttons on the default arrow.
+     Utility classes still win (cursor-ew-resize on a slider). */
+  a[href],
+  button:not(:disabled),
+  summary,
+  select:not(:disabled),
+  label:has(> input:not(:disabled)),
+  input:is([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="button"], [type="submit"], [type="reset"]):not(:disabled),
+  :is([role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"]):not([aria-disabled="true"], [data-disabled]) {
+    cursor: pointer;
+  }
+  :disabled,
+  [aria-disabled="true"],
+  [data-disabled]:not([data-disabled="false"]) {
+    cursor: not-allowed;
+  }
 }
 
 /* The bars next to a name while that person speaks: each grows and

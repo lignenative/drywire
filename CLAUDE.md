@@ -67,6 +67,11 @@ fixed in the same change.
   devices and hosts. Never commit a real server name, address or player.
 - **Logs stay minimal.** Application logs never contain audio, tokens, secrets
   or IP addresses.
+- **Clickable means the pointing hand.** In every web interface (the desktop
+  app's interface, the web client, the invitation page), whatever can be
+  clicked shows `cursor: pointer`, and a disabled control `not-allowed`.
+  One base rule per stylesheet does it (`desktop/src/index.css`,
+  `site/i/style.css`); an element it misses gets `cursor-pointer`.
 
 ## Design first
 
