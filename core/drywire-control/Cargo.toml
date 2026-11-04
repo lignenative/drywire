@@ -8,6 +8,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+drywire-mls.workspace = true
 drywire-proto.workspace = true
 getrandom.workspace = true
 rustls.workspace = true
@@ -19,5 +20,4 @@ ureq.workspace = true
 workspace = true
 
 [dev-dependencies]
-drywire-mls.workspace = true
 serde_json.workspace = true

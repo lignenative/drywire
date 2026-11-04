@@ -24,6 +24,7 @@
 
 mod accounts;
 mod events;
+mod group;
 mod mls;
 mod types;
 mod vault;
@@ -42,6 +43,7 @@ use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
 pub use accounts::{AccountDevice, PendingInvitation, SignedIn, User};
 pub use events::Events;
+pub use group::{GroupState, SpaceGroup};
 pub use mls::PendingKeyPackage;
 pub use types::*;
 pub use vault::{DeviceVault, VaultContents, VaultKind, VaultSpace, new_code, open_vault};

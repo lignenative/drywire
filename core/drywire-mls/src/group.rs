@@ -132,27 +132,25 @@ impl Group {
         pending: &[PendingDevice],
         is_member: impl Fn(&[u8; 32]) -> bool,
     ) -> Result<Commit, Error> {
+        // A package that fails a check is left out, so that one bad
+        // device never keeps the others waiting; with none left, the first
+        // failure says why.
         let mut packages = Vec::with_capacity(pending.len());
+        let mut welcomed = Vec::with_capacity(pending.len());
+        let mut first_error = None;
         for p in pending {
-            let package = KeyPackageIn::tls_deserialize_exact(p.key_package.as_slice())
-                .map_err(|_| Error::Malformed)?
-                .validate(device.provider.crypto(), ProtocolVersion::Mls10)
-                .map_err(mls)?;
-            // One suite only: the others' code is not ours to vouch for
-            // (core/deny.toml).
-            if package.ciphersuite() != CIPHERSUITE {
-                return Err(Error::Malformed);
+            match checked(device, p, &is_member) {
+                Ok(package) => {
+                    packages.push(package);
+                    welcomed.push(p.device);
+                }
+                Err(e) => {
+                    first_error.get_or_insert(e);
+                }
             }
-            let leaf = package.leaf_node();
-            if leaf.signature_key().as_slice() != p.device {
-                return Err(Error::WrongDevice);
-            }
-            check(
-                leaf.credential(),
-                leaf.signature_key().as_slice(),
-                &is_member,
-            )?;
-            packages.push(package);
+        }
+        if packages.is_empty() {
+            return Err(first_error.unwrap_or(Error::Malformed));
         }
         let (commit, welcome, _) = self
             .inner
@@ -161,8 +159,21 @@ impl Group {
         Ok(Commit {
             commit: commit.tls_serialize_detached().map_err(mls)?,
             welcome: Some(welcome.tls_serialize_detached().map_err(mls)?),
-            welcomed: pending.iter().map(|p| p.device).collect(),
+            welcomed,
         })
+    }
+
+    /// Whether this device is still in the group: false once a commit
+    /// removed it.
+    pub fn is_active(&self) -> bool {
+        self.inner.is_active()
+    }
+
+    /// Forgets this group's state on this device: it was removed, or its
+    /// state went wrong, and it joins again as a new leaf.
+    pub fn forget(self, device: &Device) -> Result<(), Error> {
+        let mut inner = self.inner;
+        inner.delete(device.provider.storage()).map_err(mls)
     }
 
     /// Stages a commit that removes every leaf that is no longer a device
@@ -281,6 +292,34 @@ impl Group {
         key.try_into()
             .map_err(|_| Error::Mls("the exporter gave another length".into()))
     }
+}
+
+/// A key package that is the device's it was posted for, of the one suite,
+/// and a member's device.
+fn checked(
+    device: &Device,
+    p: &PendingDevice,
+    is_member: &impl Fn(&[u8; 32]) -> bool,
+) -> Result<KeyPackage, Error> {
+    let package = KeyPackageIn::tls_deserialize_exact(p.key_package.as_slice())
+        .map_err(|_| Error::Malformed)?
+        .validate(device.provider.crypto(), ProtocolVersion::Mls10)
+        .map_err(mls)?;
+    // One suite only: the others' code is not ours to vouch for
+    // (core/deny.toml).
+    if package.ciphersuite() != CIPHERSUITE {
+        return Err(Error::Malformed);
+    }
+    let leaf = package.leaf_node();
+    if leaf.signature_key().as_slice() != p.device {
+        return Err(Error::WrongDevice);
+    }
+    check(
+        leaf.credential(),
+        leaf.signature_key().as_slice(),
+        is_member,
+    )?;
+    Ok(package)
 }
 
 /// The device a leaf is, if its credential names its own key and that key
