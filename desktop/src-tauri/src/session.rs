@@ -35,6 +35,7 @@ use drywire_control::{Client, Event, Id, Presence, to_hex};
 use drywire_core::audio::{AudioIo, StreamInfo};
 use drywire_core::call::{Call, CallControls, CallMembers, CallOptions, CallStats};
 use drywire_core::config::{ClientConfig, Member};
+use drywire_core::encryption::{EncryptionState, SenderState};
 use drywire_core::gate::GateConfig;
 use drywire_core::link::LinkConfig;
 use drywire_core::opus::{FrameSize, SAMPLE_RATE};
@@ -188,6 +189,54 @@ pub struct Counters {
     pub depth: usize,
 }
 
+/// The encryption lock's state (ADR 0041).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LockState {
+    /// Nothing verified yet: alone, nobody spoke so far, or someone's
+    /// audio arrives before their signed announcement.
+    #[default]
+    Pending,
+    /// Everyone heard is verified: the lock is closed.
+    Verified,
+    /// A forged announcement or a tampered frame in the last 10 seconds,
+    /// dropped and never played.
+    Failed,
+}
+
+impl From<EncryptionState> for LockState {
+    fn from(state: EncryptionState) -> LockState {
+        match state {
+            EncryptionState::Pending => LockState::Pending,
+            EncryptionState::Verified => LockState::Verified,
+            EncryptionState::Failed => LockState::Failed,
+        }
+    }
+}
+
+/// Whether end-to-end encryption is verified for everyone heard: what the
+/// lock shows.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncryptionView {
+    /// The room's state.
+    pub state: LockState,
+    /// Everyone else in the room, in the order of `participants`.
+    pub people: Vec<PersonLock>,
+}
+
+/// One person, for the lock.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonLock {
+    /// Their identity's public key, in hex, as in [`Participant`].
+    pub public_key: String,
+    /// Whether their signed announcement verified with that key and
+    /// nothing in their name failed lately. `false` for someone silent
+    /// since this device joined, who does not hold the room back.
+    pub verified: bool,
+}
+
 /// One audio stream, as the system opened it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -271,6 +320,8 @@ pub struct CallView {
     pub participants: Vec<Participant>,
     /// The audio streams, as the system opened them.
     pub devices: Vec<DeviceView>,
+    /// Whether everyone heard is verified: the lock.
+    pub encryption: EncryptionView,
 }
 
 /// A running session. Dropping it ends the call.
@@ -502,6 +553,11 @@ impl SessionThread {
         view.input_dbfs = METER_FLOOR_DBFS;
         for person in &mut view.participants {
             person.speaking = false;
+        }
+        // Nothing is heard until the next call verifies it again.
+        view.encryption.state = LockState::Pending;
+        for person in &mut view.encryption.people {
+            person.verified = false;
         }
         log_reconnection(&why);
         *self.view.lock().expect("not poisoned") = view;
@@ -890,6 +946,7 @@ impl Live {
             self.measure_loss(&stats);
         }
         self.view.participants = self.participants(&stats);
+        self.view.encryption = self.encryption(&stats);
         *shared.lock().expect("not poisoned") = self.view.clone();
     }
 
@@ -962,6 +1019,26 @@ impl Live {
                 .then(a.session.cmp(&b.session))
         });
         list
+    }
+
+    /// The lock's state and each person's, in the participants' order.
+    fn encryption(&self, stats: &CallStats) -> EncryptionView {
+        let senders = &stats.encryption.senders;
+        EncryptionView {
+            state: stats.encryption.state.into(),
+            people: self
+                .view
+                .participants
+                .iter()
+                .filter(|p| !p.me)
+                .map(|p| PersonLock {
+                    public_key: p.public_key.clone(),
+                    verified: senders
+                        .iter()
+                        .any(|s| s.session == p.session && s.state == SenderState::Verified),
+                })
+                .collect(),
+        }
     }
 
     fn stop_audio(&mut self) {
@@ -1043,4 +1120,26 @@ pub fn printable(name: &str) -> String {
     name.chars()
         .map(|c| if c.is_control() { '?' } else { c })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_lock_reaches_the_interface_in_camel_case() {
+        let view = EncryptionView {
+            state: LockState::Verified,
+            people: vec![PersonLock {
+                public_key: "ab".into(),
+                verified: true,
+            }],
+        };
+        assert_eq!(
+            serde_json::to_string(&view).unwrap(),
+            r#"{"state":"verified","people":[{"publicKey":"ab","verified":true}]}"#
+        );
+        let json = serde_json::to_value(CallView::default()).unwrap();
+        assert_eq!(json["encryption"]["state"], "pending");
+    }
 }
