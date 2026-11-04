@@ -11,7 +11,8 @@ import type { Identity } from "./identity";
 import { hex } from "./protocol";
 
 const glue = new URL("./mls-wasm/drywire_mls_wasm.js", import.meta.url);
-const built = existsSync(glue);
+// The real module, not the stub make test writes without wasm-bindgen.
+const built = existsSync(new URL("./mls-wasm/drywire_mls_wasm_bg.wasm", import.meta.url));
 
 // Bun has no localStorage: a map stands in for it.
 const stored = new Map<string, string>();
