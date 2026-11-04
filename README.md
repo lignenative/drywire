@@ -43,7 +43,7 @@ The full design, its reasons and the roadmap are in
 | `server/` | The Go relay and control plane ([`server/README.md`](server/README.md)) |
 | `core/` | The Rust core shared by every client, the control plane client, and `drywire` ([`core/README.md`](core/README.md)) |
 | `desktop/` | The desktop app for Windows: Tauri v2 and React ([`desktop/README.md`](desktop/README.md)) |
-| `site/` | The static site: for now, the invitation page ([`site/README.md`](site/README.md)) |
+| `site/` | The invitation page every invitation link opens ([`site/README.md`](site/README.md)); the rest of the website lives elsewhere (ADR 0043) |
 | `docs/` | The specification, the protocol, and decision records (`docs/adr/`) |
 | `deploy/` | Running a real instance: image, Compose, systemd unit, deployment guide ([`deploy/README.md`](deploy/README.md)) |
 | `scripts/` | The scripts behind every `make` command |
@@ -105,4 +105,6 @@ and for coding agents alike.
 ## License
 
 The code is released under the [MIT license](LICENSE). The Drywire name and
-logo belong to Ligne Native and are not covered by the license.
+logo belong to Ligne Native and are not covered by the license: a fork takes
+another name and another logo, and saying it works with Drywire is fine
+([`TRADEMARKS.md`](TRADEMARKS.md)).
