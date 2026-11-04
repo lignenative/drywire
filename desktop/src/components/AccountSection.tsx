@@ -1,94 +1,116 @@
-// The settings' account page (ADR 0051): the recovery code, a code to
-// add a device, and the device key an operator asks for. A code is shown
-// once, in a dialog; nothing keeps it on screen afterwards.
-import { Clock } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+// The settings' account page (ADR 0055, the canvas's V4 page): the user
+// name and the address this device signed in with, the account's
+// devices (any other one can be signed out here), and signing this one
+// out. No code to keep: the address is the way back.
+import { useEffect, useState } from "react";
 import { cn } from "cn";
-import { api, type AccountView, type DeviceCodeView } from "@/api";
+import { api, type AccountInfoView, type DeviceInfoView } from "@/api";
+import { loadAccount, saveAccount } from "@/account";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { errorText, useLanguage } from "@/lang";
-import { DeviceKey } from "./SettingsSections";
 
-/** What the dialog shows: a recovery code, or a device code with its
-    instance and deadline (a time in milliseconds). */
-type Shown =
-  | { kind: "recovery"; code: string }
-  | { kind: "device"; code: string; instance: string; until: number };
+/** Tells the window the account changed, so it shows the sign-in. */
+export const ACCOUNT_CHANGED = "drywire-account";
 
 export function AccountSection({ narrow }: { narrow: boolean }) {
-  const { t } = useLanguage();
-  const [account, setAccount] = useState<AccountView | null>(null);
-  const [shown, setShown] = useState<Shown | null>(null);
-  const [busy, setBusy] = useState<"recovery" | "device" | null>(null);
+  const { t, lang } = useLanguage();
+  const account = loadAccount();
+  const [info, setInfo] = useState<AccountInfoView | null>(null);
+  const [devices, setDevices] = useState<DeviceInfoView[]>([]);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => api.account().then(setAccount, (e) => setError(errorText(t, e)));
-  useEffect(() => {
-    load();
-  }, []);
+  const load = () => {
+    if (!account) return;
+    api.accountInfo(account.instance).then(setInfo, (e) => setError(errorText(t, e)));
+    api.accountDevices(account.instance).then(setDevices, (e) => setError(errorText(t, e)));
+  };
+  useEffect(load, []);
 
-  const recovery = async () => {
-    setBusy("recovery");
+  const removeDevice = async (key: string) => {
+    if (!account) return;
     setError(null);
     try {
-      setShown({ kind: "recovery", code: await api.newRecoveryCode() });
+      await api.removeDevice(account.instance, key);
       load();
     } catch (e) {
       setError(errorText(t, e));
-    } finally {
-      setBusy(null);
     }
   };
 
-  const device = async () => {
-    setBusy("device");
+  const signOut = async () => {
+    if (!account) return;
+    setBusy(true);
     setError(null);
     try {
-      const d: DeviceCodeView = await api.newDeviceCode();
-      setShown({ kind: "device", code: d.code, instance: d.instance, until: Date.now() + d.expiresInS * 1000 });
+      await api.signOut(account.instance);
+      saveAccount(null);
+      window.dispatchEvent(new Event(ACCOUNT_CHANGED));
     } catch (e) {
       setError(errorText(t, e));
-    } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
-  // Nothing to put in a vault without a space, and nothing at all from a
-  // browser key that cannot be read.
-  const blocked = !account || account.spaces === 0 || !account.portable;
-  const row = cn("flex flex-wrap items-center gap-x-4 border-b border-line py-4.5", narrow && "gap-y-3");
-  const text = cn("min-w-0 flex-1", narrow && "basis-full");
-  // A disabled button keeps its pointer events, so the cursor says why
-  // nothing happens (CLAUDE.md, "Clickable means the pointing hand").
-  const action = "disabled:pointer-events-auto disabled:opacity-40";
+  const row = cn("flex border-b border-line py-4.5", narrow ? "flex-col gap-1" : "items-baseline gap-4");
+  const label = "text-[0.9375rem] font-medium";
+  const help = "text-[0.8125rem] text-muted-foreground";
+  const button = narrow ? "h-11 rounded-xl px-3.5 text-sm" : "";
+  const seen = (iso: string) =>
+    iso ? new Date(iso).toLocaleDateString(lang === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "long" }) : "?";
+
+  if (!account) {
+    return <p className="border-b border-line py-4.5 text-[0.8125rem] text-muted-foreground">{t("account.notSignedIn")}</p>;
+  }
   return (
     <>
-      {account && !account.portable && (
-        <p className="border-b border-line py-4.5 text-[0.8125rem] text-muted-foreground">{t("account.notPortable")}</p>
-      )}
-      {account && account.portable && account.spaces === 0 && (
-        <p className="border-b border-line py-4.5 text-[0.8125rem] text-muted-foreground">{t("account.noSpace")}</p>
-      )}
       <div className={row}>
-        <div className={text}>
-          <div className="text-[0.9375rem] font-medium">{t("account.recovery")}</div>
-          <div className="text-[0.8125rem] text-muted-foreground">{t("account.recoveryHelp")}</div>
-          {account?.recoveryCode && (
-            <div className="mt-1 text-[0.8125rem] text-subtle">{t("account.recoveryKnown")}</div>
-          )}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className={label}>{t("account.username")}</div>
+          {!narrow && <div className={help}>{t("account.usernameHelp")}</div>}
         </div>
-        <Button variant="secondary" size="md" disabled={blocked || busy !== null} onClick={recovery} className={action}>
-          {account?.recoveryCode ? t("account.recoveryRenew") : t("account.recoveryCreate")}
-        </Button>
+        <span className="font-mono text-sm font-medium text-soft">{info?.username ?? account.username}</span>
+        {narrow && <div className={help}>{t("account.usernameHelp")}</div>}
       </div>
       <div className={row}>
-        <div className={text}>
-          <div className="text-[0.9375rem] font-medium">{t("account.device")}</div>
-          <div className="text-[0.8125rem] text-muted-foreground">{t("account.deviceHelp")}</div>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className={label}>{t("account.email")}</div>
+          {!narrow && <div className={help}>{t("account.emailHelp")}</div>}
         </div>
-        <Button variant="secondary" size="md" disabled={blocked || busy !== null} onClick={device} className={action}>
-          {t("account.deviceShow")}
+        <span className="text-sm text-soft">{info?.email ?? ""}</span>
+        {narrow && <div className={help}>{t("account.emailHelp")}</div>}
+      </div>
+      <div className="flex flex-col gap-2.5 border-b border-line py-4.5">
+        <div className={label}>{t("account.devices")}</div>
+        {devices.map((d) => (
+          <div key={d.publicKey} className="flex min-h-10 items-center gap-3">
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="text-sm">{d.thisDevice ? t("account.thisDevice") : t("account.otherDevice", { date: seen(d.lastSeenAt) })}</span>
+              <span className="font-mono text-xs text-muted-foreground">
+                {d.publicKey.slice(0, 8)}…{d.publicKey.slice(-8)}
+              </span>
+            </span>
+            {!d.thisDevice && (
+              <Button variant="secondary" size="md" onClick={() => removeDevice(d.publicKey)} className={button}>
+                {t("account.signOutDevice")}
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className={cn("flex py-4.5", narrow ? "flex-col gap-2.5" : "items-center gap-4")}>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className={label}>{t("account.signOut")}</div>
+          <div className={help}>{t("account.signOutHelp")}</div>
+        </div>
+        <Button
+          variant="secondary"
+          size="md"
+          disabled={busy}
+          onClick={signOut}
+          className={cn(button, "self-start bg-[rgba(242,85,90,0.14)] text-[#ff8a8e] hover:bg-[rgba(242,85,90,0.22)]")}
+        >
+          {t("account.signOut")}
         </Button>
       </div>
       {error && (
@@ -96,119 +118,6 @@ export function AccountSection({ narrow }: { narrow: boolean }) {
           {error}
         </p>
       )}
-      <DeviceKey narrow={narrow} />
-      <CodeDialog shown={shown} narrow={narrow} onClose={() => setShown(null)} onAgain={device} />
     </>
-  );
-}
-
-/** Writes a code in groups of four, in mono, in a frame like a field: on
-    one line in the wide dialog, wrapped after a hyphen in a narrow one,
-    never inside a group. Greyed once it expired. */
-function Code({ code, narrow, expired }: { code: string; narrow: boolean; expired: boolean }) {
-  const groups = code.split("-");
-  return (
-    <code
-      className={cn(
-        "rounded-xl border border-input bg-background px-4 py-3.5 text-center font-mono font-medium tracking-[0.02em]",
-        narrow ? "text-[1.125rem] leading-[1.5]" : "text-[1.25rem] leading-[1.4]",
-        expired ? "text-[#6f7078]" : "text-foreground",
-      )}
-    >
-      {groups.map((group, i) => (
-        <span key={i}>
-          <span className="whitespace-nowrap">
-            {group}
-            {i < groups.length - 1 && "-"}
-          </span>
-          <wbr />
-        </span>
-      ))}
-    </code>
-  );
-}
-
-function CodeDialog({
-  shown,
-  narrow,
-  onClose,
-  onAgain,
-}: {
-  shown: Shown | null;
-  narrow: boolean;
-  onClose: () => void;
-  onAgain: () => void;
-}) {
-  const { t } = useLanguage();
-  const [copied, setCopied] = useState(false);
-  const [now, setNow] = useState(Date.now());
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  useEffect(() => {
-    setCopied(false);
-    setNow(Date.now());
-    if (shown?.kind !== "device") return;
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
-  }, [shown]);
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  const copy = async () => {
-    if (!shown) return;
-    await navigator.clipboard.writeText(shown.code);
-    setCopied(true);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), 1500);
-  };
-
-  const expired = shown?.kind === "device" && now >= shown.until;
-  const minutes = shown?.kind === "device" ? Math.max(1, Math.ceil((shown.until - now) / 60_000)) : 0;
-  const host = shown?.kind === "device" ? shown.instance.replace(/^https?:\/\//, "") : "";
-  const button = "h-10.5 rounded-xl px-4 text-sm font-semibold";
-  return (
-    <Dialog open={shown !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        showCloseButton={false}
-        className={cn(
-          "gap-0 rounded-[1.125rem] border border-border bg-popover p-0 shadow-[0_20px_48px_rgba(0,0,0,0.5)] ring-0 sm:max-w-120",
-          narrow && "top-auto bottom-3 max-w-[calc(100%-1.5rem)] -translate-y-0 sm:max-w-100",
-        )}
-      >
-        {shown && (
-          <div className="flex flex-col gap-3.5 p-5">
-            <DialogTitle className="text-lg font-semibold">
-              {shown.kind === "recovery" ? t("code.recoveryTitle") : t("code.deviceTitle")}
-            </DialogTitle>
-            <Code code={shown.code} narrow={narrow} expired={expired} />
-            {expired && <p className="text-[0.8125rem] text-warning">{t("code.expired")}</p>}
-            {shown.kind === "device" && !expired && (
-              <p className="flex items-center gap-1.5 text-[0.8125rem] text-subtle">
-                <Clock aria-hidden="true" className="size-3.5" />
-                {t("code.expires", { instance: host, minutes })}
-              </p>
-            )}
-            {!expired && (
-              <DialogDescription className="text-[0.8125rem] text-muted-foreground">
-                {shown.kind === "recovery" ? t("code.recoveryWarn") : t("code.deviceWhere")}
-              </DialogDescription>
-            )}
-            <div className="mt-1 flex justify-end gap-2">
-              {expired ? (
-                <Button variant="secondary" onClick={onAgain} className={button}>
-                  {t("code.again")}
-                </Button>
-              ) : (
-                <Button variant="secondary" onClick={copy} className={button}>
-                  {copied ? t("code.copied") : t("settings.copy")}
-                </Button>
-              )}
-              <Button onClick={onClose} className={button}>
-                {t("code.done")}
-              </Button>
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
   );
 }

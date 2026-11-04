@@ -777,4 +777,23 @@ fn friends_signed_up_by_mail_talk_with_keys_from_their_group() {
     assert!(view.participants[1].counters.played > 0, "{view:#?}");
     alex.leave();
     sam.leave();
+
+    // The account page: who Sam is, the device, and signing out.
+    let info = sam.account_info(&instance).unwrap();
+    assert_eq!(
+        (info.username.as_str(), info.email.as_str()),
+        ("sam", "sam@example.com")
+    );
+    let devices = sam.account_devices(&instance).unwrap();
+    assert!(devices.len() == 1 && devices[0].this_device);
+    sam.sign_out(&instance).unwrap();
+    assert!(
+        sam.spaces().unwrap().is_empty(),
+        "the account's spaces are forgotten"
+    );
+    let err = sam.account_info(&instance).unwrap_err();
+    assert_eq!(
+        err.code, "not_found",
+        "this device is no longer the account's"
+    );
 }

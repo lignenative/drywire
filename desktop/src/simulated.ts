@@ -172,6 +172,11 @@ export function seedSimulatedName() {
   if (localStorage.getItem("drywire.displayName") === null) {
     localStorage.setItem("drywire.displayName", "alex");
   }
+  // Signed in as alex (ADR 0055), except in the scene that shows the
+  // sign-up: the others are the canvas's screens of a signed-in account.
+  if (scene !== "empty" && localStorage.getItem("drywire.account") === null) {
+    localStorage.setItem("drywire.account", JSON.stringify({ instance: "https://voice.example.org", username: "alex" }));
+  }
 }
 
 // The in-call scenes open the window in Team's general room.
@@ -363,6 +368,18 @@ export const simulated: Api = {
     if (!accept) return resolve(null);
     if (state.spaces.length === 0) state.spaces = spaces("idle");
     return resolve(state.spaces[0]);
+  },
+  accountInfo: (_instance: string) => resolve({ username: "alex", email: "alex@example.com", name: "alex" }),
+  accountDevices: (_instance: string) =>
+    resolve([
+      { publicKey: "07e5c3a18f6d4b2907e5c3a18f6d4b2907e5c3a18f6d4b2907e5c3a18f6d4b29", thisDevice: true, lastSeenAt: new Date().toISOString() },
+      { publicKey: "5a91d0e2c4b7f0135a91d0e2c4b7f0135a91d0e2c4b7f0135a91d0e2c4b7f013", thisDevice: false, lastSeenAt: "2026-11-03T20:00:00Z" },
+    ]),
+  removeDevice: (_instance: string, _publicKey: string) => resolve(undefined),
+  signOut: (_instance: string) => {
+    state.call = null;
+    state.spaces = [];
+    return resolve(undefined);
   },
   inviteUser: (_instance: string, _spaceId: string, username: string) =>
     username.trim().toLowerCase() === "nobody"

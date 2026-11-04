@@ -247,6 +247,13 @@ impl Store {
         }
     }
 
+    /// Forgets every space of an instance: this device signed out there.
+    pub fn forget_instance(&self, instance: &str) -> Result<(), String> {
+        let mut spaces = self.spaces()?;
+        spaces.retain(|s| s.instance != instance);
+        write_sealed(&self.dir.join("spaces.json"), &spaces)
+    }
+
     /// Remembers a space, replacing what was known of it.
     pub fn remember(&self, space: KnownSpace) -> Result<(), String> {
         let mut spaces = self.spaces()?;
