@@ -1,6 +1,7 @@
 // Joining a space with the link a friend sent, and the name to show there;
 // or, from the same dialog, getting one's account back with a code
-// (ADR 0051).
+// (ADR 0051), or creating a space, with a creation code when the instance
+// asks for one (ADR 0054).
 import { useEffect, useState, type FormEvent } from "react";
 import { cn } from "cn";
 import { api, isAppError, platform } from "@/api";
@@ -8,14 +9,18 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { invitationProblem, offerInvitation, offeredInvitation } from "@/invite";
+import { invitationProblem, offerCreation, offeredCreation, offerInvitation, offeredInvitation } from "@/invite";
 import { errorText, useLanguage } from "@/lang";
 import { NAME_KEY, type AppState } from "@/state";
 
+type Mode = "invite" | "restore" | "create";
+
 export function InviteDialog({ app, narrow }: { app: AppState; narrow: boolean }) {
-  const [restoring, setRestoring] = useState(false);
+  const [mode, setMode] = useState<Mode>("invite");
+  // Each opening starts on joining, unless the window was opened with a
+  // creation code.
   useEffect(() => {
-    if (app.inviteOpen) setRestoring(false);
+    if (app.inviteOpen) setMode(offeredCreation() !== null ? "create" : "invite");
   }, [app.inviteOpen]);
   return (
     <Dialog open={app.inviteOpen} onOpenChange={app.setInviteOpen}>
@@ -26,10 +31,12 @@ export function InviteDialog({ app, narrow }: { app: AppState; narrow: boolean }
           narrow && "top-auto bottom-3 max-w-[calc(100%-1.5rem)] -translate-y-0",
         )}
       >
-        {restoring ? (
-          <RestoreForm app={app} onBack={() => setRestoring(false)} />
+        {mode === "restore" ? (
+          <RestoreForm app={app} onBack={() => setMode("invite")} />
+        ) : mode === "create" ? (
+          <CreateForm app={app} onBack={() => setMode("invite")} />
         ) : (
-          <InviteForm app={app} onRestore={() => setRestoring(true)} />
+          <InviteForm app={app} onRestore={() => setMode("restore")} onCreate={() => setMode("create")} />
         )}
       </DialogContent>
     </Dialog>
@@ -40,7 +47,7 @@ const field = "h-11 rounded-xl border-input bg-background px-3 dark:bg-backgroun
 const label = "flex-col items-stretch gap-1.5 text-[0.78125rem] leading-normal font-medium text-subtle";
 const quiet = "h-10.5 rounded-xl px-3.5 text-sm font-medium text-soft";
 
-function InviteForm({ app, onRestore }: { app: AppState; onRestore: () => void }) {
+function InviteForm({ app, onRestore, onCreate }: { app: AppState; onRestore: () => void; onCreate: () => void }) {
   const { t } = useLanguage();
   const [link, setLink] = useState("");
   const [name, setName] = useState("");
@@ -115,9 +122,14 @@ function InviteForm({ app, onRestore }: { app: AppState; onRestore: () => void }
               {busy ? t("invite.busy") : t("invite.submit")}
             </Button>
           </div>
-          <Button type="button" variant="ghost" onClick={onRestore} className={cn(quiet, "self-center")}>
-            {t("restore.open")}
-          </Button>
+          <div className="flex flex-col items-center">
+            <Button type="button" variant="ghost" onClick={onRestore} className={quiet}>
+              {t("restore.open")}
+            </Button>
+            <Button type="button" variant="ghost" onClick={onCreate} className={quiet}>
+              {t("create.open")}
+            </Button>
+          </div>
         </form>
   );
 }
@@ -217,6 +229,123 @@ function RestoreForm({ app, onBack }: { app: AppState; onBack: () => void }) {
           className="h-10.5 rounded-xl px-4 text-sm font-semibold"
         >
           {busy ? t("restore.busy") : replacing !== null ? t("restore.replaceSubmit") : t("restore.submit")}
+        </Button>
+      </div>
+      <Button type="button" variant="ghost" onClick={onBack} className={cn(quiet, "self-center")}>
+        {t("restore.back")}
+      </Button>
+    </form>
+  );
+}
+
+/** "Create a space": on an instance that lets this device create spaces,
+    or with a creation code from its operator. The web client is that
+    instance, and asks for no address. */
+function CreateForm({ app, onBack }: { app: AppState; onBack: () => void }) {
+  const { t } = useLanguage();
+  const [instance, setInstance] = useState(platform === "web" ? location.origin : "");
+  const [code, setCode] = useState(() => offeredCreation() ?? "");
+  const [spaceName, setSpaceName] = useState("");
+  const [name, setName] = useState(() => localStorage.getItem(NAME_KEY) ?? app.displayName);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<{ text: string; code: boolean } | null>(null);
+
+  // The offered code fills the form once; it is not offered again.
+  useEffect(() => () => offerCreation(null), []);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    if (!spaceName.trim() || !name.trim()) {
+      setError({ text: t("create.nameMissing"), code: false });
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const space = await api.createSpace(instance.trim(), code.trim() || null, spaceName.trim(), name.trim());
+      app.accepted(space, name.trim());
+      app.setInviteOpen(false);
+    } catch (e) {
+      const codeError = isAppError(e) && ["creator_code_unknown", "creator_code_needed", "bad_code"].includes(e.code);
+      setError({
+        // The sentence says it all; the server's English adds nothing.
+        text: codeError && isAppError(e) ? t(`error.${e.code}` as "error.bad_code") : errorText(t, e),
+        code: codeError,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const alert = error && (
+    <p role="alert" className="-mt-1.5 text-[0.8125rem] text-[#ff8a8e]">
+      {error.text}
+    </p>
+  );
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-3.5 p-5">
+      <DialogTitle className="text-lg font-semibold">{t("create.title")}</DialogTitle>
+      <DialogDescription className="-mt-1.5 text-[0.8125rem] text-muted-foreground">{t("create.help")}</DialogDescription>
+      {platform !== "web" && (
+        <Label className={label}>
+          {t("restore.instance")}
+          <Input
+            type="url"
+            value={instance}
+            onChange={(e) => setInstance(e.target.value)}
+            placeholder={t("restore.instancePlaceholder")}
+            autoComplete="off"
+            spellCheck={false}
+            className={cn(field, "font-mono text-[0.8125rem] md:text-[0.8125rem]")}
+          />
+        </Label>
+      )}
+      <Label className={label}>
+        {t("create.code")}
+        <Input
+          value={code}
+          onChange={(e) => {
+            setCode(e.target.value);
+            setError(null);
+          }}
+          placeholder={t("create.codePlaceholder")}
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          aria-invalid={error?.code === true}
+          className={cn(
+            field,
+            "font-mono text-sm text-ellipsis placeholder:font-sans placeholder:text-[0.8125rem] md:text-sm",
+            error?.code && "border-[rgba(242,85,90,0.6)]",
+          )}
+        />
+      </Label>
+      {error?.code && alert}
+      <Label className={label}>
+        {t("create.name")}
+        <Input
+          value={spaceName}
+          onChange={(e) => setSpaceName(e.target.value)}
+          placeholder={t("create.namePlaceholder")}
+          maxLength={32}
+          autoFocus={platform === "web"}
+          className={cn(field, "text-sm md:text-sm")}
+        />
+      </Label>
+      <Label className={label}>
+        {t("create.yourName")}
+        <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={32} className={cn(field, "text-sm md:text-sm")} />
+      </Label>
+      {error && !error.code && alert}
+      <div className="mt-1 flex items-center justify-end gap-2">
+        <DialogClose render={<Button variant="ghost" className={quiet} />}>{t("invite.cancel")}</DialogClose>
+        <Button
+          type="submit"
+          aria-disabled={busy}
+          className={cn("h-10.5 rounded-xl px-4 text-sm font-semibold", busy && "cursor-not-allowed opacity-60")}
+        >
+          {busy ? t("create.busy") : t("create.submit")}
         </Button>
       </div>
       <Button type="button" variant="ghost" onClick={onBack} className={cn(quiet, "self-center")}>

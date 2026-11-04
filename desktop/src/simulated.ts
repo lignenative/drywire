@@ -72,10 +72,10 @@ const OCCUPANTS: Record<string, string[]> = {
 function spaces(scene: Scene): SpaceView[] {
   if (scene === "empty") return [];
   const list: SpaceView[] = [
-    // alex owns Team, and only joined the others: the invite button shows
-    // on Team alone.
+    // As on the canvas: alex owns Team, is an admin of Friday night and a
+    // plain member of Old crew, so the invite button shows on the first two.
     { ...space("voice.example.org", "team", "Team", ["general", "scrims", "afk"]), role: "owner" },
-    space("drywire.example.net", "friday", "Friday night", ["general"]),
+    { ...space("drywire.example.net", "friday", "Friday night", ["general"]), role: "admin" },
     space("old.example.com", "crew", "Old crew", ["general"]),
   ];
   if (scene === "unreachable") {

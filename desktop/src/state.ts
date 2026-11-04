@@ -4,7 +4,7 @@
 // (a popover being open, a slider being dragged).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type CallView, type Settings, type SpaceView } from "./api";
-import { offeredInvitation } from "./invite";
+import { offeredCreation, offeredInvitation } from "./invite";
 import { errorText, useLanguage } from "./lang";
 import { callRoom, findRoom, firstRoom, inCall, sameRoom, type RoomRef } from "./model";
 import { playPresence } from "./sounds";
@@ -28,6 +28,8 @@ export interface AppState {
   page: "main" | "settings";
   settingsTab: SettingsTab;
   inviteOpen: boolean;
+  /** The space whose invitation dialog is open, if any. */
+  sharing: SpaceView | null;
   /** The narrow window shows one screen at a time. */
   narrowScreen: "spaces" | "call";
   joining: boolean;
@@ -49,6 +51,8 @@ export interface AppState {
   closeSettings: () => void;
   setSettingsTab: (tab: SettingsTab) => void;
   setInviteOpen: (open: boolean) => void;
+  /** Opens the invitation dialog of a space, or closes it with null. */
+  setSharing: (space: SpaceView | null) => void;
   accepted: (space: SpaceView, name: string) => void;
   /** Another account is this device's now (ADR 0051): its name, its spaces. */
   restored: (name: string, spaces: SpaceView[]) => void;
@@ -64,8 +68,10 @@ export function useAppState(): AppState {
   const [selected, setSelected] = useState<RoomRef | null>(null);
   const [page, setPage] = useState<"main" | "settings">("main");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("voice");
-  // An invitation the window was opened with fills the form at once.
-  const [inviteOpen, setInviteOpen] = useState(() => offeredInvitation() !== null);
+  // An invitation or a creation code the window was opened with fills the
+  // form at once.
+  const [inviteOpen, setInviteOpen] = useState(() => offeredInvitation() !== null || offeredCreation() !== null);
+  const [sharing, setSharing] = useState<SpaceView | null>(null);
   const [narrowScreen, setNarrowScreen] = useState<"spaces" | "call">("spaces");
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -239,6 +245,8 @@ export function useAppState(): AppState {
     closeSettings: () => setPage("main"),
     setSettingsTab,
     setInviteOpen,
+    sharing,
+    setSharing,
     accepted,
     restored,
     setSettings,

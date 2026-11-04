@@ -10,6 +10,7 @@ import { callRoom, inCall, isMultiRoom, lockState, meFirst, refOf, sameRoom, sig
 import type { AppState } from "@/state";
 import { lockLook } from "./CallDetails";
 import { LeaveIcon, LockIcon, Logo, MicIcon, SettingsIcon, SignalBars, SpeakingBars } from "./icons";
+import { canInvite, InviteButton } from "./ShareDialog";
 
 export function NarrowHome({ app }: { app: AppState }) {
   const { t } = useLanguage();
@@ -61,9 +62,12 @@ function SpaceBlock({ app, space, last }: { app: AppState; space: SpaceView; las
   return (
     <div className={cn("flex flex-col pt-3 pb-2.5", !last && "border-b border-line")}>
       {(multi || space.error) && (
-        <span className={cn("px-3 pb-1 text-[1.3125rem] font-semibold tracking-[-0.02em]", space.error && "text-muted-foreground")}>
-          {space.name}
-        </span>
+        <div className="flex items-center gap-1 pr-1 pb-1 pl-3">
+          <span className={cn("min-w-0 flex-1 text-[1.3125rem] font-semibold tracking-[-0.02em]", space.error && "text-muted-foreground")}>
+            {space.name}
+          </span>
+          {multi && canInvite(space) && <InviteButton app={app} space={space} narrow />}
+        </div>
       )}
       {space.error && (
         <span role="alert" className="flex items-center gap-2 px-3 text-sm text-warning-foreground">
@@ -97,46 +101,55 @@ function RoomBlock({ app, space, room, multi }: { app: AppState; space: SpaceVie
     if (!live) await app.join(ref);
     app.setNarrowScreen("call");
   };
+  // One room: its row is the space's header, the invite button beside it.
+  const invite = !multi && canInvite(space);
   return (
-    <Button
-      variant="ghost"
-      disabled={app.joining}
-      onClick={open}
-      className={cn(
-        "h-auto flex-col items-stretch gap-0 rounded-[0.875rem] px-3 py-0 text-left whitespace-normal",
-        live ? "bg-popover hover:bg-popover" : "",
-      )}
-    >
-      <span
+    <div className="flex items-start gap-1">
+      <Button
+        variant="ghost"
+        disabled={app.joining}
+        onClick={open}
         className={cn(
-          "flex items-center gap-2 tracking-[-0.02em]",
-          multi ? "min-h-11.5 text-lg font-medium text-soft" : "min-h-12.5 text-[1.3125rem] font-semibold text-foreground",
+          "h-auto min-w-0 flex-1 flex-col items-stretch gap-0 rounded-[0.875rem] px-3 py-0 text-left whitespace-normal",
+          live ? "bg-popover hover:bg-popover" : "",
         )}
       >
-        {multi && <span className="text-faint">#</span>}
-        <span className="min-w-0 flex-1">{multi ? room.name : space.name}</span>
-        {live && <span className="text-[0.8125rem] font-semibold tracking-normal text-primary">{t("spaces.hereShort")}</span>}
-      </span>
-      {people.length > 0 && (
-        <span className={cn("flex flex-wrap gap-x-3 gap-y-0.5 pb-1.5", multi && "pl-5.5")}>
-          {people.map((p) => (
-            <span
-              key={p.key}
-              className={cn(
-                "flex items-center gap-1.5 text-[0.9375rem] font-normal tracking-normal",
-                !live ? "text-dim" : p.speaking ? "text-white" : "text-muted-foreground",
-              )}
-            >
-              {p.speaking && <SpeakingBars size="md" label={t("person.speaking")} />}
-              {p.muted && (
-                <MicIcon muted role="img" aria-hidden={false} aria-label={t("person.muted")} strokeWidth={2.2} className="size-3.5 text-danger" />
-              )}
-              {p.name}
-            </span>
-          ))}
+        <span
+          className={cn(
+            "flex items-center gap-2 tracking-[-0.02em]",
+            multi ? "min-h-11.5 text-lg font-medium text-soft" : "min-h-12.5 text-[1.3125rem] font-semibold text-foreground",
+          )}
+        >
+          {multi && <span className="text-faint">#</span>}
+          <span className="min-w-0 flex-1">{multi ? room.name : space.name}</span>
+          {live && <span className="text-[0.8125rem] font-semibold tracking-normal text-primary">{t("spaces.hereShort")}</span>}
+        </span>
+        {people.length > 0 && (
+          <span className={cn("flex flex-wrap gap-x-3 gap-y-0.5 pb-1.5", multi && "pl-5.5")}>
+            {people.map((p) => (
+              <span
+                key={p.key}
+                className={cn(
+                  "flex items-center gap-1.5 text-[0.9375rem] font-normal tracking-normal",
+                  !live ? "text-dim" : p.speaking ? "text-white" : "text-muted-foreground",
+                )}
+              >
+                {p.speaking && <SpeakingBars size="md" label={t("person.speaking")} />}
+                {p.muted && (
+                  <MicIcon muted role="img" aria-hidden={false} aria-label={t("person.muted")} strokeWidth={2.2} className="size-3.5 text-danger" />
+                )}
+                {p.name}
+              </span>
+            ))}
+          </span>
+        )}
+      </Button>
+      {invite && (
+        <span className="pt-[3px]">
+          <InviteButton app={app} space={space} narrow />
         </span>
       )}
-    </Button>
+    </div>
   );
 }
 
