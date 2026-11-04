@@ -131,10 +131,10 @@ this ships, rather than migrated.
   - it is in the export, deleted with the account, and recorded only as
     a hash in the deletion ledger, so that no restore brings it back;
   - the privacy policy names it and the sending provider.
-- **Minors**: in France, below 15 the parents must consent too. The
-  sign-up states that the person is 15 or older. Whether younger
-  players get a parental consent flow is the maintainer's decision, open
-  in the business plan.
+- **Minors** (decided in the business plan, 2026-11-04): 13 at least,
+  and between 13 and 15 with a parent's agreement, as French law asks
+  below 15; whoever pays is an adult. No date of birth is asked: the
+  sign-up says it in one sentence, and only payment has a box to tick.
 - The desktop app on Windows has no system autofill for codes: the
   person types the code or pastes it. On macOS, whether the app's web
   view offers the code from Mail is to check on a real Mac.
