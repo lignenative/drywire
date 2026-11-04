@@ -81,6 +81,9 @@ mobile ones it adds).
   session, or the server restarts, the call shows "reconnecting" with a
   countdown to the next attempt, and joins the room again on its own,
   keeping mute, the gate and the volumes (ADR 0035).
+- A call keeps the sound card it started on: after changing the system's
+  default device, or unplugging the one in use, leave and join again.
+  Following the default during a call is designed, not built (ADR 0046).
 - Starting with the session, hidden in the tray, if the person ticks it
   in the settings; off by default. On Windows this is a value under the
   current user's `Run` registry key, removed when unticked (untick it

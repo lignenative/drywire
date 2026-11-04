@@ -62,3 +62,4 @@ Status: Accepted · YYYY-MM-DD
 | [0043](0043-keep-the-website-and-the-hosted-offer-out-of-this-repository.md) | Keep the website and the hosted offer out of this repository |
 | [0044](0044-open-the-microphone-for-the-settings-meter-only-while-it-shows.md) | Open the microphone for the settings' meter only while it shows |
 | [0045](0045-follow-every-known-space-for-who-sits-in-its-rooms.md) | Follow every known space's event stream for who sits in its rooms |
+| [0046](0046-follow-the-system-default-device-during-a-call.md) | Follow the system's default device during a call (proposed) |
