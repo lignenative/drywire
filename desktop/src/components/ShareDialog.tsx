@@ -47,7 +47,7 @@ export function ShareDialog({ app, narrow }: { app: AppState; narrow: boolean })
   // A new link each time the dialog opens: a link shown once and closed is
   // not kept anywhere.
   useEffect(() => {
-    if (!space) return;
+    if (!space || space.group) return;
     let current = true;
     setState({ kind: "loading" });
     setCopied(false);
@@ -90,7 +90,8 @@ export function ShareDialog({ app, narrow }: { app: AppState; narrow: boolean })
           narrow && "top-auto bottom-3 max-w-[calc(100%-1.5rem)] -translate-y-0 sm:max-w-100",
         )}
       >
-        {space && (
+        {space?.group && <InviteByName space={space} onDone={() => app.setSharing(null)} />}
+        {space && !space.group && (
           <div className="flex flex-col gap-3.5 p-5">
             <DialogTitle className="text-lg font-semibold">{t("share.title", { space: space.name })}</DialogTitle>
             {state.kind === "error" ? (
@@ -139,5 +140,75 @@ export function ShareDialog({ app, narrow }: { app: AppState; narrow: boolean })
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A space with an MLS group invites by user name (ADR 0055): the
+    invitation waits in that person's app, and their device is let into
+    the group by any member's app online. */
+function InviteByName({ space, onDone }: { space: SpaceView; onDone: () => void }) {
+  const { t } = useLanguage();
+  const [username, setUsername] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const button = "h-10.5 rounded-xl px-4 text-sm font-semibold";
+
+  const invite = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setResult(null);
+    try {
+      const name = await api.inviteUser(space.instance, space.id, username.trim());
+      setResult({ ok: true, text: t("invite.sent", { name }) });
+      setUsername("");
+    } catch (e) {
+      const code = isAppError(e) ? e.code : "";
+      const text =
+        code === "not_found"
+          ? t("invite.unknown")
+          : isAppError(e) && /409/.test(e.message)
+            ? t("invite.member")
+            : code === "refused"
+              ? t("share.denied")
+              : errorText(t, e);
+      setResult({ ok: false, text });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={invite} className="flex flex-col gap-3.5 p-5">
+      <DialogTitle className="text-lg font-semibold">{t("share.title", { space: space.name })}</DialogTitle>
+      <label className="flex flex-col gap-1.5 text-[0.78125rem] font-medium text-subtle">
+        {t("invite.byName")}
+        <span className="flex gap-2">
+          <input
+            type="search"
+            value={username}
+            onChange={(e) => setUsername(e.target.value.toLowerCase())}
+            autoCapitalize="none"
+            spellCheck={false}
+            maxLength={32}
+            autoFocus
+            className="h-11 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-base text-foreground outline-none focus-visible:border-ring md:text-sm"
+          />
+          <Button type="submit" disabled={busy || username.trim().length < 2} className={cn(button, "disabled:pointer-events-auto disabled:opacity-40")}>
+            {t("invite.send")}
+          </Button>
+        </span>
+      </label>
+      {result && (
+        <p role={result.ok ? "status" : "alert"} className={cn("text-[0.8125rem]", result.ok ? "text-primary" : "text-danger")}>
+          {result.text}
+        </p>
+      )}
+      <DialogDescription className="text-[0.8125rem] text-muted-foreground">{t("onboard.nameLead")}</DialogDescription>
+      <div className="mt-1 flex justify-end">
+        <Button type="button" variant="secondary" onClick={onDone} className={button}>
+          {t("code.done")}
+        </Button>
+      </div>
+    </form>
   );
 }

@@ -28,6 +28,25 @@ export interface SpaceView {
   role: string;
   rooms: RoomView[];
   error: AppError | null;
+  /** Its keys come from an MLS group (ADRs 0052 and 0055): it invites by
+      user name, and its links hold no key. */
+  group: boolean;
+}
+
+/** What signing in by e-mail gave (ADR 0055). */
+export interface SignedInView {
+  /** The address had no account: it chooses its user name next. */
+  newAccount: boolean;
+  username: string | null;
+}
+
+/** An invitation by user name, waiting. */
+export interface PendingInvitationView {
+  instance: string;
+  spaceId: string;
+  spaceName: string;
+  /** A user name; empty if that account is gone. */
+  invitedBy: string;
 }
 
 export interface Participant {
@@ -248,6 +267,27 @@ const tauri = {
   inputLevel: () => invoke<number>("input_level"),
   launchAtLogin: () => invoke<boolean>("launch_at_login"),
   setLaunchAtLogin: (enabled: boolean) => invoke<boolean>("set_launch_at_login", { enabled }),
+  /** The instance this build signs in to without asking; empty if none
+      (ADR 0055). */
+  defaultInstance: () => invoke<string>("default_instance"),
+  /** Mails a sign-in code to the address. */
+  emailCode: (instance: string, email: string, lang: string) =>
+    invoke<void>("email_code", { instance, email, lang }),
+  /** Signs this device in with the mailed code: `wrong_code` with the
+      tries left as the message when it does not match. */
+  emailSignIn: (instance: string, email: string, code: string) =>
+    invoke<SignedInView>("email_sign_in", { instance, email, code }),
+  /** Chooses the user name: `username_taken` with free ones,
+      comma-separated, as the message. */
+  setUsername: (instance: string, username: string, displayName: string) =>
+    invoke<string>("set_username", { instance, username, displayName }),
+  pendingInvitations: (instance: string) =>
+    invoke<PendingInvitationView[]>("pending_invitations", { instance }),
+  answerInvitation: (instance: string, spaceId: string, accept: boolean) =>
+    invoke<SpaceView | null>("answer_invitation", { instance, spaceId, accept }),
+  /** Invites someone by user name; their display name. */
+  inviteUser: (instance: string, spaceId: string, username: string) =>
+    invoke<string>("invite_user", { instance, spaceId, username }),
   /** Calls `f` with the spaces whenever someone sits down in or leaves a
       room of any of them: what `listSpaces` would answer, without asking
       the servers again. */

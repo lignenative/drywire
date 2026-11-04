@@ -155,6 +155,75 @@ export class ControlPlane {
     return { kind: answer.kind, sealed: unhex(answer.sealed) };
   }
 
+  /** Mails a sign-in code to the address (ADR 0055, protocol 13.8). */
+  async emailCode(email: string, lang: string): Promise<void> {
+    const r = await this.fetch("POST", "/v1/auth/email", { email, lang });
+    if (!r.ok) {
+      const error = await r.json().catch(() => ({ error: r.statusText }));
+      throw new ControlError(codeOf(r.status), `POST /v1/auth/email: ${r.status} ${error.error}`);
+    }
+  }
+
+  /** Signs this device in with the mailed code, alongside a signed
+      challenge; the token is kept. A wrong code is `wrong_code`, with the
+      tries left as the message. */
+  async emailVerify(email: string, code: string): Promise<{ new_account: boolean; username: string }> {
+    const ch = await this.fetch("POST", "/v1/auth/challenge");
+    if (!ch.ok) throw new ControlError(codeOf(ch.status), `challenge: ${ch.status}`);
+    const { challenge } = (await ch.json()) as { challenge: string };
+    const signature = await sign(this.identity, this.protocol.loginMessage(unhex(challenge), this.audience));
+    const r = await this.fetch("POST", "/v1/auth/email/verify", {
+      email,
+      code,
+      public_key: hex(this.identity.publicKey),
+      challenge,
+      signature: hex(signature),
+    });
+    const answer = await r.json().catch(() => ({}));
+    if (r.status === 401 && typeof answer.tries_left === "number") {
+      throw new ControlError("wrong_code", String(answer.tries_left));
+    }
+    if (!r.ok) throw new ControlError(codeOf(r.status), `verify: ${r.status} ${answer.error ?? ""}`);
+    this.token = answer.token;
+    return answer;
+  }
+
+  /** Chooses the user name; a taken one is `username_taken`, with free
+      ones, comma-separated, as the message. */
+  async setUsername(username: string, displayName: string): Promise<{ username: string; name: string }> {
+    try {
+      return await this.call("PUT", "/v1/me/username", { username, display_name: displayName });
+    } catch (e) {
+      if (e instanceof ControlError && / 409 /.test(e.message)) {
+        const r = await this.fetch("PUT", "/v1/me/username", { username, display_name: displayName });
+        const answer = await r.json().catch(() => ({ suggestions: [] }));
+        throw new ControlError("username_taken", (answer.suggestions ?? []).join(","));
+      }
+      throw e;
+    }
+  }
+
+  invitations(): Promise<{ space_id: string; space_name: string; invited_by: string }[]> {
+    return this.call("GET", "/v1/me/invitations");
+  }
+
+  acceptInvitation(space: string): Promise<SpaceAnswer> {
+    return this.call("POST", `/v1/me/invitations/${space}`);
+  }
+
+  declineInvitation(space: string): Promise<void> {
+    return this.call("DELETE", `/v1/me/invitations/${space}`);
+  }
+
+  inviteUser(space: string, username: string): Promise<{ username: string; name: string }> {
+    return this.call("POST", `/v1/spaces/${space}/invitations/users`, { username });
+  }
+
+  /** The spaces this account is a member of. */
+  spaces(): Promise<{ space: { id: string; name: string }; role: string }[]> {
+    return this.call("GET", "/v1/spaces");
+  }
+
   /** Creates a space, with a creation code if this key needs one. */
   createSpace(name: string, displayName: string, creatorCode: string | null): Promise<SpaceAnswer> {
     const body: Record<string, string> = { name, room: "general", display_name: displayName };

@@ -22,4 +22,7 @@ bun install --frozen-lockfile
 # DEV_PORT, and Vite refuses to start rather than take another port.
 port="${DEV_PORT:-10051}"
 export DEV_PORT="$port"
+# The instance the app signs in to without asking (ADR 0055), built into
+# it: in development, the server `make dev` runs.
+export DRYWIRE_INSTANCE="${DRYWIRE_INSTANCE:-http://127.0.0.1:${DRYWIRE_HTTP_PORT:-10050}}"
 exec bun run tauri dev --config "{\"build\":{\"devUrl\":\"http://127.0.0.1:$port\"}}" "$@"

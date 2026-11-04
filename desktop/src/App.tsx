@@ -8,7 +8,9 @@ import { NarrowHome } from "@/components/NarrowHome";
 import { EndedView, PeekView } from "@/components/RoomViews";
 import { NarrowSettings, SettingsPage } from "@/components/Settings";
 import { SideMenu } from "@/components/SideMenu";
-import { Welcome } from "@/components/Welcome";
+import { Onboarding, SignedInHome } from "@/components/Onboarding";
+import { loadAccount, saveAccount, type SignedIn } from "@/account";
+import { useState } from "react";
 import { useNarrow } from "@/hooks";
 import { findRoom } from "@/model";
 import { showsCall, useAppState, type AppState } from "@/state";
@@ -16,6 +18,13 @@ import { showsCall, useAppState, type AppState } from "@/state";
 export function App() {
   const app = useAppState();
   const narrow = useNarrow();
+  // The account signed in by e-mail (ADR 0055), with or without its user
+  // name yet.
+  const [account, setAccount] = useState<SignedIn | null>(loadAccount);
+  const signedIn = (next: SignedIn) => {
+    saveAccount(next);
+    setAccount(next);
+  };
   return (
     <div className="h-screen overflow-hidden bg-background text-sm leading-[1.4] text-foreground">
       {app.page === "settings" ? (
@@ -24,8 +33,10 @@ export function App() {
         ) : (
           <SettingsPage app={app} />
         )
-      ) : app.spaces?.length === 0 && !app.call ? (
-        <Welcome app={app} narrow={narrow} />
+      ) : !account?.username && (app.spaces?.length ?? 0) === 0 && !app.call ? (
+        <Onboarding app={app} narrow={narrow} pending={account} onSignedIn={signedIn} />
+      ) : account?.username && app.spaces?.length === 0 && !app.call ? (
+        <SignedInHome app={app} narrow={narrow} account={account} />
       ) : narrow ? (
         app.narrowScreen === "call" && app.call ? (
           <div className="flex h-full flex-col">

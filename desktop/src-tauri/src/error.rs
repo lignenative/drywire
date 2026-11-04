@@ -57,7 +57,11 @@ impl From<drywire_control::Error> for AppError {
             drywire_control::Error::BadInstance(_) => "bad_instance",
             drywire_control::Error::BadCode(_) => "bad_code",
             drywire_control::Error::WrongCode { .. } => "wrong_code",
-            drywire_control::Error::UsernameTaken { .. } => "username_taken",
+            // The message is the free names, comma-separated, for the
+            // interface to offer.
+            drywire_control::Error::UsernameTaken { suggestions } => {
+                return AppError::new("username_taken", suggestions.join(","));
+            }
             drywire_control::Error::StaleEpoch { .. } => "refused",
         };
         AppError::new(code, e.to_string())

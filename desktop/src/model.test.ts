@@ -17,8 +17,8 @@ test("a room is named after its space when the space has only one", () => {
 
 test("the window starts on the first room of a space that has one", () => {
   const spaces: SpaceView[] = [
-    { instance: "a", id: "down", name: "Down", role: "member", rooms: [], error: { code: "network", message: "" } },
-    { instance: "b", id: "team", name: "Team", role: "member", rooms: [{ id: "general", name: "general" }], error: null },
+    { instance: "a", id: "down", name: "Down", role: "member", rooms: [], error: { code: "network", message: "" }, group: false },
+    { instance: "b", id: "team", name: "Team", role: "member", rooms: [{ id: "general", name: "general" }], error: null, group: false },
   ];
   const first = firstRoom(spaces);
   expect(first).toEqual({ instance: "b", spaceId: "team", roomId: "general" });

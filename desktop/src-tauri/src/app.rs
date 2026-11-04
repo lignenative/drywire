@@ -103,6 +103,9 @@ pub struct SpaceView {
     pub rooms: Vec<RoomView>,
     /// Why the rooms could not be listed, if they could not.
     pub error: Option<AppError>,
+    /// Whether its keys come from an MLS group (ADRs 0052 and 0055): it
+    /// invites by user name, with links that hold no key.
+    pub group: bool,
 }
 
 /// The account as the settings show it (ADR 0051).
@@ -427,6 +430,7 @@ impl Desktop {
             .me()?
             .and_then(|me| me.username)
             .is_some_and(|name| !name.is_empty());
+        let group = signed_in;
         let known = if signed_in {
             KnownSpace::with_group(client.instance(), view.space.id, &view.space.name)
         } else {
@@ -441,7 +445,10 @@ impl Desktop {
         };
         self.store.remember(known).map_err(AppError::storage)?;
         self.seal_recovery_again();
-        Ok(space_view(client.instance(), &view))
+        Ok(SpaceView {
+            group,
+            ..space_view(client.instance(), &view)
+        })
     }
 
     /// The instance the apps sign in to without asking (ADR 0055): set
@@ -549,7 +556,10 @@ impl Desktop {
                 &view.space.name,
             ))
             .map_err(AppError::storage)?;
-        Ok(Some(space_view(client.instance(), &view)))
+        Ok(Some(SpaceView {
+            group: true,
+            ..space_view(client.instance(), &view)
+        }))
     }
 
     /// Invites someone into a space by user name; their name as the
@@ -629,7 +639,10 @@ impl Desktop {
                         if let Ok(client) = client {
                             reached.push((client, known.space_id));
                         }
-                        space_view(&known.instance, &view)
+                        SpaceView {
+                            group: known.uses_group(),
+                            ..space_view(&known.instance, &view)
+                        }
                     }
                     Err(e) => SpaceView {
                         instance: known.instance.clone(),
@@ -638,6 +651,7 @@ impl Desktop {
                         role: String::new(),
                         rooms: Vec::new(),
                         error: Some(e),
+                        group: known.uses_group(),
                     },
                 }
             })
@@ -963,5 +977,6 @@ fn space_view(instance: &str, view: &drywire_control::SpaceView) -> SpaceView {
             })
             .collect(),
         error: None,
+        group: false,
     }
 }

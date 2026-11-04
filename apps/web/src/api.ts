@@ -110,6 +110,7 @@ export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec:
     // Who sits in other rooms is not read yet, as in the app (api.ts).
     rooms: s.rooms.map((r) => ({ id: r.id, name: r.name })),
     error,
+    group: s.spaceKey === "",
   });
 
   /** The instances of the spaces, each once. */
@@ -166,6 +167,9 @@ export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec:
     const space = loadSpaces().find((s) => s.instance === instance && s.id === spaceId);
     const room = space?.rooms.find((r) => r.id === roomId);
     if (!space || !room) throw appError("not_found", "no such room in this browser");
+    // Its keys come from its MLS group, which the browser does not run yet
+    // (ADR 0052, step 4 for the web client).
+    if (space.spaceKey === "") throw appError("group_browser", "this space's keys come from its group: use the app for now");
     const started = WebCall.start({
       protocol,
       identity,
@@ -236,14 +240,17 @@ export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec:
         }
         throw asAppError(e);
       }
-      // 256 random bits that only the members will ever hold.
-      const spaceKey = crypto.getRandomValues(new Uint8Array(32));
+      // An account with a user name gets a space with an MLS group; a
+      // key-only one, 256 random bits only the members will ever hold.
+      const me = await control(instance).me().catch(() => null);
+      const signedIn = Boolean((me as { username?: string } | null)?.username);
+      const spaceKey = signedIn ? "" : hex(crypto.getRandomValues(new Uint8Array(32)));
       const stored: StoredSpace = {
         instance,
         id: answer.space.id,
         name: answer.space.name,
         role: answer.role,
-        spaceKey: hex(spaceKey),
+        spaceKey,
         rooms: answer.rooms.map((r) => ({ id: r.id, name: r.name })),
       };
       saveSpaces([...loadSpaces(), stored]);
@@ -330,6 +337,92 @@ export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec:
         // The link served its purpose: it leaves the address bar.
         if (location.hash) history.replaceState(null, "", location.pathname + location.search);
         return view(stored, null);
+      } catch (e) {
+        throw asAppError(e);
+      }
+    },
+
+    // Accounts by e-mail (ADR 0055): the page signs in to the instance
+    // that serves it (in development, the one Vite forwards to).
+    defaultInstance: async () => (import.meta.env.DEV ? __DRYWIRE_PROXIED__ : location.origin),
+
+    emailCode: async (instance: string, email: string, lang: string) => {
+      try {
+        await control(instance).emailCode(email.trim(), lang);
+      } catch (e) {
+        throw asAppError(e);
+      }
+    },
+
+    emailSignIn: async (instance: string, email: string, code: string) => {
+      try {
+        const c = control(instance);
+        const answer = await c.emailVerify(email.trim(), code);
+        // The account's spaces: their keys come from their groups.
+        const known = loadSpaces();
+        const added: StoredSpace[] = [];
+        for (const m of await c.spaces()) {
+          if (known.some((s) => s.instance === instance && s.id === m.space.id)) continue;
+          const space = await c.space(m.space.id);
+          added.push({
+            instance,
+            id: m.space.id,
+            name: m.space.name,
+            role: m.role,
+            spaceKey: "",
+            rooms: space.rooms.map((r) => ({ id: r.id, name: r.name })),
+          });
+        }
+        if (added.length > 0) saveSpaces([...known, ...added]);
+        return { newAccount: answer.new_account, username: answer.username || null };
+      } catch (e) {
+        throw asAppError(e);
+      }
+    },
+
+    setUsername: async (instance: string, username: string, displayName: string) => {
+      try {
+        return (await control(instance).setUsername(username.trim(), displayName.trim())).username;
+      } catch (e) {
+        throw asAppError(e);
+      }
+    },
+
+    pendingInvitations: async (instance: string) => {
+      try {
+        const list = await control(instance).invitations();
+        return list.map((i) => ({ instance, spaceId: i.space_id, spaceName: i.space_name, invitedBy: i.invited_by }));
+      } catch (e) {
+        throw asAppError(e);
+      }
+    },
+
+    answerInvitation: async (instance: string, spaceId: string, accept: boolean) => {
+      try {
+        if (!accept) {
+          await control(instance).declineInvitation(spaceId);
+          return null;
+        }
+        const answer = await control(instance).acceptInvitation(spaceId);
+        const stored: StoredSpace = {
+          instance,
+          id: answer.space.id,
+          name: answer.space.name,
+          role: answer.role,
+          spaceKey: "",
+          rooms: answer.rooms.map((r) => ({ id: r.id, name: r.name })),
+        };
+        const others = loadSpaces().filter((s) => !(s.instance === instance && s.id === stored.id));
+        saveSpaces([...others, stored]);
+        return view(stored, null);
+      } catch (e) {
+        throw asAppError(e);
+      }
+    },
+
+    inviteUser: async (instance: string, spaceId: string, username: string) => {
+      try {
+        return (await control(instance).inviteUser(spaceId, username.trim())).name;
       } catch (e) {
         throw asAppError(e);
       }
