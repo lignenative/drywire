@@ -56,8 +56,9 @@ mobile ones it adds).
   overlay stays at 1.
 - Accepts an invitation link and the name to show in that space. With no
   space yet, the window asks for one.
-- The settings have their own menu: Voice (the gate's threshold and its
-  10-second calibration, the mute shortcut), Sounds, Display (the overlay
+- The settings have their own menu: Voice (the gate's threshold against
+  the microphone's live level, in a call or not, its 10-second
+  calibration, the mute shortcut), Sounds, Display (the overlay
   and its corner, the language, starting with the session), and Advanced
   (the loopback device test, and the device key an operator lists to let
   the device create spaces). Every setting applies at once. The gate and
@@ -127,9 +128,12 @@ and can be switched in the settings (Display).
   them; `src/state.ts` holds the window's state and `src/model.ts` what
   the screens derive from the Rust side's views, tested without a
   browser. Where the Rust side does not report something the canvas shows
-  yet (who sits in a room you are not in, the reconnection countdown, the
-  microphone's level out of a call), `src/api.ts` marks the field
+  yet (who sits in a room you are not in), `src/api.ts` marks the field
   optional with a TODO and the interface leaves it out.
+- **The microphone opens out of a call only for the settings' meter**, and
+  only while the Voice page asks for its level and the window is on
+  screen: the sound card closes a second after the last request, and
+  before a call or the lab takes it (ADR 0044).
 - **The binary is `drywire-desktop`**, never `drywire`, which is the
   command-line client (ADR 0029). The installer and the window say
   "Drywire".
@@ -205,6 +209,10 @@ run. What only a person on a Windows PC can check:
       teammate sees you go at once.
 - [ ] **Devices.** The connection (the signal chip) shows WASAPI and small buffers; a
       Bluetooth headset is flagged.
+- [ ] **Meter out of a call.** Settings, Voice: the meter moves with your
+      voice and the system's microphone indicator shows; it goes out about
+      a second after leaving the page, hiding the window in the tray, or
+      minimizing it.
 - [ ] **Call.** The voice gate's meter moves with your voice and turns green
       above the white mark; muting stops your teammate hearing you within a word;
       a teammate at 200 % is clearly louder, at 0 % silent.

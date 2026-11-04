@@ -60,3 +60,4 @@ Status: Accepted · YYYY-MM-DD
 | [0040](0040-run-the-protocol-in-the-browser-as-webassembly.md) | Run the protocol in the browser as WebAssembly, and Opus through WebCodecs for now |
 | [0041](0041-close-the-lock-only-when-everyone-heard-is-verified.md) | Close the lock only when everyone heard is verified |
 | [0043](0043-keep-the-website-and-the-hosted-offer-out-of-this-repository.md) | Keep the website and the hosted offer out of this repository |
+| [0044](0044-open-the-microphone-for-the-settings-meter-only-while-it-shows.md) | Open the microphone for the settings' meter only while it shows |

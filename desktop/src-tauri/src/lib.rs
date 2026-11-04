@@ -3,6 +3,7 @@
 //!
 //! - [`app`]: what each command does, without the window.
 //! - [`session`]: a call in progress, on a thread of its own.
+//! - `meter.rs`: the microphone's level out of a call, for the settings.
 //! - [`store`] and [`vault`]: the identity and the space keys on disk,
 //!   protected by DPAPI on Windows.
 //! - `shell.rs`: the tray icon, the global mute shortcut and the overlay.
@@ -14,6 +15,7 @@ pub mod app;
 mod commands;
 pub mod error;
 pub mod latency;
+mod meter;
 pub mod session;
 mod shell;
 pub mod store;
@@ -104,6 +106,7 @@ pub fn run() {
             commands::set_language,
             commands::loopback_test,
             commands::calibrate_gate,
+            commands::input_level,
             commands::launch_at_login,
             commands::set_launch_at_login,
         ])

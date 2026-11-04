@@ -71,7 +71,7 @@ pub struct Notice {
 
 /// How often the session thread wakes up: to apply the space's events and
 /// refresh the [`CallView`].
-const TICK: Duration = Duration::from_millis(20);
+pub(crate) const TICK: Duration = Duration::from_millis(20);
 
 /// How long to wait before opening the event stream again after it ends.
 const EVENTS_RETRY: Duration = Duration::from_secs(2);
@@ -90,7 +90,7 @@ pub const METER_FLOOR_DBFS: f32 = -90.0;
 
 /// How fast the meter falls, per tick: 50 dB a second, so a word's peak
 /// stays visible between two polls of the interface.
-const METER_FALL_DB: f32 = 1.0;
+pub(crate) const METER_FALL_DB: f32 = 1.0;
 
 /// How many ticks the loss figures are measured over: one second.
 const QUALITY_TICKS: u32 = 50;

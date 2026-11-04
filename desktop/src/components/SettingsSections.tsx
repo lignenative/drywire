@@ -81,10 +81,11 @@ export function VoiceSection({ app, narrow }: { app: AppState; narrow: boolean }
   const [gate, setGate] = useDragged(reported, (v) => {
     api.setGate(v).then(() => app.settings && app.setSettings({ ...app.settings, gateOpenDbfs: v }), () => {});
   });
-  // The level is known only in a call: the Rust side reads the microphone
-  // there and nowhere else (TODO: a level command out of a call).
-  const level = call ? call.inputDbfs : null;
-  const open = !!call && !call.muted && call.inputDbfs >= gate;
+  // In a call, the call's level; out of one, the microphone opened for
+  // this meter only while it shows.
+  const alone = useMicLevel(!call);
+  const level = call ? call.inputDbfs : alone;
+  const open = level !== null && !call?.muted && level >= gate;
 
   return (
     <>
@@ -105,6 +106,35 @@ export function VoiceSection({ app, narrow }: { app: AppState; narrow: boolean }
       <ShortcutRow app={app} narrow={narrow} />
     </>
   );
+}
+
+/** How often the meter asks for the level out of a call. */
+const LEVEL_POLL_MS = 100;
+
+/** The microphone's level while `active` and the window shows, else null.
+    Asking keeps the microphone open on the Rust side; it closes a second
+    after the last request, so a hidden window lets it go. After an error
+    (no microphone), it stops asking. */
+function useMicLevel(active: boolean): number | null {
+  const [level, setLevel] = useState<number | null>(null);
+  useEffect(() => {
+    if (!active) {
+      setLevel(null);
+      return;
+    }
+    let failed = false;
+    const ask = () => {
+      if (failed || document.visibilityState === "hidden") return;
+      api.inputLevel().then(setLevel, () => {
+        failed = true;
+        setLevel(null);
+      });
+    };
+    ask();
+    const timer = setInterval(ask, LEVEL_POLL_MS);
+    return () => clearInterval(timer);
+  }, [active]);
+  return level;
 }
 
 /** The 10-second calibration: silence, controller in hand, then a

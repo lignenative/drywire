@@ -341,3 +341,74 @@ fn the_lab_measures_the_device_and_calibrates_the_gate() {
     assert!((found.gate_dbfs - -56.0).abs() < 0.1, "{found:?}");
     assert!(!found.too_loud);
 }
+
+/// A device that counts how many of its kind run at once, and the most
+/// that ever did.
+struct Counted {
+    inner: FileIo,
+    running: Arc<Mutex<(usize, usize)>>,
+}
+
+impl AudioIo for Counted {
+    fn start(
+        &mut self,
+        input: InputCallback,
+        output: OutputCallback,
+    ) -> Result<Vec<StreamInfo>, AudioError> {
+        let mut running = self.running.lock().unwrap();
+        running.0 += 1;
+        running.1 = running.1.max(running.0);
+        drop(running);
+        self.inner.start(input, output)
+    }
+
+    fn stop(&mut self) {
+        self.inner.stop();
+        self.running.lock().unwrap().0 -= 1;
+    }
+}
+
+#[test]
+fn the_meter_hears_the_microphone_out_of_a_call() {
+    let running = Arc::new(Mutex::new((0, 0)));
+    let counted: Devices = {
+        let running = Arc::clone(&running);
+        Arc::new(move || {
+            let running = Arc::clone(&running);
+            Box::new(move || {
+                let inner = FileIo::new(Source::Samples(voice()), 120, None);
+                Ok(Box::new(Counted { inner, running }) as Box<dyn AudioIo>)
+            })
+        })
+    };
+    let (app, _) = desktop("meter", counted);
+
+    // The first request opens the microphone; the voice shows within a
+    // few polls, at its level (-13.5 dBFS).
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let level = app.input_level().unwrap();
+        if level > -16.0 {
+            assert!(level < -12.0, "{level}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "the meter stays at {level}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(running.lock().unwrap().0, 1, "one sound card open");
+
+    // The lab takes the sound card: the meter closes first.
+    app.calibrate(Duration::from_millis(200)).unwrap();
+    assert_eq!(*running.lock().unwrap(), (0, 1), "never two at once");
+
+    // Asked again, it opens again; then, unasked, it closes by itself.
+    app.input_level().unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(running.lock().unwrap().0, 1);
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(
+        running.lock().unwrap().0,
+        0,
+        "closed after a second unasked"
+    );
+}

@@ -11,7 +11,10 @@ use drywire_proto::invite::Invitation;
 use serde::Serialize;
 
 use crate::error::AppError;
-use crate::session::{CallView, DeviceView, JoinRequest, Notices, Session, clamp_gate, printable};
+use crate::meter::Meter;
+use crate::session::{
+    CallView, DeviceView, JoinRequest, METER_FLOOR_DBFS, Notices, Session, clamp_gate, printable,
+};
 use crate::store::{KnownSpace, Settings, Store};
 
 /// What the loopback test measured.
@@ -103,6 +106,8 @@ pub struct Desktop {
     /// polling the call never waits for a join.
     switching: Mutex<()>,
     session: Mutex<Option<Session>>,
+    /// The microphone's meter out of a call, while the settings show it.
+    meter: Mutex<Option<Meter>>,
     /// One logged-in client per instance, kept for the app's lifetime:
     /// logging in for every command would spend the login budget the
     /// server gives each network.
@@ -119,6 +124,7 @@ impl Desktop {
             notices,
             switching: Mutex::new(()),
             session: Mutex::new(None),
+            meter: Mutex::new(None),
             clients: Mutex::new(HashMap::new()),
         }
     }
@@ -204,6 +210,8 @@ impl Desktop {
             settings: self.store.settings(),
             notices: Arc::clone(&self.notices),
         };
+        // The call needs the sound card.
+        self.close_meter();
         // The next join replaces this device's session on the server, so
         // there is no need to tell it we left.
         if let Some(previous) = self.take_session() {
@@ -311,6 +319,7 @@ impl Desktop {
     pub fn loopback_test(&self, duration: Duration) -> Result<LoopbackView, AppError> {
         let _switching = self.switching.lock().expect("not poisoned");
         self.refuse_in_a_call()?;
+        self.close_meter();
         let (test, input, output) = drywire_core::lab::Loopback::new();
         let mut device = (self.devices)()().map_err(|e| AppError::new("audio", e))?;
         let streams = device
@@ -343,6 +352,7 @@ impl Desktop {
     pub fn calibrate(&self, duration: Duration) -> Result<CalibrationView, AppError> {
         let _switching = self.switching.lock().expect("not poisoned");
         self.refuse_in_a_call()?;
+        self.close_meter();
         let frames = (duration.as_millis() / 5) as usize;
         let (recorder, input, output) = drywire_core::lab::LevelRecorder::new(frames);
         let mut device = (self.devices)()().map_err(|e| AppError::new("audio", e))?;
@@ -363,6 +373,46 @@ impl Desktop {
             gate_dbfs: clamp_gate(found.gate.open_dbfs),
             too_loud: found.too_loud,
         })
+    }
+
+    /// The microphone's level for the settings' meter, in dBFS from
+    /// [`METER_FLOOR_DBFS`] up. In a call, the call's. Out of one, the
+    /// first request opens the sound card, and it closes by itself a
+    /// second after the last ([`crate::meter`]). While a join or the lab
+    /// holds the sound card, the floor.
+    pub fn input_level(&self) -> Result<f32, AppError> {
+        if let Some(call) = self.call() {
+            return Ok(call.input_dbfs);
+        }
+        // Never wait for a join, which can take seconds: the interface
+        // asks again a moment later.
+        let Ok(_switching) = self.switching.try_lock() else {
+            return Ok(METER_FLOOR_DBFS);
+        };
+        if let Some(call) = self.call() {
+            return Ok(call.input_dbfs);
+        }
+        let mut meter = self.meter.lock().expect("not poisoned");
+        if let Some(running) = meter.as_ref() {
+            match running.level() {
+                Err(why) => {
+                    *meter = None;
+                    return Err(AppError::new("audio", why));
+                }
+                Ok(level) if !running.is_finished() => return Ok(level),
+                // It closed after a pause in the requests: open it again.
+                Ok(_) => {}
+            }
+        }
+        let started = Meter::start((self.devices)()).map_err(|e| AppError::new("audio", e))?;
+        let level = started.level().map_err(|e| AppError::new("audio", e))?;
+        *meter = Some(started);
+        Ok(level)
+    }
+
+    /// Closes the meter's sound card, if open, and waits until it is.
+    pub fn close_meter(&self) {
+        self.meter.lock().expect("not poisoned").take();
     }
 
     fn refuse_in_a_call(&self) -> Result<(), AppError> {

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use crate::app::{CalibrationView, Desktop, LoopbackView, Preferences, SpaceView};
 use crate::error::AppError;
-use crate::session::CallView;
+use crate::session::{CallView, METER_FLOOR_DBFS};
 use crate::shell;
 use crate::store::Settings;
 
@@ -127,6 +127,19 @@ pub fn loopback_test(desktop: State<'_, Desktop>) -> Result<LoopbackView, AppErr
 #[tauri::command(async)]
 pub fn calibrate_gate(desktop: State<'_, Desktop>) -> Result<CalibrationView, AppError> {
     desktop.calibrate(Duration::from_secs(10))
+}
+
+/// The microphone's level, in dBFS: the call's in a call, else from a
+/// meter that opens the sound card while the interface keeps asking.
+/// A hidden or minimized window closes the meter: its page may go on
+/// asking (a hidden web view's timers slow down, but need not stop).
+#[tauri::command(async)]
+pub fn input_level(app: AppHandle, desktop: State<'_, Desktop>) -> Result<f32, AppError> {
+    if !shell::main_on_screen(&app) {
+        desktop.close_meter();
+        return Ok(METER_FLOOR_DBFS);
+    }
+    desktop.input_level()
 }
 
 /// Whether the app starts with the session, hidden in the tray.

@@ -190,6 +190,10 @@ const tauri = {
   setLanguage: (language: string) => invoke<void>("set_language", { language }),
   loopbackTest: () => invoke<LoopbackView>("loopback_test"),
   calibrateGate: () => invoke<CalibrationView>("calibrate_gate"),
+  /** The microphone's level, in dBFS from -90 up: the call's in a call.
+      Out of one, the first request opens the microphone, and the Rust side
+      closes it a second after the last: poll it only while a meter shows. */
+  inputLevel: () => invoke<number>("input_level"),
   launchAtLogin: () => invoke<boolean>("launch_at_login"),
   setLaunchAtLogin: (enabled: boolean) => invoke<boolean>("set_launch_at_login", { enabled }),
   /** Calls `f` for every arrival and departure in the room. */
