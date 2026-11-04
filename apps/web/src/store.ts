@@ -29,6 +29,7 @@ export interface WebSettings {
 }
 
 const SPACES = "drywire.web.spaces";
+const RECOVERY = "drywire.web.recovery";
 const SETTINGS = "drywire.web.settings";
 
 function read<T>(key: string, fallback: T): T {
@@ -59,4 +60,20 @@ export function loadSettings(): WebSettings {
 
 export function saveSettings(settings: WebSettings): void {
   localStorage.setItem(SETTINGS, JSON.stringify(settings));
+}
+
+/** The recovery code's secret, in hex, when this browser made it or was
+    restored with it: it seals the recovery vault again when the spaces
+    change (ADR 0051). As secret as the account key itself. */
+export function loadRecovery(): string | null {
+  try {
+    return localStorage.getItem(RECOVERY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveRecovery(secret: string | null): void {
+  if (secret === null) localStorage.removeItem(RECOVERY);
+  else localStorage.setItem(RECOVERY, secret);
 }

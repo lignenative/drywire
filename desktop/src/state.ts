@@ -15,9 +15,9 @@ const POLL_MS = 100;
 /** The name typed in the last invitation, offered again for the next. */
 export const NAME_KEY = "drywire.displayName";
 
-export type SettingsTab = "voice" | "sounds" | "display" | "advanced";
+export type SettingsTab = "voice" | "sounds" | "display" | "account" | "advanced";
 
-export const SETTINGS_TABS: readonly SettingsTab[] = ["voice", "sounds", "display", "advanced"];
+export const SETTINGS_TABS: readonly SettingsTab[] = ["voice", "sounds", "display", "account", "advanced"];
 
 export interface AppState {
   spaces: SpaceView[] | null;

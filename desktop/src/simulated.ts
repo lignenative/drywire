@@ -151,6 +151,7 @@ const state = {
   } as Settings,
   call: null as Call | null,
   launchAtLogin: false,
+  recoveryCode: false,
   listeners: new Set<(notice: Notice) => void>(),
 };
 
@@ -261,8 +262,35 @@ function emit(notice: Notice) {
 
 const resolve = <T>(value: T) => Promise.resolve(value);
 
+/** Codes, as people type them: groups of four, any case (protocol
+    section 15.1). */
+function looksLikeCode(text: string): boolean {
+  return /^[0-9A-HJKMNP-TV-Z]{26}$/.test(text.toUpperCase().replace(/[-\s]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1"));
+}
+
 export const simulated: Api = {
   publicKey: () => resolve("07e5c3a18f6d4b2907e5c3a18f6d4b2907e5c3a18f6d4b2907e5c3a18f6d4b29"),
+  account: () => resolve({ recoveryCode: state.recoveryCode, spaces: state.spaces.length, portable: true }),
+  newRecoveryCode: () => {
+    if (state.spaces.length === 0) return Promise.reject({ code: "no_space", message: "join a space first" });
+    state.recoveryCode = true;
+    return resolve("HWMK-A9BQ-S8E2-ZCFM-PK19-NRRR-18");
+  },
+  newDeviceCode: () => {
+    if (state.spaces.length === 0) return Promise.reject({ code: "no_space", message: "join a space first" });
+    return resolve({ code: "7Q2M-KD4X-0RTA-9WEP-HJ3N-B5VC-6G", instance: state.spaces[0].instance, expiresInS: 600 });
+  },
+  restoreAccount: (_instance: string, code: string, replace: boolean) => {
+    if (!looksLikeCode(code)) return Promise.reject({ code: "bad_code", message: "this is not a Drywire code" });
+    // Any code of zeros stands for one that expired or was used.
+    if (/^[0-]+$/.test(code.trim())) return Promise.reject({ code: "code_unknown", message: "unknown, used or expired" });
+    if (state.spaces.length > 0 && !replace) {
+      return Promise.reject({ code: "account_exists", message: `this device already has an account, with ${state.spaces.length} space(s)` });
+    }
+    state.call = null;
+    state.spaces = spaces("idle");
+    return resolve(state.spaces.map((s) => ({ ...s })));
+  },
   acceptInvitation: (_link: string, _displayName: string) => {
     // Joining by invitation adds the canvas's spaces when there were none.
     if (state.spaces.length === 0) state.spaces = spaces("idle");

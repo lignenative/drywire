@@ -7,7 +7,9 @@ use tauri_plugin_autostart::ManagerExt;
 
 use std::time::Duration;
 
-use crate::app::{CalibrationView, Desktop, LoopbackView, Preferences, SpaceView};
+use crate::app::{
+    AccountView, CalibrationView, Desktop, DeviceCodeView, LoopbackView, Preferences, SpaceView,
+};
 use crate::error::AppError;
 use crate::session::{CallView, METER_FLOOR_DBFS};
 use crate::shell;
@@ -17,6 +19,39 @@ use crate::store::Settings;
 #[tauri::command(async)]
 pub fn public_key(desktop: State<'_, Desktop>) -> Result<String, AppError> {
     desktop.public_key()
+}
+
+/// The account, for the settings.
+#[tauri::command(async)]
+pub fn account(desktop: State<'_, Desktop>) -> Result<AccountView, AppError> {
+    desktop.account()
+}
+
+/// A new recovery code, to show once.
+#[tauri::command(async)]
+pub fn new_recovery_code(desktop: State<'_, Desktop>) -> Result<String, AppError> {
+    desktop.new_recovery_code()
+}
+
+/// A device code, valid ten minutes.
+#[tauri::command(async)]
+pub fn new_device_code(desktop: State<'_, Desktop>) -> Result<DeviceCodeView, AppError> {
+    desktop.new_device_code()
+}
+
+/// Becomes the account a code opens; returns the spaces it brings.
+#[tauri::command(async)]
+pub fn restore_account(
+    app: AppHandle,
+    desktop: State<'_, Desktop>,
+    instance: String,
+    code: String,
+    replace: bool,
+) -> Result<Vec<SpaceView>, AppError> {
+    let spaces = desktop.restore_account(&instance, &code, replace);
+    shell::update_overlay(&app);
+    shell::refresh_tray(&app, false);
+    spaces
 }
 
 /// Redeems an invitation link.

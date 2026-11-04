@@ -557,3 +557,91 @@ fn names_are_unknown_while_the_server_is_away() {
         std::thread::sleep(Duration::from_millis(50));
     }
 }
+
+#[test]
+fn an_account_moves_to_another_app_with_a_code() {
+    let relay = Relay::start();
+    let owner = Client::new(&relay.instance(), SigningKey::from_bytes(&[0xa2; 32])).unwrap();
+    let space = owner.create_space("Team", "general", "owner").unwrap();
+    let link = || {
+        let (invitation, _) = owner
+            .invite(&space.space.id, &[0x5b; 32], None, Some(1))
+            .unwrap();
+        invitation.to_link()
+    };
+
+    // Alex's PC: in the space, no code yet.
+    let (pc, _) = desktop("account-pc", devices(Vec::new()));
+    let account = pc.account().unwrap();
+    assert!(!account.recovery_code && account.spaces == 0 && account.portable);
+    assert_eq!(pc.new_recovery_code().unwrap_err().code, "no_space");
+    pc.accept(&link(), "alex").unwrap();
+    let code = pc.new_recovery_code().unwrap();
+    assert!(pc.account().unwrap().recovery_code);
+
+    // Every app logs in from 127.0.0.1, and the server paces logins per
+    // address: give the budget time to refill between devices.
+    let settle = || std::thread::sleep(Duration::from_millis(1500));
+    settle();
+
+    // Alex's laptop already went somewhere with a key of its own: it is
+    // not replaced without asking.
+    let (laptop, _) = desktop("account-laptop", devices(Vec::new()));
+    laptop.accept(&link(), "laptop").unwrap();
+    settle();
+    let before = laptop.public_key().unwrap();
+    let err = laptop
+        .restore_account(&relay.instance(), &code, false)
+        .unwrap_err();
+    assert_eq!(err.code, "account_exists");
+    assert_eq!(laptop.public_key().unwrap(), before, "nothing changed");
+    let spaces = laptop
+        .restore_account(&relay.instance(), &code, true)
+        .unwrap();
+    assert_eq!(laptop.public_key().unwrap(), pc.public_key().unwrap());
+    assert_eq!(spaces.len(), 1);
+    assert_eq!(spaces[0].name, "Team");
+    assert_eq!(spaces[0].role, "member", "the same member, not a new one");
+    assert!(
+        laptop.account().unwrap().recovery_code,
+        "it knows the code now"
+    );
+
+    settle();
+    // A device code from the laptop, for a phone, once.
+    let device = laptop.new_device_code().unwrap();
+    assert_eq!(device.expires_in_s, 600);
+    assert_eq!(device.instance, relay.instance());
+    let (phone, _) = desktop("account-phone", devices(Vec::new()));
+    phone
+        .restore_account(&device.instance, &device.code, false)
+        .unwrap();
+    assert_eq!(phone.public_key().unwrap(), pc.public_key().unwrap());
+    assert!(
+        !phone.account().unwrap().recovery_code,
+        "a device code is no recovery code"
+    );
+    settle();
+    let (tablet, _) = desktop("account-tablet", devices(Vec::new()));
+    let again = tablet
+        .restore_account(&device.instance, &device.code, false)
+        .unwrap_err();
+    assert_eq!(again.code, "code_unknown");
+    let typo = tablet
+        .restore_account(&relay.instance(), "not a code", false)
+        .unwrap_err();
+    assert_eq!(typo.code, "bad_code");
+
+    settle();
+    // One account, one seat, whatever the devices: the owner sees alex
+    // once. The laptop's own account, forgotten there, stays a member until
+    // someone removes it or the inactivity purge does.
+    let members = owner.space(&space.space.id).unwrap().members;
+    let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(
+        names.iter().filter(|n| **n == "alex").count(),
+        1,
+        "{names:?}"
+    );
+    assert_eq!(members.len(), 3, "{names:?}");
+}

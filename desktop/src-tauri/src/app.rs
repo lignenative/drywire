@@ -6,8 +6,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use drywire_control::{Client, Id};
+use drywire_control::{Client, Hex, Id, VaultContents, VaultKind, VaultSpace};
 use drywire_proto::invite::Invitation;
+use drywire_proto::vault::VaultCode;
 use serde::Serialize;
 
 use crate::error::AppError;
@@ -102,6 +103,32 @@ pub struct SpaceView {
     pub error: Option<AppError>,
 }
 
+/// The account as the settings show it (ADR 0051).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountView {
+    /// Whether this device knows the account's current recovery code.
+    pub recovery_code: bool,
+    /// How many spaces the account has: none, and it has no instance to
+    /// keep a vault on.
+    pub spaces: usize,
+    /// Whether the account's key can be put in a vault (always, in the
+    /// app; not for an old browser key in the web client).
+    pub portable: bool,
+}
+
+/// A device code, waiting on an instance.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceCodeView {
+    /// The code, in groups of four.
+    pub code: String,
+    /// The instance it waits on.
+    pub instance: String,
+    /// Seconds until it stops working.
+    pub expires_in_s: u64,
+}
+
 /// The app's state, shared by every command.
 pub struct Desktop {
     store: Store,
@@ -156,6 +183,169 @@ impl Desktop {
         Ok(drywire_control::to_hex(identity.verifying_key().as_bytes()))
     }
 
+    /// The account, for the settings.
+    pub fn account(&self) -> Result<AccountView, AppError> {
+        Ok(AccountView {
+            recovery_code: self
+                .store
+                .recovery_secret()
+                .map_err(AppError::storage)?
+                .is_some(),
+            spaces: self.store.spaces().map_err(AppError::storage)?.len(),
+            portable: true,
+        })
+    }
+
+    /// The instances of the known spaces, each once, in a stable order.
+    fn instances(&self) -> Result<Vec<String>, AppError> {
+        let mut all: Vec<String> = self
+            .store
+            .spaces()
+            .map_err(AppError::storage)?
+            .into_iter()
+            .map(|s| s.instance)
+            .collect();
+        all.sort();
+        all.dedup();
+        Ok(all)
+    }
+
+    /// What a vault of this account holds, with the name `client`'s
+    /// instance knows.
+    fn vault_contents(&self, client: &Client) -> Result<VaultContents, AppError> {
+        let identity = self.store.identity().map_err(AppError::storage)?;
+        let name = client.me()?.map(|id| id.name).unwrap_or_default();
+        let spaces = self
+            .store
+            .spaces()
+            .map_err(AppError::storage)?
+            .iter()
+            .map(|s| {
+                Ok(VaultSpace {
+                    instance: s.instance.clone(),
+                    id: s.space_id,
+                    name: s.name.clone(),
+                    key: Hex(s.space_key().map_err(AppError::storage)?),
+                })
+            })
+            .collect::<Result<_, AppError>>()?;
+        Ok(VaultContents {
+            account: Hex(identity.to_bytes()),
+            name,
+            spaces,
+        })
+    }
+
+    /// Seals the recovery vault with `code` on every instance of the spaces.
+    fn put_recovery(&self, code: &VaultCode) -> Result<(), AppError> {
+        let instances = self.instances()?;
+        let Some(first) = instances.first() else {
+            return Err(AppError::new("no_space", "join a space first"));
+        };
+        let contents = self.vault_contents(&*self.client(first)?)?;
+        for instance in &instances {
+            self.client(instance)?.put_recovery_vault(code, &contents)?;
+        }
+        Ok(())
+    }
+
+    /// Seals the recovery vault again after the spaces changed, if this
+    /// device knows the code. A failure is not the change's: it is left
+    /// for the next change, or a new code.
+    fn seal_recovery_again(&self) {
+        if let Ok(Some(secret)) = self.store.recovery_secret() {
+            let _ = self.put_recovery(&VaultCode::from_secret(secret));
+        }
+    }
+
+    /// Makes a new recovery code, which replaces the old one on every
+    /// instance, and returns it to show once.
+    pub fn new_recovery_code(&self) -> Result<String, AppError> {
+        let code = drywire_control::new_code();
+        self.put_recovery(&code)?;
+        self.store
+            .set_recovery_secret(Some(&code.secret()))
+            .map_err(AppError::storage)?;
+        Ok(code.to_text())
+    }
+
+    /// Makes a device code, on the first instance of the spaces.
+    pub fn new_device_code(&self) -> Result<DeviceCodeView, AppError> {
+        let instance = self
+            .instances()?
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::new("no_space", "join a space first"))?;
+        let client = self.client(&instance)?;
+        let code = drywire_control::new_code();
+        let waiting = client.put_device_vault(&code, &self.vault_contents(&client)?)?;
+        Ok(DeviceCodeView {
+            code: code.to_text(),
+            instance: client.instance().to_string(),
+            expires_in_s: waiting.expires_in,
+        })
+    }
+
+    /// Becomes the account a code opens on `instance`. If this device
+    /// already uses another account in some space, it refuses with
+    /// `account_exists` unless `replace` says to go on. The call, the
+    /// instances' clients and the followed rooms of the old account end.
+    pub fn restore_account(
+        &self,
+        instance: &str,
+        code: &str,
+        replace: bool,
+    ) -> Result<Vec<SpaceView>, AppError> {
+        let (kind, contents) =
+            drywire_control::open_vault(instance, code).map_err(|e| match e.status() {
+                Some(404) => AppError::new("code_unknown", e.to_string()),
+                _ => AppError::from(e),
+            })?;
+        let account = contents.signing_key();
+        let current = self.store.spaces().map_err(AppError::storage)?;
+        let identity = self.store.identity().map_err(AppError::storage)?;
+        let same = identity.verifying_key() == account.verifying_key();
+        if !same && !current.is_empty() && !replace {
+            return Err(AppError::new(
+                "account_exists",
+                format!(
+                    "this device already has an account, with {} space(s)",
+                    current.len()
+                ),
+            ));
+        }
+        let mut spaces: Vec<KnownSpace> = contents
+            .spaces
+            .iter()
+            .map(|s| KnownSpace::new(&s.instance, s.id, &s.name, &s.key.0))
+            .collect();
+        if same {
+            for s in current {
+                if !spaces
+                    .iter()
+                    .any(|v| v.instance == s.instance && v.space_id == s.space_id)
+                {
+                    spaces.push(s);
+                }
+            }
+        }
+        self.leave();
+        self.close_meter();
+        self.store
+            .become_account(&account.to_bytes(), &spaces)
+            .map_err(AppError::storage)?;
+        if kind == VaultKind::Recovery
+            && let Ok(code) = VaultCode::parse(code)
+        {
+            self.store
+                .set_recovery_secret(Some(&code.secret()))
+                .map_err(AppError::storage)?;
+        }
+        self.clients.lock().expect("not poisoned").clear();
+        self.rooms.reset();
+        self.spaces()
+    }
+
     /// Redeems an invitation link and remembers its space.
     pub fn accept(&self, link: &str, display_name: &str) -> Result<SpaceView, AppError> {
         let invitation =
@@ -170,6 +360,7 @@ impl Desktop {
                 &invitation.space_key,
             ))
             .map_err(AppError::storage)?;
+        self.seal_recovery_again();
         Ok(space_view(client.instance(), &view))
     }
 

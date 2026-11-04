@@ -101,6 +101,11 @@ Two ways to make one person of several devices:
   few kilobytes, which it cannot read. It is personal data all the same:
   in the export (as its id and size), deleted with the account, and
   listed in spec section 9.
+- A device that replaces its account forgets the old key, but not the
+  instances: the old account stays a member of its spaces, silent, until
+  someone removes it or the inactivity purge does (spec section 9).
+  Deleting it there would hand over or delete the spaces it owned, which
+  the person did not ask for.
 - The space keys still travel in invitation links; how that changes is
   ADR 0052.
 - The web client's identity is as safe as the page's integrity, as it

@@ -161,6 +161,23 @@ export interface Notice {
   name: string;
 }
 
+/** The account as the settings show it (ADR 0051). */
+export interface AccountView {
+  /** Whether this device knows the account's current recovery code. */
+  recoveryCode: boolean;
+  /** How many spaces it has: none, and no instance keeps a vault yet. */
+  spaces: number;
+  /** Whether its key can go in a vault: not an old browser key. */
+  portable: boolean;
+}
+
+/** A device code, waiting on an instance for ten minutes. */
+export interface DeviceCodeView {
+  code: string;
+  instance: string;
+  expiresInS: number;
+}
+
 /** Whether a value thrown by a command is an AppError. */
 export function isAppError(value: unknown): value is AppError {
   return (
@@ -174,6 +191,15 @@ export function isAppError(value: unknown): value is AppError {
 /** The Rust side, inside the Tauri window. */
 const tauri = {
   publicKey: () => invoke<string>("public_key"),
+  account: () => invoke<AccountView>("account"),
+  /** A new recovery code, which replaces the old one: show it once. */
+  newRecoveryCode: () => invoke<string>("new_recovery_code"),
+  newDeviceCode: () => invoke<DeviceCodeView>("new_device_code"),
+  /** Becomes the account a code opens on `instance`. Refused with
+      `account_exists` when this device already uses another account in
+      some space, unless `replace`. Returns the spaces, as listSpaces. */
+  restoreAccount: (instance: string, code: string, replace: boolean) =>
+    invoke<SpaceView[]>("restore_account", { instance, code, replace }),
   acceptInvitation: (link: string, displayName: string) =>
     invoke<SpaceView>("accept_invitation", { link, displayName }),
   listSpaces: () => invoke<SpaceView[]>("list_spaces"),

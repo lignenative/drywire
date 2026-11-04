@@ -56,7 +56,9 @@ struct Followed {
 pub struct Rooms {
     spaces: Arc<Mutex<HashMap<SpaceKey, Followed>>>,
     changed: Changed,
-    stop: Arc<AtomicBool>,
+    /// The flag the running threads watch; [`Rooms::reset`] raises it and
+    /// puts a fresh one for the threads that follow.
+    stop: Mutex<Arc<AtomicBool>>,
 }
 
 impl Rooms {
@@ -65,8 +67,19 @@ impl Rooms {
         Rooms {
             spaces: Arc::new(Mutex::new(HashMap::new())),
             changed,
-            stop: Arc::new(AtomicBool::new(false)),
+            stop: Mutex::new(Arc::new(AtomicBool::new(false))),
         }
+    }
+
+    /// Stops following every space: the account changed, and its streams
+    /// were opened with the old one's key. Their threads end at their next
+    /// event or keepalive.
+    pub fn reset(&self) {
+        let mut stop = self.stop.lock().expect("not poisoned");
+        stop.store(true, Ordering::Relaxed);
+        *stop = Arc::new(AtomicBool::new(false));
+        self.spaces.lock().expect("not poisoned").clear();
+        (self.changed)();
     }
 
     /// Starts following a space's rooms, unless it is already followed or
@@ -85,7 +98,7 @@ impl Rooms {
             Arc::clone(client),
             Arc::clone(&self.spaces),
             Arc::clone(&self.changed),
-            Arc::clone(&self.stop),
+            Arc::clone(&self.stop.lock().expect("not poisoned")),
         );
         let thread_key = key.clone();
         let started = std::thread::Builder::new()
@@ -117,7 +130,10 @@ impl Rooms {
 
 impl Drop for Rooms {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        self.stop
+            .lock()
+            .expect("not poisoned")
+            .store(true, Ordering::Relaxed);
     }
 }
 

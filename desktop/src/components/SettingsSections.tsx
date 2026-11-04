@@ -1,4 +1,5 @@
-// The four pages of the settings: voice, sounds, display, advanced. Each
+// The pages of the settings: voice, sounds, display, advanced (the
+// account's is AccountSection.tsx). Each
 // setting applies at once; nothing waits for a Save button.
 import { Play } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
@@ -456,7 +457,6 @@ export function AdvancedSection({ narrow }: { narrow: boolean }) {
   return (
     <>
       {platform === "web" ? <BrowserNote /> : <DeviceTest narrow={narrow} />}
-      <DeviceKey narrow={narrow} />
     </>
   );
 }
@@ -548,7 +548,7 @@ function DeviceTest({ narrow }: { narrow: boolean }) {
 }
 
 /** The key an operator lists to let this device create spaces. */
-function DeviceKey({ narrow }: { narrow: boolean }) {
+export function DeviceKey({ narrow }: { narrow: boolean }) {
   const { t } = useLanguage();
   const [key, setKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

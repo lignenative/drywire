@@ -126,6 +126,35 @@ export class ControlPlane {
     this.token = token;
   }
 
+  /** The caller's identity here, or null if it has none yet. */
+  async me(): Promise<{ name: string } | null> {
+    try {
+      return await this.call("GET", "/v1/me");
+    } catch (e) {
+      if (e instanceof ControlError && e.code === "not_found") return null;
+      throw e;
+    }
+  }
+
+  /** Keeps the account's recovery vault here (protocol section 15). */
+  putRecoveryVault(id: Bytes, sealed: Bytes): Promise<void> {
+    return this.call("PUT", "/v1/me/vault", { id: hex(id), sealed: hex(sealed) });
+  }
+
+  /** Leaves a vault here for one new device, for ten minutes. */
+  putDeviceVault(id: Bytes, sealed: Bytes): Promise<{ expires_in: number }> {
+    return this.call("POST", "/v1/me/device-vaults", { id: hex(id), sealed: hex(sealed) });
+  }
+
+  /** Opens a vault: no login, the device has no account yet. Every
+      failure is a `not_found`. */
+  async openVault(id: Bytes): Promise<{ kind: "recovery" | "device"; sealed: Bytes }> {
+    const r = await this.fetch("POST", "/v1/vaults/open", { id: hex(id) });
+    if (!r.ok) throw new ControlError(codeOf(r.status), `open vault: ${r.status}`);
+    const answer: { kind: "recovery" | "device"; sealed: string } = await r.json();
+    return { kind: answer.kind, sealed: unhex(answer.sealed) };
+  }
+
   redeem(code: Bytes, displayName: string): Promise<SpaceAnswer> {
     return this.call("POST", "/v1/invitations/redeem", { code: hex(code), display_name: displayName });
   }
