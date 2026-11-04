@@ -741,9 +741,11 @@ None blocks phase 1.
 
 - [ ] Reference Android phone for the console player, and 3.5 mm versus
       USB-C earbud (blocks phase 5).
-- [ ] TLS termination on the relay host: existing reverse proxy or
-      certificates handled by the server.
-- [ ] Production UDP port, and the firewall rules that open it.
+- [x] TLS termination on the relay host: the host's reverse proxy, on the
+      host or in a Docker network the server joins (ADR 0026, 0027); the
+      server can also serve TLS itself (`DRYWIRE_TLS_CERT`).
+- [x] Production UDP port, and the firewall rules that open it: 30050,
+      opened by `make deploy` where the host uses ufw (ADR 0028).
 - [x] Production port of the relay's WebTransport side (ADR 0038), and
       whether the web client is served by each instance or from the
       project's domain: UDP 30058, and each instance serves it at its own
@@ -751,7 +753,8 @@ None blocks phase 1.
 - [ ] Apple Developer and Google Play accounts.
 - [ ] Windows code signing: manual installation within the team at first,
       certificate later.
-- [ ] Retention of inactive identities: 12 months proposed.
+- [x] Retention of inactive identities: 12 months without a login, then
+      purged daily like a deletion (section 9, ADR 0019).
 - [ ] Whether receivers need to report downlink loss to senders (answered by
       phase 1 measurements).
 
