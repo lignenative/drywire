@@ -111,6 +111,7 @@ CREATE TABLE mls_commits (
 	space_id   BLOB    NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
 	epoch      INTEGER NOT NULL, -- the epoch this commit starts
 	body       BLOB    NOT NULL,
+	welcome    BLOB,             -- for the devices it adds, one message for all
 	created_at INTEGER NOT NULL,
 	PRIMARY KEY (space_id, epoch)
 );
@@ -118,8 +119,7 @@ CREATE TABLE mls_welcomes (
 	space_id    BLOB    NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
 	device      BLOB    NOT NULL CHECK (length(device) = 32),
 	identity_id INTEGER NOT NULL REFERENCES identities (id) ON DELETE CASCADE,
-	epoch       INTEGER NOT NULL,
-	body        BLOB    NOT NULL,
+	epoch       INTEGER NOT NULL, -- the commit whose welcome it is
 	created_at  INTEGER NOT NULL,
 	PRIMARY KEY (space_id, device)
 );

@@ -68,6 +68,6 @@ Status: Accepted · YYYY-MM-DD
 | [0049](0049-serve-the-web-client-from-each-instance-beside-its-api.md) | Serve the web client from each instance, beside its API |
 | [0050](0050-let-the-person-start-the-next-reconnection-attempt.md) | Let the person start the next reconnection attempt |
 | [0051](0051-make-the-identity-an-account-that-follows-its-person.md) | Make the identity an account that follows its person |
-| [0052](0052-take-space-keys-out-of-invitation-links-with-mls.md) | Take space keys out of invitation links with MLS (accepted, step 1 of 5 built) |
+| [0052](0052-take-space-keys-out-of-invitation-links-with-mls.md) | Take space keys out of invitation links with MLS (accepted, steps 1 and 2 of 5 built) |
 | [0053](0053-compare-a-safety-code-to-check-who-a-key-belongs-to.md) | Compare a safety code to check who a key belongs to |
 | [0054](0054-let-the-operator-hand-out-codes-that-create-a-space.md) | Let the operator hand out codes that create a space |

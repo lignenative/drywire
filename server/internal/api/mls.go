@@ -11,7 +11,8 @@ import (
 
 // The MLS delivery service (ADR 0052, protocol section 16): a space's
 // members hand each other their group's key packages, commits and
-// welcomes through these routes, as opaque bytes in hex. The server
+// welcomes through these routes, as opaque bytes in hex; their bodies may
+// be larger than other requests', for a whole group's tree. The server
 // orders the commits, one per epoch, and reads nothing. Any member may
 // use them: the members' apps check what a commit does.
 
@@ -49,7 +50,7 @@ func (s *Server) putKeyPackage(w http.ResponseWriter, r *http.Request, c caller)
 		Device     string `json:"device"`
 		KeyPackage string `json:"key_package"`
 	}
-	if !readJSON(w, r, &req) {
+	if !readJSONUpTo(w, r, &req, 2*store.MaxMLSMessage+maxBody) {
 		return
 	}
 	device, ok := parseDevice(w, req.Device)
@@ -102,9 +103,10 @@ func (s *Server) listKeyPackages(w http.ResponseWriter, r *http.Request, c calle
 	writeJSON(w, http.StatusOK, out)
 }
 
-// commitMLS: POST /v1/spaces/{space}/mls/commits {epoch, commit,
-// welcomes: [{device, welcome}]}: a commit made in `epoch`, which must be
-// the group's current one (409 with the current epoch otherwise).
+// commitMLS: POST /v1/spaces/{space}/mls/commits {epoch, commit, welcome,
+// welcomed}: a commit made in `epoch`, which must be the group's current
+// one (409 with the current epoch otherwise), and the welcome for the
+// devices it adds.
 func (s *Server) commitMLS(w http.ResponseWriter, r *http.Request, c caller) {
 	space, ok := pathID(w, r, "space")
 	if !ok {
@@ -114,40 +116,41 @@ func (s *Server) commitMLS(w http.ResponseWriter, r *http.Request, c caller) {
 		return
 	}
 	var req struct {
-		Epoch    uint64 `json:"epoch"`
-		Commit   string `json:"commit"`
-		Welcomes []struct {
-			Device  string `json:"device"`
-			Welcome string `json:"welcome"`
-		} `json:"welcomes"`
+		Epoch    uint64   `json:"epoch"`
+		Commit   string   `json:"commit"`
+		Welcome  string   `json:"welcome"`
+		Welcomed []string `json:"welcomed"`
 	}
-	if !readJSON(w, r, &req) {
+	// A commit and a welcome, each up to MaxMLSMessage, in hex.
+	if !readJSONUpTo(w, r, &req, 4*store.MaxMLSMessage+maxBody) {
 		return
 	}
 	commit, ok := parseBytes(w, "commit", req.Commit)
 	if !ok {
 		return
 	}
-	welcomes := make([]store.Welcome, 0, len(req.Welcomes))
-	for _, wl := range req.Welcomes {
-		device, ok := parseDevice(w, wl.Device)
-		if !ok {
+	var welcome []byte
+	if req.Welcome != "" {
+		if welcome, ok = parseBytes(w, "welcome", req.Welcome); !ok {
 			return
 		}
-		body, ok := parseBytes(w, "welcome", wl.Welcome)
-		if !ok {
-			return
-		}
-		welcomes = append(welcomes, store.Welcome{Device: device, Body: body})
 	}
-	next, err := s.store.Commit(r.Context(), space, req.Epoch, commit, welcomes)
+	welcomed := make([]store.Device, 0, len(req.Welcomed))
+	for _, text := range req.Welcomed {
+		device, ok := parseDevice(w, text)
+		if !ok {
+			return
+		}
+		welcomed = append(welcomed, device)
+	}
+	next, err := s.store.Commit(r.Context(), space, req.Epoch, commit, welcome, welcomed)
 	var stale store.StaleEpochError
 	if errors.As(err, &stale) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": stale.Error(), "epoch": stale.Current})
 		return
 	}
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusBadRequest, "a welcome names a device that is not waiting to join")
+		writeError(w, http.StatusBadRequest, "a welcome needs the devices it is for, and each must be waiting to join")
 		return
 	}
 	if err != nil {

@@ -24,7 +24,7 @@ func TestMembersHandEachOtherTheGroupsMessages(t *testing.T) {
 	if status := sam.do("POST", base+"/key-packages", map[string]string{"device": "02", "key_package": kp}, nil); status != http.StatusBadRequest {
 		t.Fatalf("short device: %d", status)
 	}
-	big := hex.EncodeToString(make([]byte, 16*1024+1))
+	big := hex.EncodeToString(make([]byte, 64*1024+1))
 	if status := sam.do("POST", base+"/key-packages", map[string]string{"device": phone, "key_package": big}, nil); status != http.StatusRequestEntityTooLarge {
 		t.Fatalf("too large: %d", status)
 	}
@@ -41,10 +41,13 @@ func TestMembersHandEachOtherTheGroupsMessages(t *testing.T) {
 		t.Fatalf("pending %v", pending)
 	}
 
+	// A welcome as large as a full space's tree still goes through.
+	welcomeBytes := make([]byte, 60*1024)
 	commit := map[string]any{
 		"epoch":    0,
 		"commit":   hex.EncodeToString([]byte("commit 1")),
-		"welcomes": []map[string]string{{"device": phone, "welcome": hex.EncodeToString([]byte("welcome"))}},
+		"welcome":  hex.EncodeToString(welcomeBytes),
+		"welcomed": []string{phone},
 	}
 	var made struct {
 		Epoch uint64 `json:"epoch"`
@@ -78,7 +81,7 @@ func TestMembersHandEachOtherTheGroupsMessages(t *testing.T) {
 		Welcome string `json:"welcome"`
 	}
 	sam.must(http.StatusOK, "GET", base+"/welcome?device="+phone, nil, &welcome)
-	if welcome.Epoch != 1 || welcome.Welcome != hex.EncodeToString([]byte("welcome")) {
+	if welcome.Epoch != 1 || welcome.Welcome != hex.EncodeToString(welcomeBytes) {
 		t.Fatalf("welcome %+v", welcome)
 	}
 	if status := alex.do("GET", base+"/welcome?device="+phone, nil, nil); status != http.StatusNotFound {

@@ -5,6 +5,7 @@ members = [
     "drywire-proto",
     "drywire-core",
     "drywire-control",
+    "drywire-mls",
     "drywire-bench",
     "drywire-cli",
     "drywire-wasm",
@@ -23,6 +24,7 @@ publish = false
 drywire-proto = { path = "drywire-proto" }
 drywire-core = { path = "drywire-core", default-features = false }
 drywire-control = { path = "drywire-control" }
+drywire-mls = { path = "drywire-mls" }
 # Without default features opusic-sys links a libopus found on the system;
 # drywire-core's `bundled-opus` feature (on by default) builds it instead.
 opusic-sys = { version = "0.7", default-features = false }
@@ -42,6 +44,11 @@ sha2 = "0.11"
 # and the operating system's certificate store, not a bundled copy.
 ureq = { version = "3.5", default-features = false, features = ["rustls-no-provider", "platform-verifier", "json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# MLS (RFC 9420) for the spaces' groups (ADR 0052): OpenMLS, MIT, with
+# its pure-Rust crypto provider and in-memory storage.
+openmls = "0.9.2"
+openmls_basic_credential = "0.6"
+openmls_rust_crypto = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # Windows only: Microsoft's bindings, for the WASAPI backend (ADR 0013).

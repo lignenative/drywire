@@ -1,0 +1,17 @@
+[package]
+name = "drywire-mls"
+description = "Drywire's MLS groups: one per space, one leaf per device, the room keys they export (ADR 0052)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+ed25519-dalek.workspace = true
+openmls.workspace = true
+openmls_basic_credential.workspace = true
+openmls_rust_crypto.workspace = true
+
+[lints]
+workspace = true

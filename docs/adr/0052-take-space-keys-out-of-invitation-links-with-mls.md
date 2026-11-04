@@ -1,6 +1,6 @@
 # 0052. Take space keys out of invitation links with MLS
 
-Status: Accepted · 2026-11-04 · step 1 of 5 built
+Status: Accepted · 2026-11-04 · steps 1 and 2 of 5 built
 
 ## Context
 
@@ -84,13 +84,14 @@ remains, in order, each a slice with its tests:
 
 1. **Delivery service** on the control plane (built, protocol section
    16): key packages per pending device, commits accepted only for the
-   current epoch (`409` otherwise), welcomes per device, an `mls` event
-   on the space's stream, all stored as opaque bytes and deleted with
-   their space, member or identity, or when stale.
-2. **`drywire-mls`** in the core: device credentials as above, the group
-   kept in each device's sealed store (OpenMLS's memory storage, saved as
-   a whole), adding pending devices, removing members' devices, renewing
-   its own leaf.
+   current epoch (`409` otherwise), one welcome per commit for the
+   devices it adds, an `mls` event on the space's stream, all stored as
+   opaque bytes and deleted with their space, member or identity, or
+   when stale.
+2. **`drywire-mls`** in the core (built): device credentials as above,
+   the group kept in each device's sealed store (OpenMLS's memory
+   storage, saved as a whole), adding pending devices, removing members'
+   devices, renewing its own leaf.
 3. **The audio path's key**: the room key from the exporter per epoch,
    the previous epoch's kept for a few seconds so packets in flight still
    open, and `drywire-core` taking a key per epoch instead of the space

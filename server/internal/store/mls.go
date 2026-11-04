@@ -17,8 +17,10 @@ import (
 // Device is a device's MLS public key.
 type Device [32]byte
 
-// MaxMLSMessage bounds one key package, commit or welcome.
-const MaxMLSMessage = 16 * 1024
+// MaxMLSMessage bounds one key package, commit or welcome. A welcome holds
+// the group's whole tree: about 28 KB for 100 devices (drywire-mls's
+// tests measure it), so 64 KiB leaves room for twice that.
+const MaxMLSMessage = 64 * 1024
 
 // maxCommitsListed bounds one answer of Commits: a device further behind
 // asks again from where it got to.
@@ -34,7 +36,7 @@ const (
 )
 
 // ErrMLSTooLarge is a message over MaxMLSMessage.
-var ErrMLSTooLarge = errors.New("an MLS message holds at most 16 KiB")
+var ErrMLSTooLarge = errors.New("an MLS message holds at most 64 KiB")
 
 // ErrDeviceTaken is a key package for a device another identity posted
 // for.
@@ -54,12 +56,6 @@ type PendingDevice struct {
 	Device     Device
 	PublicKey  Key // its account's key, as the members list shows it
 	KeyPackage []byte
-}
-
-// Welcome is what lets one device join the group.
-type Welcome struct {
-	Device Device
-	Body   []byte
 }
 
 // CommitRow is one commit, in the order the group took them.
@@ -131,16 +127,15 @@ func (s *Store) MLSEpoch(ctx context.Context, space ID) (uint64, error) {
 }
 
 // Commit appends a commit made in epoch `from`, which must be the group's
-// current one, and the welcomes it makes; the devices welcomed stop
-// waiting. It returns the epoch the commit started, or StaleEpochError.
-func (s *Store) Commit(ctx context.Context, space ID, from uint64, body []byte, welcomes []Welcome) (uint64, error) {
-	if len(body) > MaxMLSMessage {
+// current one, with the welcome it makes for the devices it adds, if any;
+// those devices stop waiting. It returns the epoch the commit started, or
+// StaleEpochError.
+func (s *Store) Commit(ctx context.Context, space ID, from uint64, body, welcome []byte, welcomed []Device) (uint64, error) {
+	if len(body) > MaxMLSMessage || len(welcome) > MaxMLSMessage {
 		return 0, ErrMLSTooLarge
 	}
-	for _, w := range welcomes {
-		if len(w.Body) > MaxMLSMessage {
-			return 0, ErrMLSTooLarge
-		}
+	if (len(welcome) == 0) != (len(welcomed) == 0) {
+		return 0, ErrNotFound // a welcome for no one, or devices with no welcome
 	}
 	var next uint64
 	err := s.tx(ctx, func(tx *sql.Tx) error {
@@ -153,16 +148,20 @@ func (s *Store) Commit(ctx context.Context, space ID, from uint64, body []byte, 
 		}
 		next = from + 1
 		now := s.unix()
-		if _, err := tx.ExecContext(ctx, `INSERT INTO mls_commits (space_id, epoch, body, created_at) VALUES (?, ?, ?, ?)`,
-			space[:], next, body, now); err != nil {
+		var w any // NULL without a welcome
+		if len(welcome) > 0 {
+			w = welcome
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO mls_commits (space_id, epoch, body, welcome, created_at) VALUES (?, ?, ?, ?, ?)`,
+			space[:], next, body, w, now); err != nil {
 			return err
 		}
-		for _, w := range welcomes {
+		for _, device := range welcomed {
 			// Only a device that asked to join can be welcomed: its key
 			// package says whose it is.
 			var identityID int64
 			err := tx.QueryRowContext(ctx, `SELECT identity_id FROM mls_key_packages WHERE space_id = ? AND device = ?`,
-				space[:], w.Device[:]).Scan(&identityID)
+				space[:], device[:]).Scan(&identityID)
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound
 			}
@@ -170,15 +169,14 @@ func (s *Store) Commit(ctx context.Context, space ID, from uint64, body []byte, 
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO mls_welcomes (space_id, device, identity_id, epoch, body, created_at) VALUES (?, ?, ?, ?, ?, ?)
-				ON CONFLICT (space_id, device) DO UPDATE SET epoch = excluded.epoch,
-					body = excluded.body, created_at = excluded.created_at
+				INSERT INTO mls_welcomes (space_id, device, identity_id, epoch, created_at) VALUES (?, ?, ?, ?, ?)
+				ON CONFLICT (space_id, device) DO UPDATE SET epoch = excluded.epoch, created_at = excluded.created_at
 				WHERE mls_welcomes.identity_id = excluded.identity_id`,
-				space[:], w.Device[:], identityID, next, w.Body, now); err != nil {
+				space[:], device[:], identityID, next, now); err != nil {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM mls_key_packages WHERE space_id = ? AND device = ?`,
-				space[:], w.Device[:]); err != nil {
+				space[:], device[:]); err != nil {
 				return err
 			}
 		}
@@ -214,7 +212,9 @@ func (s *Store) WelcomeFor(ctx context.Context, space ID, identityID int64, devi
 	var epoch uint64
 	var body []byte
 	err := s.db.QueryRowContext(ctx, `
-		SELECT epoch, body FROM mls_welcomes WHERE space_id = ? AND device = ? AND identity_id = ?`,
+		SELECT w.epoch, c.welcome FROM mls_welcomes w
+		JOIN mls_commits c ON c.space_id = w.space_id AND c.epoch = w.epoch
+		WHERE w.space_id = ? AND w.device = ? AND w.identity_id = ? AND c.welcome IS NOT NULL`,
 		space[:], device[:], identityID).Scan(&epoch, &body)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil, ErrNotFound
