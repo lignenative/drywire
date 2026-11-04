@@ -22,12 +22,6 @@ export const ALLOWED = new Set([
   "MPL-2.0",
   // Zero-clause BSD: MIT and ISC without even the notice to keep.
   "0BSD",
-  // Blue Oak: MIT's permissions with an explicit patent grant. Several
-  // of Astro's own dependencies use it (ADR 0042).
-  "BlueOak-1.0.0",
-  // A public domain dedication, for the CSS reference data Astro's CSS
-  // tools read (mdn-data, ADR 0042).
-  "CC0-1.0",
 ]);
 
 /**

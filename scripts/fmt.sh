@@ -25,15 +25,3 @@ if [ -f "$root/desktop/src-tauri/Cargo.toml" ]; then
 	cd "$root/desktop/src-tauri"
 	cargo fmt
 fi
-
-if [ -f "$root/site/package.json" ]; then
-	echo "==> site (Biome)"
-	cd "$root/site"
-	PATH="$PATH:$HOME/.bun/bin"
-	if command -v bun >/dev/null 2>&1; then
-		bun install --frozen-lockfile
-		bun run format
-	else
-		echo "note: site skipped; install Bun (https://bun.sh)"
-	fi
-fi

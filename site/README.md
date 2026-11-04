@@ -1,50 +1,11 @@
 # site
 
 The project's static site, served from `https://drywire.gg`. For now it
-holds the invitation page; the landing page, the pricing page and the
-privacy policy come later (spec sections 9 and 14).
+holds the invitation page; the landing page and the privacy policy come
+later (spec section 14). Plain HTML, CSS and JavaScript: no build step, no
+framework, no server code. The Go server never serves any of it.
 
-Built with [Astro](https://astro.build) into plain HTML, CSS and
-JavaScript files (ADR 0042), with [Bun](https://bun.sh) only: no Node.js,
-no npm. There is no server code, and the Go server never serves any of it:
-any static file server can serve `dist/`.
-
-## Run it
-
-From the repository root:
-
-| Command | What it does |
-| --- | --- |
-| `make site` | Dev server with live reload, on `http://127.0.0.1:10053` |
-| `make site-build` | The static site into `site/dist/` |
-| `make site-preview` | Build, then serve `dist/` on `http://127.0.0.1:10052` |
-| `make site-check` | Type-check (`astro check`), then lint (Biome) |
-| `make site-stop` | Stop whatever listens on 10053 and 10052 |
-| `make fmt` | Format the site's TypeScript with Biome, among the rest |
-| `make test` | Check, build, then test the built pages and check licenses |
-
-`SITE_DEV_PORT` and `SITE_PORT` move the two ports for a one-off. A busy
-port is an error, never a silent move to the next one. Astro's telemetry
-is off in every script.
-
-To try the invitation page, open `http://127.0.0.1:10052/i#` followed by
-a link's fragment. Use `make site-preview` for that, not `make site`: only
-the built pages carry the security policy (see below).
-
-## Layout
-
-```text
-src/
-  pages/i.astro       the invitation page and its security policy
-  invite/invite.ts    decodes the payload; tested against the shared vector
-  invite/page.ts      fills the page, in English or French
-  invite/style.css    light and dark
-  invite/invite.test.ts  the decoder, and the built page's guarantees
-stubs/sharp/          an empty package in place of sharp (ADR 0042)
-astro.config.mjs      static output, ports, nothing inlined
-```
-
-## The invitation page: `/i`
+## The invitation page: `i/`
 
 Every invitation link points here, whichever instance it is for:
 `https://drywire.gg/i#<payload>` (protocol section 14). The page reads the
@@ -57,11 +18,8 @@ What it never does, and how that is enforced:
 - **No request with the fragment.** Browsers never send a fragment to a
   server, and the page's Content-Security-Policy forbids every connection
   (`connect-src 'none'`), image and form; scripts and styles come from the
-  page's own origin only. Astro is told never to inline a script, a
-  stylesheet or an asset, which that policy would refuse.
-  `invite.test.ts` reads the built page and checks the policy, that it
-  comes before anything the page loads, that nothing is inline or loaded
-  from elsewhere, and that the bundled files make no request.
+  page's own origin only. `invite.test.js` checks the policy and that
+  nothing is loaded from elsewhere.
 - **Less trace in history.** Once read, the fragment is removed from the
   address bar (`history.replaceState`), so the page's history entry reads
   `/i`. A browser may still have recorded the full link when the page
@@ -69,13 +27,20 @@ What it never does, and how that is enforced:
   secret to share privately, and the page says so.
 - **No cookie, no analytics, no external font**, and `noindex`.
 
-The dev server leaves the policy out, because Vite injects styles inline
-and reloads the page through a socket; the built pages always have it.
+| File | What it does |
+| --- | --- |
+| `i/index.html` | The page and its security policy |
+| `i/invite.js` | Decodes the payload; tested against the shared vector |
+| `i/page.js` | Fills the page, in English or French |
+| `i/style.css` | Light and dark |
 
-## Dependencies
+## Run and test it
 
-Pinned to exact versions (`bunfig.toml`), and their licenses checked by
-`scripts/js-licenses.ts site` in `make test`. Astro's optional image
-library, sharp, brings libvips, which is LGPL: `package.json` replaces it
-with the empty package in `stubs/sharp`, and Astro uses its pass-through
-image service instead (ADR 0042).
+```sh
+cd site && bun test                       # the decoder and the policy
+python3 -m http.server 10052 --bind 127.0.0.1 --directory site   # preview
+```
+
+Then open `http://127.0.0.1:10052/i/#` followed by a link's fragment.
+Module scripts do not load from `file://`, so the page needs a server, even
+locally.

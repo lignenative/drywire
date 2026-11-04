@@ -1,7 +1,7 @@
 // The invitation page: says which instance the link is for, and how to
-// accept it. See invite.ts for what is read, and ../../README.md for why the
+// accept it. See invite.js for what is read, and README.md for why the
 // page makes no request.
-import { type Invitation, readInvitation } from "./invite";
+import { readInvitation } from "./invite.js";
 
 const french = (navigator.language || "").toLowerCase().startsWith("fr");
 const text = french
@@ -34,8 +34,7 @@ const text = french
       none: "This page is for Drywire invitation links. This one holds no invitation.",
     };
 
-// Every id exists in pages/i.astro, which this script belongs to.
-const $ = (id: string) => document.getElementById(id) as HTMLElement;
+const $ = (id) => document.getElementById(id);
 document.documentElement.lang = french ? "fr" : "en";
 document.title = text.title;
 $("title").textContent = text.title;
@@ -51,23 +50,21 @@ const fragment = location.hash.slice(1);
 // browser lets a page: it may have recorded the full link already.
 if (fragment) history.replaceState(null, "", location.pathname);
 
-const result: Invitation | { error: "none" } = fragment
-  ? readInvitation(fragment)
-  : { error: "none" };
+const result = fragment ? readInvitation(fragment) : { error: "none" };
 if (result.error) {
   $("problem").textContent = text[result.error];
   $("problem").hidden = false;
 } else {
-  const link = `https://drywire.gg/i#${fragment}`;
+  const link = "https://drywire.gg/i#" + fragment;
   $("lead").textContent = text.lead;
   $("instance").textContent = result.instance;
   $("open").textContent = text.open;
-  ($("open") as HTMLAnchorElement).href = `drywire://i#${fragment}`;
+  $("open").href = "drywire://i#" + fragment;
   $("cli").textContent = text.cli;
-  $("command").textContent = `drywire join --link '${link}'`;
+  $("command").textContent = "drywire join --link '" + link + "'";
   $("copy").textContent = text.copy;
   $("copy").addEventListener("click", async () => {
-    await navigator.clipboard.writeText($("command").textContent ?? "");
+    await navigator.clipboard.writeText($("command").textContent);
     $("copy").textContent = text.copied;
   });
   $("invitation").hidden = false;

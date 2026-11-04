@@ -1,7 +1,0 @@
-{
-  "name": "sharp",
-  "version": "0.0.0",
-  "private": true,
-  "license": "MIT",
-  "description": "Stands in for sharp, Astro's optional image library, so that libvips (LGPL) is never installed: the site processes no image (ADR 0042)."
-}

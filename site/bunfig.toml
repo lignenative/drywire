@@ -1,4 +1,0 @@
-# Dependencies are pinned to exact versions: `bun add` must not write a
-# caret range that would let a later install drift.
-[install]
-exact = true

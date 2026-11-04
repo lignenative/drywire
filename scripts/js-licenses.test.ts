@@ -32,9 +32,3 @@ test("the font license only for fonts", () => {
   expect(isFont("fontsource-lookalike")).toBe(false);
   expect(allowed("0BSD")).toBe(true);
 });
-
-test("the licenses of the site's tools (ADR 0042)", () => {
-  expect(allowed("BlueOak-1.0.0")).toBe(true);
-  expect(allowed("CC0-1.0")).toBe(true);
-  expect(allowed("LGPL-3.0-or-later")).toBe(false);
-});

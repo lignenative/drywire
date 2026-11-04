@@ -65,21 +65,13 @@ if [ -f "$root/core/Cargo.toml" ]; then
 	fi
 fi
 
-if [ -f "$root/site/package.json" ]; then
-	echo "==> site (Astro, Bun)"
+if [ -f "$root/site/i/invite.test.js" ]; then
+	echo "==> site (Bun)"
 	cd "$root/site"
 	if has_bun; then
-		PATH="$PATH:$HOME/.bun/bin"
-		bun install --frozen-lockfile
-		bun run check
-		bun run lint
-		# The tests read the built pages, which are what browsers get.
-		bun run build
-		bun test
-		cd "$root"
-		bun scripts/js-licenses.ts site
+		PATH="$PATH:$HOME/.bun/bin" bun test
 	else
-		echo "note: site skipped; install Bun (https://bun.sh)"
+		echo "note: site tests skipped; install Bun (https://bun.sh)"
 	fi
 fi
 

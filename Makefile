@@ -6,8 +6,7 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help dev test fmt vectors bench live desktop ui site site-build site-preview site-check site-stop \
-	deploy status logs backup restore
+.PHONY: help dev test fmt vectors bench live desktop ui deploy status logs backup restore
 
 help: ## List the commands
 	@scripts/help.sh
@@ -35,23 +34,6 @@ desktop: ## Run the desktop app in development (Vite on 127.0.0.1:10051)
 
 ui: ## The interface alone in a browser, with a simulated call (127.0.0.1:10051)
 	@scripts/ui.sh
-
-# The project site, site/ (Astro, ADR 0042).
-
-site: ## The project site in development, with live reload (127.0.0.1:10053)
-	@scripts/site.sh dev
-
-site-build: ## Build the project site into site/dist/
-	@scripts/site.sh build
-
-site-preview: ## Build the site, then serve it as browsers get it (127.0.0.1:10052)
-	@scripts/site.sh preview
-
-site-check: ## Type-check and lint the site
-	@scripts/site.sh check
-
-site-stop: ## Stop the site's dev and preview servers
-	@scripts/site.sh stop
 
 # Operating an instance on HOST, an SSH alias set in .env (deploy/README.md).
 
