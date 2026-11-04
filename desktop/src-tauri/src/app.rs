@@ -141,6 +141,30 @@ pub struct SignedInView {
     pub username: Option<String>,
 }
 
+/// The account as its settings page shows it (ADR 0055).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountInfoView {
+    /// Its user name.
+    pub username: String,
+    /// The address it signs in with.
+    pub email: String,
+    /// Its display name.
+    pub name: String,
+}
+
+/// One device of the account.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceInfoView {
+    /// Its key, in hex.
+    pub public_key: String,
+    /// Whether it is this one.
+    pub this_device: bool,
+    /// When it last logged in (RFC 3339).
+    pub last_seen_at: String,
+}
+
 /// An invitation by user name, waiting.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -560,6 +584,57 @@ impl Desktop {
             group: true,
             ..space_view(client.instance(), &view)
         }))
+    }
+
+    /// The account this device is signed in to on `instance`.
+    pub fn account_info(&self, instance: &str) -> Result<AccountInfoView, AppError> {
+        let me = self
+            .client(instance)?
+            .me()?
+            .ok_or_else(|| AppError::new("not_found", "this device has no account here"))?;
+        Ok(AccountInfoView {
+            username: me.username.unwrap_or_default(),
+            email: me.email.unwrap_or_default(),
+            name: me.name,
+        })
+    }
+
+    /// The account's devices.
+    pub fn account_devices(&self, instance: &str) -> Result<Vec<DeviceInfoView>, AppError> {
+        Ok(self
+            .client(instance)?
+            .devices()?
+            .into_iter()
+            .map(|d| DeviceInfoView {
+                public_key: d.public_key.to_hex(),
+                this_device: d.this_device,
+                last_seen_at: d.last_seen_at,
+            })
+            .collect())
+    }
+
+    /// Signs another of the account's devices out for good.
+    pub fn remove_device(&self, instance: &str, public_key: &str) -> Result<(), AppError> {
+        let key = drywire_control::PublicKey::parse(public_key)
+            .ok_or_else(|| AppError::new("not_found", "not a device key"))?;
+        Ok(self.client(instance)?.remove_device(&key)?)
+    }
+
+    /// Signs this device out: the account forgets it, and it forgets the
+    /// account's spaces on `instance`. Its address signs it in again.
+    pub fn sign_out(&self, instance: &str) -> Result<(), AppError> {
+        self.leave();
+        let client = self.client(instance)?;
+        let me = client.public_key();
+        client.remove_device(&me)?;
+        self.store
+            .forget_instance(client.instance())
+            .map_err(AppError::storage)?;
+        self.clients
+            .lock()
+            .expect("not poisoned")
+            .remove(client.instance());
+        Ok(())
     }
 
     /// Invites someone into a space by user name; their name as the

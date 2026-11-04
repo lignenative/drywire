@@ -8,8 +8,9 @@ use tauri_plugin_autostart::ManagerExt;
 use std::time::Duration;
 
 use crate::app::{
-    AccountView, CalibrationView, Desktop, DeviceCodeView, InvitationView, LoopbackView,
-    PendingInvitationView, Preferences, RestoredView, SignedInView, SpaceView,
+    AccountInfoView, AccountView, CalibrationView, Desktop, DeviceCodeView, DeviceInfoView,
+    InvitationView, LoopbackView, PendingInvitationView, Preferences, RestoredView, SignedInView,
+    SpaceView,
 };
 use crate::error::AppError;
 use crate::session::{CallView, METER_FLOOR_DBFS};
@@ -297,4 +298,38 @@ pub fn invite_user(
     username: String,
 ) -> Result<String, AppError> {
     desktop.invite_user(&instance, &space_id, &username)
+}
+
+/// The account this device is signed in to.
+#[tauri::command(async)]
+pub fn account_info(
+    desktop: State<'_, Desktop>,
+    instance: String,
+) -> Result<AccountInfoView, AppError> {
+    desktop.account_info(&instance)
+}
+
+/// The account's devices.
+#[tauri::command(async)]
+pub fn account_devices(
+    desktop: State<'_, Desktop>,
+    instance: String,
+) -> Result<Vec<DeviceInfoView>, AppError> {
+    desktop.account_devices(&instance)
+}
+
+/// Signs another of the account's devices out.
+#[tauri::command(async)]
+pub fn remove_device(
+    desktop: State<'_, Desktop>,
+    instance: String,
+    public_key: String,
+) -> Result<(), AppError> {
+    desktop.remove_device(&instance, &public_key)
+}
+
+/// Signs this device out.
+#[tauri::command(async)]
+pub fn sign_out(desktop: State<'_, Desktop>, instance: String) -> Result<(), AppError> {
+    desktop.sign_out(&instance)
 }

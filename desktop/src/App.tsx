@@ -10,7 +10,8 @@ import { NarrowSettings, SettingsPage } from "@/components/Settings";
 import { SideMenu } from "@/components/SideMenu";
 import { Onboarding, SignedInHome } from "@/components/Onboarding";
 import { loadAccount, saveAccount, type SignedIn } from "@/account";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ACCOUNT_CHANGED } from "@/components/AccountSection";
 import { useNarrow } from "@/hooks";
 import { findRoom } from "@/model";
 import { showsCall, useAppState, type AppState } from "@/state";
@@ -25,6 +26,16 @@ export function App() {
     saveAccount(next);
     setAccount(next);
   };
+  // Signing out, from the settings' account page.
+  useEffect(() => {
+    const changed = () => {
+      setAccount(loadAccount());
+      app.closeSettings();
+      app.reloadSpaces();
+    };
+    window.addEventListener(ACCOUNT_CHANGED, changed);
+    return () => window.removeEventListener(ACCOUNT_CHANGED, changed);
+  }, []);
   return (
     <div className="h-screen overflow-hidden bg-background text-sm leading-[1.4] text-foreground">
       {app.page === "settings" ? (
@@ -33,7 +44,7 @@ export function App() {
         ) : (
           <SettingsPage app={app} />
         )
-      ) : !account?.username && (app.spaces?.length ?? 0) === 0 && !app.call ? (
+      ) : !account?.username && !app.call ? (
         <Onboarding app={app} narrow={narrow} pending={account} onSignedIn={signedIn} />
       ) : account?.username && app.spaces?.length === 0 && !app.call ? (
         <SignedInHome app={app} narrow={narrow} account={account} />

@@ -445,6 +445,48 @@ export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec:
       }
     },
 
+    accountInfo: async (instance: string) => {
+      try {
+        const me = await control(instance).me();
+        if (!me) throw appError("not_found", "this browser has no account here");
+        return { username: me.username ?? "", email: me.email ?? "", name: me.name };
+      } catch (e) {
+        throw asAppError(e);
+      }
+    },
+
+    accountDevices: async (instance: string) => {
+      try {
+        return (await control(instance).devices()).map((d) => ({
+          publicKey: d.public_key,
+          thisDevice: d.this_device,
+          lastSeenAt: d.last_seen_at,
+        }));
+      } catch (e) {
+        throw asAppError(e);
+      }
+    },
+
+    removeDevice: async (instance: string, publicKey: string) => {
+      try {
+        await control(instance).removeDevice(publicKey);
+      } catch (e) {
+        throw asAppError(e);
+      }
+    },
+
+    signOut: async (instance: string) => {
+      try {
+        await stopCall();
+        const c = control(instance);
+        await c.removeDevice(hex(identity.publicKey));
+        c.forgetToken();
+        saveSpaces(loadSpaces().filter((s) => s.instance !== instance));
+      } catch (e) {
+        throw asAppError(e);
+      }
+    },
+
     inviteUser: async (instance: string, spaceId: string, username: string) => {
       try {
         return (await control(instance).inviteUser(spaceId, username.trim())).name;

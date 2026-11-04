@@ -133,7 +133,7 @@ export class ControlPlane {
   }
 
   /** The caller's identity here, or null if it has none yet. */
-  async me(): Promise<{ name: string } | null> {
+  async me(): Promise<{ name: string; username?: string; email?: string } | null> {
     try {
       return await this.call("GET", "/v1/me");
     } catch (e) {
@@ -207,6 +207,19 @@ export class ControlPlane {
       }
       throw e;
     }
+  }
+
+  devices(): Promise<{ public_key: string; this_device: boolean; last_seen_at: string }[]> {
+    return this.call("GET", "/v1/me/devices");
+  }
+
+  removeDevice(key: string): Promise<void> {
+    return this.call("DELETE", `/v1/me/devices/${key}`);
+  }
+
+  /** Forgets the token: the next request logs in again. */
+  forgetToken(): void {
+    this.token = "";
   }
 
   invitations(): Promise<{ space_id: string; space_name: string; invited_by: string }[]> {

@@ -23,6 +23,9 @@ pub struct AccountDevice {
     pub public_key: PublicKey,
     /// Whether it is the device asking.
     pub this_device: bool,
+    /// When it last logged in, as the server writes it (RFC 3339).
+    #[serde(default)]
+    pub last_seen_at: String,
 }
 
 /// Someone found by user name.

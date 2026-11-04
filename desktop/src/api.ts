@@ -40,6 +40,20 @@ export interface SignedInView {
   username: string | null;
 }
 
+/** The account as its settings page shows it (ADR 0055). */
+export interface AccountInfoView {
+  username: string;
+  email: string;
+  name: string;
+}
+
+export interface DeviceInfoView {
+  publicKey: string;
+  thisDevice: boolean;
+  /** RFC 3339. */
+  lastSeenAt: string;
+}
+
 /** An invitation by user name, waiting. */
 export interface PendingInvitationView {
   instance: string;
@@ -288,6 +302,12 @@ const tauri = {
   /** Invites someone by user name; their display name. */
   inviteUser: (instance: string, spaceId: string, username: string) =>
     invoke<string>("invite_user", { instance, spaceId, username }),
+  accountInfo: (instance: string) => invoke<AccountInfoView>("account_info", { instance }),
+  accountDevices: (instance: string) => invoke<DeviceInfoView[]>("account_devices", { instance }),
+  removeDevice: (instance: string, publicKey: string) => invoke<void>("remove_device", { instance, publicKey }),
+  /** Signs this device out: the account forgets it, and it forgets the
+      account's spaces on `instance`. */
+  signOut: (instance: string) => invoke<void>("sign_out", { instance }),
   /** Calls `f` with the spaces whenever someone sits down in or leaves a
       room of any of them: what `listSpaces` would answer, without asking
       the servers again. */

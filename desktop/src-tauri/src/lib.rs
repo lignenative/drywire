@@ -135,6 +135,10 @@ pub fn run() {
             commands::pending_invitations,
             commands::answer_invitation,
             commands::invite_user,
+            commands::account_info,
+            commands::account_devices,
+            commands::remove_device,
+            commands::sign_out,
         ])
         .build(tauri::generate_context!())
         .expect("Drywire could not start");
