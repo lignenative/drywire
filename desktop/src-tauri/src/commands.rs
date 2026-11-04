@@ -65,6 +65,12 @@ pub fn set_muted(app: AppHandle, desktop: State<'_, Desktop>, muted: bool) {
     shell::refresh_tray(&app, muted);
 }
 
+/// While reconnecting, joins again now instead of after the pause.
+#[tauri::command]
+pub fn retry_now(desktop: State<'_, Desktop>) {
+    desktop.retry_now();
+}
+
 /// Moves the voice gate's threshold, in dBFS.
 #[tauri::command(async)]
 pub fn set_gate(desktop: State<'_, Desktop>, open_dbfs: f32) -> Result<(), AppError> {

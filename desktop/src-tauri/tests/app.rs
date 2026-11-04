@@ -300,6 +300,54 @@ fn a_call_joins_again_after_the_server_restarts() {
     assert_eq!(status["sessions"], 0, "both sessions were freed: {status}");
 }
 
+#[test]
+fn trying_now_joins_again_without_waiting_for_the_pause() {
+    let mut relay = Relay::start();
+    let owner = Client::new(&relay.instance(), SigningKey::from_bytes(&[0xa2; 32])).unwrap();
+    let space = owner.create_space("Team", "general", "owner").unwrap();
+    let (invitation, _) = owner
+        .invite(&space.space.id, &[0x5b; 32], None, Some(1))
+        .unwrap();
+    let (sam, _) = desktop("sam-retry-now", devices(Vec::new()));
+    sam.accept(&invitation.to_link(), "sam").unwrap();
+    let spaces = sam.spaces().unwrap();
+    let (instance, space_id, room) = (&spaces[0].instance, &spaces[0].id, &spaces[0].rooms[0].id);
+    sam.join(instance, space_id, room).unwrap();
+    wait_for(&sam, "sam in the room", |v| v.bound);
+
+    // The server restarts and forgets the session, then goes away again
+    // before the first attempt: every attempt fails, the pauses grow.
+    relay.stop();
+    std::thread::sleep(Duration::from_secs(1));
+    relay.start_again();
+    wait_long(&sam, "sam reconnecting", 15, |v| v.reconnecting);
+    relay.stop();
+    let long_pause = |v: &CallView| v.reconnecting && v.retry_in_s.is_some_and(|s| s >= 5);
+    wait_long(&sam, "an 8 s pause", 20, long_pause);
+
+    // Trying now while the server is still away fails at once, and the
+    // sequence starts over: the next attempt comes a second later, not
+    // after 15.
+    sam.retry_now();
+    wait_long(&sam, "a one-second pause", 2, |v| {
+        v.reconnecting && v.retry_in_s == Some(1)
+    });
+
+    // The server is back, the next attempt far off: trying now joins at
+    // once.
+    wait_long(&sam, "an 8 s pause again", 20, long_pause);
+    relay.start_again();
+    let left = sam.call().unwrap().retry_in_s.expect("waiting");
+    assert!(left >= 3, "the server took {left} s to start");
+    sam.retry_now();
+    wait_long(&sam, "sam back in the room", left as u64 - 1, |v| {
+        !v.reconnecting && v.bound
+    });
+    sam.leave();
+    let status = relay.status();
+    assert_eq!(status["sessions"], 0, "the session was freed: {status}");
+}
+
 /// An echo device that takes time, as a real one does: what it plays, it
 /// hears five periods (12.5 ms) later. With no latency at all, a late
 /// wake-up followed by an early one would make an echo look older than
