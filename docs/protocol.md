@@ -674,8 +674,11 @@ space the caller is not a member of answers `404`, as if it did not exist.
   from them). A comment line every 15 seconds keeps idle connections open.
 - The stream ends when the subscriber is no longer a member, when the
   space is deleted, or when the subscriber falls 256 events behind; the
-  client reconnects and gets a fresh snapshot. An identity may hold 8
-  streams at a time.
+  client reconnects and gets a fresh snapshot. An identity holds at most
+  8 streams: a ninth ends its oldest, as a fifth login ends its oldest
+  token (section 13.2). A client whose network changed thus gets its new
+  streams at once, while the server still holds the dead ones; a client
+  must not open more than 8 itself, or its newest would end its own.
 - A client takes a stream silent for 45 seconds, three keepalives, as
   dead: it closes it and opens a new one. It does the same after any
   read error or malformed event, since an event may have been lost.

@@ -146,11 +146,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, c caller) {
 		s.fail(w, errors.New("the response writer cannot stream"))
 		return
 	}
-	sub, snapshot, err := s.presence.Subscribe(space, c.key)
-	if err != nil {
-		writeError(w, http.StatusTooManyRequests, err.Error())
-		return
-	}
+	sub, snapshot := s.presence.Subscribe(space, c.key)
 	defer s.presence.Unsubscribe(sub)
 	// A removal that raced with the subscription would have missed it:
 	// check again, now that it is visible, and on every keepalive.

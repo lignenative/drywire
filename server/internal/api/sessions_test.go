@@ -262,3 +262,26 @@ func TestJoiningHandsBrowsersTheWebRelay(t *testing.T) {
 		t.Fatalf("native clients lost the UDP relay: %q", a.Relay)
 	}
 }
+
+func TestANinthStreamEndsTheOldest(t *testing.T) {
+	h := newHarness(t, Config{AnyoneCreates: true})
+	_, sam, v := team(t, h)
+	var streams []*stream
+	for range presence.MaxSubscriptions {
+		s := sam.subscribe(v.Space.ID)
+		s.expect("snapshot", nil)
+		streams = append(streams, s)
+	}
+	// Sam's network changed: the old streams are dead, but nothing told
+	// the server. The new one is served, and the oldest ends.
+	newest := sam.subscribe(v.Space.ID)
+	newest.expect("snapshot", nil)
+	streams[0].expectEnd()
+	b := sam.join(v.Rooms[0].ID)
+	var e presence.Event
+	newest.expect(presence.Join, &e)
+	if e.Session != b.Session {
+		t.Fatalf("join %+v", e)
+	}
+	streams[1].expect(presence.Join, nil)
+}

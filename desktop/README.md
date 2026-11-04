@@ -137,7 +137,8 @@ and can be switched in the settings (Display).
   always sends them, and the interface leaves out what a client does not.
 - **Who sits in each room is pushed, never polled.** Each space listed
   is followed on a thread of its own (`rooms.rs`), at most 6 per
-  instance, under the server's limit of 8 event streams per identity;
+  instance, under the server's limit of 8 event streams per identity
+  (past which a new stream ends the oldest, ADR 0047);
   every change sends the spaces to the window as a `spaces` event, built
   from the last listing without asking a server (ADR 0045). A stream that
   ends, breaks or stays silent for 45 seconds (three of the server's

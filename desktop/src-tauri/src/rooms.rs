@@ -10,10 +10,12 @@
 //! which pushes the spaces to the window: no polling, no network request
 //! to show a name.
 //!
-//! The server holds at most 8 streams per identity. A call opens one more
-//! for its own space, and a reconnection briefly two, so at most
-//! [`MAX_PER_INSTANCE`] spaces of an instance are followed; the others
-//! show their rooms without names, as before.
+//! The server holds at most 8 streams per identity, and one more ends the
+//! oldest (ADR 0047). A call opens one for its own space, and a
+//! reconnection briefly two, so at most [`MAX_PER_INSTANCE`] spaces of an
+//! instance are followed: never so many that the app's own new stream
+//! would end its call's. The others show their rooms without names, as
+//! before.
 //!
 //! A space's call follows its own stream (`session.rs`): the two never
 //! share one, so nothing here can delay or confuse the call.

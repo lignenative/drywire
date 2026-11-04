@@ -10,7 +10,6 @@
 package presence
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/lignenative/drywire/server/internal/store"
@@ -33,11 +32,9 @@ const (
 	// is dropped; its client reconnects and gets a fresh snapshot.
 	eventQueue = 256
 	// MaxSubscriptions bounds the event streams one identity holds open.
+	// One more ends its oldest (ADR 0047).
 	MaxSubscriptions = 8
 )
-
-// ErrTooManySubscriptions refuses one more stream to an identity.
-var ErrTooManySubscriptions = errors.New("too many event streams open for this identity")
 
 // Session is one member in one room.
 type Session struct {
@@ -60,8 +57,10 @@ type Event struct {
 
 // Subscription receives the events of one space.
 type Subscription struct {
-	space  store.ID
-	key    store.Key
+	space store.ID
+	key   store.Key
+	// opened orders an identity's subscriptions, oldest first.
+	opened uint64
 	events chan Event
 	done   chan struct{}
 	closed bool
@@ -71,7 +70,8 @@ type Subscription struct {
 func (s *Subscription) Events() <-chan Event { return s.events }
 
 // Done is closed when the subscription ends from the server's side: the
-// subscriber left the space, fell too far behind, or the server stops.
+// subscriber left the space, fell too far behind, opened too many newer
+// ones, or the server stops.
 func (s *Subscription) Done() <-chan struct{} { return s.done }
 
 // Hub holds the live sessions and the subscriptions. It is safe for
@@ -81,6 +81,8 @@ type Hub struct {
 	sessions map[uint32]Session
 	byKey    map[store.Key]uint32
 	subs     map[*Subscription]struct{}
+	// opened counts the subscriptions ever made, to tell the oldest.
+	opened uint64
 }
 
 // NewHub returns an empty hub.
@@ -149,19 +151,39 @@ func (h *Hub) Find(match func(Session) bool) []Session {
 // Subscribe starts a subscription to the space's events for the holder of
 // key, and returns it with the sessions already in the space. Nothing
 // happens between the snapshot and the first event.
-func (h *Hub) Subscribe(space store.ID, key store.Key) (*Subscription, []Session, error) {
+//
+// An identity holds at most MaxSubscriptions: one more ends its oldest,
+// as a fifth login ends the oldest token. A client whose network changed
+// opens new streams while the server still holds the old ones, which
+// nobody will ever read; refusing the new ones would lock it out until
+// TCP gave up on the old (ADR 0047).
+func (h *Hub) Subscribe(space store.ID, key store.Key) (*Subscription, []Session) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	open := 0
+	var mine []*Subscription
 	for s := range h.subs {
 		if s.key == key {
-			open++
+			mine = append(mine, s)
 		}
 	}
-	if open >= MaxSubscriptions {
-		return nil, nil, ErrTooManySubscriptions
+	for len(mine) >= MaxSubscriptions {
+		oldest := 0
+		for i, s := range mine {
+			if s.opened < mine[oldest].opened {
+				oldest = i
+			}
+		}
+		h.end(mine[oldest])
+		mine = append(mine[:oldest], mine[oldest+1:]...)
 	}
-	sub := &Subscription{space: space, key: key, events: make(chan Event, eventQueue), done: make(chan struct{})}
+	h.opened++
+	sub := &Subscription{
+		space:  space,
+		key:    key,
+		opened: h.opened,
+		events: make(chan Event, eventQueue),
+		done:   make(chan struct{}),
+	}
 	h.subs[sub] = struct{}{}
 	snapshot := []Session{}
 	for _, s := range h.sessions {
@@ -169,7 +191,7 @@ func (h *Hub) Subscribe(space store.ID, key store.Key) (*Subscription, []Session
 			snapshot = append(snapshot, s)
 		}
 	}
-	return sub, snapshot, nil
+	return sub, snapshot
 }
 
 // Unsubscribe ends a subscription from the subscriber's side.
