@@ -64,3 +64,9 @@ missing_docs = "warn"
 
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "deny"
+
+# Development builds keep debug information for this project's own code
+# only: the dependencies' made most of a build's size on disk, and a
+# backtrace through them still names their functions.
+[profile.dev.package."*"]
+debug = false
