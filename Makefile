@@ -6,7 +6,7 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help dev test clean fmt vectors bench live web desktop ui deploy status logs backup restore
+.PHONY: help dev test clean fmt vectors creator-code bench live web desktop ui deploy status logs backup restore
 
 help: ## List the commands
 	@scripts/help.sh
@@ -45,6 +45,9 @@ ui: ## The interface alone in a browser, with a simulated call (127.0.0.1:10051)
 
 deploy: ## Build the server for Linux, send it to HOST, start it there
 	@scripts/deploy.sh
+
+creator-code: ## Make a code that lets one person create one space on HOST
+	@scripts/creator-code.sh
 
 status: ## Show the server on HOST: container, version, uptime, rooms
 	@scripts/status.sh

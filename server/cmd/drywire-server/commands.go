@@ -31,6 +31,9 @@ Commands:
             while the server runs
   restore   Replace the database with a copy read from standard input,
             then replay the deletion ledger; the server must be stopped
+  creator-code
+            Make a code that lets one person create one space, valid for
+            7 days (ADR 0054); the server may run meanwhile
 `
 
 // runCommand runs one operator command, its output on stdout and its
@@ -43,6 +46,8 @@ func runCommand(name string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return backup(stdout)
 	case "restore":
 		return restore(stdin, stderr)
+	case "creator-code":
+		return creatorCode(stdout)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, commandsUsage)
 		return nil
@@ -221,4 +226,33 @@ func removeLeftovers(db string) int {
 		removeDatabase(f)
 	}
 	return len(found)
+}
+
+// creatorCode keeps a new creation code in the database and prints it,
+// with the web client's link that opens it. The running server reads the
+// same database: no restart is needed.
+func creatorCode(out io.Writer) error {
+	db := envOr("DRYWIRE_DB", "drywire.db")
+	led, err := ledger.Open(envOr("DRYWIRE_LEDGER", db+".deletions"))
+	if err != nil {
+		return err
+	}
+	defer led.Close()
+	st, err := store.Open(db, led, time.Now)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	code := store.NewCreatorCode()
+	expires, err := st.AddCreatorCode(context.Background(), code, store.CreatorCodeLifetime)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, code)
+	fmt.Fprintf(out, "Valid once, until %s. In Drywire: Join a space > Create a space, with this code.\n",
+		expires.Format("2006-01-02 15:04 MST"))
+	if public := os.Getenv("DRYWIRE_PUBLIC_URL"); public != "" {
+		fmt.Fprintf(out, "In a browser: %s/#create=%s\n", public, code)
+	}
+	return nil
 }

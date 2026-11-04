@@ -288,6 +288,18 @@ drywire create-space --instance https://voice.example.org --name Team --display-
 drywire invite --uses 5 --days 7
 ```
 
+**Letting someone else create a space** needs no key and no deploy: make
+a creation code, valid once for 7 days, and send it to them privately
+([ADR 0054](../docs/adr/0054-let-the-operator-hand-out-codes-that-create-a-space.md)):
+
+```sh
+make creator-code
+```
+
+It prints the code and the web client's address that opens it. In the
+apps it goes in Join a space › Create a space; on the command line,
+`drywire create-space --code CODE`. The server keeps only its hash.
+
 `invite` prints a link (`https://drywire.gg/i#…`). The part after `#`
 holds the space's key: the server never sees it, so share the link
 privately. Each teammate then joins and talks with:

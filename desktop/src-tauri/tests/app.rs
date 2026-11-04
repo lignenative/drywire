@@ -325,11 +325,12 @@ fn trying_now_joins_again_without_waiting_for_the_pause() {
     let long_pause = |v: &CallView| v.reconnecting && v.retry_in_s.is_some_and(|s| s >= 5);
     wait_long(&sam, "an 8 s pause", 20, long_pause);
 
-    // Trying now while the server is still away fails at once, and the
-    // sequence starts over: the next attempt comes a second later, not
-    // after 15.
+    // Trying now while the server is still away fails, and the sequence
+    // starts over: the next attempt comes a second later, not after 15.
+    // The attempt itself takes up to two seconds on Windows, which retries
+    // a connection to a closed local port before it gives up.
     sam.retry_now();
-    wait_long(&sam, "a one-second pause", 2, |v| {
+    wait_long(&sam, "a one-second pause", 6, |v| {
         v.reconnecting && v.retry_in_s == Some(1)
     });
 
@@ -694,4 +695,36 @@ fn an_account_moves_to_another_app_with_a_code() {
         "{names:?}"
     );
     assert_eq!(members.len(), 3, "{names:?}");
+}
+
+#[test]
+fn an_app_creates_a_space_and_invites_into_it() {
+    let relay = Relay::start();
+    let (owner, _) = desktop("create-owner", devices(Vec::new()));
+    // This relay lets anyone create spaces: no code is needed.
+    let space = owner
+        .create_space(&relay.instance(), None, "Scrims", "alex")
+        .unwrap();
+    assert_eq!(
+        (space.name.as_str(), space.role.as_str()),
+        ("Scrims", "owner")
+    );
+    assert_eq!(space.rooms[0].name, "general");
+    let invitation = owner.create_invitation(&space.instance, &space.id).unwrap();
+    assert!(
+        invitation.link.starts_with("https://drywire.gg/i#"),
+        "{invitation:?}"
+    );
+    assert_eq!(invitation.uses, 10);
+
+    std::thread::sleep(Duration::from_millis(1500));
+    let (guest, _) = desktop("create-guest", devices(Vec::new()));
+    let joined = guest.accept(&invitation.link, "sam").unwrap();
+    assert_eq!(joined.name, "Scrims");
+    assert_eq!(joined.role, "member");
+    // A member can join; only admins invite.
+    let err = guest
+        .create_invitation(&joined.instance, &joined.id)
+        .unwrap_err();
+    assert_eq!(err.code, "refused");
 }

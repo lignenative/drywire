@@ -221,6 +221,9 @@ func (s *Store) PurgeInactive(ctx context.Context) (Purged, error) {
 	if p.Vaults, err = s.purgeExpiredVaults(ctx); err != nil {
 		return p, err
 	}
+	if err := s.purgeExpiredCreatorCodes(ctx); err != nil {
+		return p, err
+	}
 	return p, nil
 }
 

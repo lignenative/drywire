@@ -3,6 +3,7 @@
 // time, the spaces first (the canvas's V3 page, ADR 0037).
 import { CallView } from "@/components/CallView";
 import { InviteDialog } from "@/components/InviteDialog";
+import { ShareDialog } from "@/components/ShareDialog";
 import { NarrowHome } from "@/components/NarrowHome";
 import { EndedView, NoSpaceView, PeekView } from "@/components/RoomViews";
 import { NarrowSettings, SettingsPage } from "@/components/Settings";
@@ -39,6 +40,7 @@ export function App() {
         </div>
       )}
       <InviteDialog app={app} narrow={narrow} />
+      <ShareDialog app={app} narrow={narrow} />
     </div>
   );
 }

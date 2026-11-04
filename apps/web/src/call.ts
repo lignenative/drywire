@@ -282,7 +282,8 @@ export class WebCall {
 
   private sendFrame(packet: Uint8Array, frame: { ts: number; start: boolean; end: boolean }): void {
     const link = this.link;
-    if (!link?.bound || this.muted) return;
+    // While muted, the worklet sends only silence, to end the spurt.
+    if (!link?.bound) return;
     // Before every spurt, then once a second (sender.rs).
     if (frame.start || frame.ts - this.announcedAt >= SAMPLE_RATE) {
       link.relay.send(link.announce);

@@ -3,7 +3,7 @@
 // decide (gate.ts). Frames the gate lets through go to the page, which
 // encodes them with WebCodecs, absent from worklets (ADR 0040). Nothing
 // here changes a sample.
-import { DEFAULT_GATE, gateAt, levelDbfs, VoiceGate } from "./gate";
+import { DEFAULT_GATE, gateAt, gateFrame, VoiceGate } from "./gate";
 import type { FromCapture, ToCapture } from "./messages";
 
 /** Frames between two level reports: 50 ms of 5 ms frames. */
@@ -30,10 +30,8 @@ class Capture extends AudioWorkletProcessor {
     this.port.onmessage = (e: MessageEvent<ToCapture>) => {
       const m = e.data;
       if (m.type === "gate") this.gate.setConfig(gateAt(m.openDbfs));
-      else if (m.type === "muted") {
-        this.muted = m.muted;
-        if (m.muted) this.gate.close();
-      } else if (m.type === "calibrate") {
+      else if (m.type === "muted") this.muted = m.muted;
+      else if (m.type === "calibrate") {
         this.calibration = [];
         this.calibrationLeft = Math.round((m.seconds * sampleRate) / this.frame.length);
       }
@@ -54,12 +52,14 @@ class Capture extends AudioWorkletProcessor {
         this.onFrame();
       }
     }
+    // The start of the next frame, captured while muted: silenced now, or
+    // an unmute before the frame completes would send it (as call.rs).
+    if (this.muted) this.frame.fill(0, 0, this.filled);
     return true;
   }
 
   private onFrame(): void {
-    const level = levelDbfs(this.frame);
-    const decision = this.muted ? "silent" : this.gate.process(level);
+    const { level, decision } = gateFrame(this.gate, this.frame, this.muted);
     if (decision !== "silent") {
       const pcm = this.frame.slice();
       this.post({ type: "frame", pcm, ts: this.ts, start: decision === "start", end: decision === "end" }, [pcm.buffer]);

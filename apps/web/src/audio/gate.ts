@@ -53,11 +53,6 @@ export class VoiceGate {
     return this.remaining > 0;
   }
 
-  /** Closes the gate at once, as muting does: nothing more is sent. */
-  close(): void {
-    this.remaining = 0;
-  }
-
   /** Decides for the next frame, from its level. "start" is the first
       frame of a talk spurt, "end" the last one, still sent. */
   process(levelDbfs: number): Decision {
@@ -70,6 +65,18 @@ export class VoiceGate {
     else this.remaining--;
     return this.remaining === 0 ? "end" : "send";
   }
+}
+
+/** One captured frame through the gate. A muted frame is heard as
+    silence, as the core does it (call.rs): its samples become zeros, never
+    sent as they were, and an open gate closes the spurt with its hold and
+    its end mark, so the others stop at once instead of concealing a
+    missing end for a fifth of a second. The level returned is the
+    microphone's own, for the meter. */
+export function gateFrame(gate: VoiceGate, frame: Float32Array, muted: boolean): { level: number; decision: Decision } {
+  const level = levelDbfs(frame);
+  if (muted) frame.fill(0);
+  return { level, decision: gate.process(muted ? -Infinity : level) };
 }
 
 /** The RMS level of a frame in dBFS: −3 for a full-scale sine, −Infinity

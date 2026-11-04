@@ -58,6 +58,7 @@ server:
 drywire-server health              # exit 0 if the control plane answers
 drywire-server backup > copy.db    # consistent copy, while the server runs
 drywire-server restore < copy.db   # server stopped: replace, then replay deletions
+drywire-server creator-code        # a code that creates one space (ADR 0054)
 ```
 
 `restore` checks the copy and replays the deletion ledger on it before it

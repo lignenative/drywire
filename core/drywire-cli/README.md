@@ -75,9 +75,16 @@ drywire help                     # every option
   filled the gap), arrived too late, or were dropped to catch up.
 
 When it stops it prints a `summary key=value …` line on standard output,
-for scripts. If the server ends the session (the same identity joined
-elsewhere, the member was removed, or the relay heard nothing for 30
-seconds), `join` stops and says so.
+for scripts.
+
+If the server forgets the session (it restarted, or the relay heard
+nothing for 30 seconds, as when the network drops), `join` says so and
+joins again by itself, after 1, 2, 4, 8 and then every 15 seconds, as the
+apps do (ADR 0035): an echo bot outlives a server update or a Wi-Fi cut.
+It stops for good when the session ends on purpose: the account joined
+from another device, or the member was removed. A call on files
+(`--input`, `--output`) is a measurement, and ends instead. While the
+relay answers no ping, the round trip shows `-`, never the last value.
 
 ## Your account on several devices
 

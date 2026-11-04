@@ -52,6 +52,17 @@ func isUniqueViolation(err error) bool {
 // CreateSpace creates a space with one room, owned by the identity with
 // this key, which is created with ownerName if it is new.
 func (s *Store) CreateSpace(ctx context.Context, owner Key, ownerName, spaceName, roomName string, maxMembers int) (Space, Room, error) {
+	return s.createSpace(ctx, nil, owner, ownerName, spaceName, roomName, maxMembers)
+}
+
+// CreateSpaceWithCode creates a space as CreateSpace does, and uses up a
+// creation code in the same transaction: an unknown, used or expired code
+// creates nothing and answers ErrInvalidCreatorCode.
+func (s *Store) CreateSpaceWithCode(ctx context.Context, code CreatorCode, owner Key, ownerName, spaceName, roomName string, maxMembers int) (Space, Room, error) {
+	return s.createSpace(ctx, &code, owner, ownerName, spaceName, roomName, maxMembers)
+}
+
+func (s *Store) createSpace(ctx context.Context, code *CreatorCode, owner Key, ownerName, spaceName, roomName string, maxMembers int) (Space, Room, error) {
 	var space Space
 	var room Room
 	spaceName, err := CleanName(spaceName)
@@ -62,6 +73,11 @@ func (s *Store) CreateSpace(ctx context.Context, owner Key, ownerName, spaceName
 		return space, room, err
 	}
 	err = s.tx(ctx, func(tx *sql.Tx) error {
+		if code != nil {
+			if err := useCreatorCode(ctx, tx, *code, s.unix()); err != nil {
+				return err
+			}
+		}
 		id, err := s.ensureIdentity(ctx, tx, owner, ownerName)
 		if err != nil {
 			return err

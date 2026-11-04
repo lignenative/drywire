@@ -101,6 +101,9 @@ the client reaches an instance only through its own origin or that proxy.
   the gate lets through crosses to the main thread to be encoded, sealed
   and sent. The announcement goes before every spurt and once a second
   during one.
+  Muting turns the microphone's frames into silence, as the core does:
+  an open gate runs out its hold and sends the end mark, so the others
+  stop at once, and no sample captured while muted is ever sent.
 - **Playback**: each person's frames are decoded on the main thread and
   handed to the playback worklet, which holds one jitter buffer per
   person, as the core's: the target is the 95th percentile of recent
@@ -207,9 +210,6 @@ click to its echo holds both directions and the bot.
 - Joining again after a lost session (ADR 0035) is written as in the app
   but has not been exercised: restart the server mid-call to try it.
 - Who sits in rooms you are not in is not shown yet, as in the app.
-- Muting in the middle of a talk spurt sends no end mark: the others'
-  buffers conceal for up to 200 ms before they stop, and the name stays
-  lit that long.
 
 ## Test
 

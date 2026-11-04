@@ -1,91 +1,189 @@
-:root {
-  --bg: #f6f6f4;
-  --fg: #1b1c1e;
-  --muted: #5d6066;
-  --accent: #1f5fd1;
-  --panel: #ffffff;
-  color-scheme: light dark;
+/* The invitation page, in the app's colours and fonts (the design canvas,
+   V3 page, "InvitePage"): dark, one column of 480 px. Geist and Geist Mono
+   come with the page (fonts/, SIL Open Font License, fonts/OFL.txt): the
+   page loads nothing from elsewhere. */
+
+@font-face {
+  font-family: "Geist";
+  src: url("fonts/geist.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #141517;
-    --fg: #ececea;
-    --muted: #a3a6ab;
-    --accent: #7aa5ff;
-    --panel: #1d1f22;
-  }
+@font-face {
+  font-family: "Geist Mono";
+  src: url("fonts/geist-mono.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  --bg: #0f1012;
+  --fg: #ececef;
+  --soft: #c9cad0;
+  --subtle: #a3a4ab;
+  --muted: #8a8b93;
+  --raised: #1d1e22;
+  --code: #18191c;
+  --line: #1d1e21;
+  --border: #2a2b30;
+  --accent: #3ddc97;
+  --on-accent: #06140e;
+  color-scheme: dark;
 }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 15px/1.45 Geist, "Segoe UI Variable", system-ui, sans-serif;
 }
 
 main {
-  max-width: 36rem;
+  box-sizing: border-box;
+  max-width: 480px;
   margin: 0 auto;
-  padding: 3rem 1rem;
+  padding: 72px 0 48px;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 520px) {
+  main {
+    padding: 82px 20px 34px;
+  }
 }
 
 h1 {
-  font-size: 1.6rem;
-  margin: 0 0 1.5rem;
+  margin: 0 0 20px;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+p {
+  margin: 0;
+}
+
+#problem,
+.lead {
+  color: var(--soft);
+}
+
+@media (max-width: 520px) {
+  .lead {
+    font-size: 16px;
+  }
 }
 
 .instance {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 1.1rem;
+  margin: 6px 0 24px;
+  font: 500 18px "Geist Mono", ui-monospace, monospace;
   overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.button {
+  box-sizing: border-box;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: var(--raised);
+  color: var(--fg);
+  font: 600 15px Geist, system-ui, sans-serif;
+  text-decoration: none;
+}
+
+.button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.hint {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.cli {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.cli > p {
+  font-size: 14px;
+  color: var(--subtle);
 }
 
 pre {
-  background: var(--panel);
-  padding: 0.75rem;
-  border-radius: 6px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--code);
+  font: 400 13px/1.55 "Geist Mono", ui-monospace, monospace;
+  color: var(--fg);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 0.85rem;
-}
-
-.button,
-button {
-  display: inline-block;
-  padding: 0.55rem 1.1rem;
-  border-radius: 6px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--bg);
-  font: inherit;
-  text-decoration: none;
-  cursor: pointer;
 }
 
 button {
-  background: transparent;
-  color: var(--accent);
+  align-self: flex-start;
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--fg);
+  font: 600 13.5px Geist, system-ui, sans-serif;
 }
 
-.note {
+@media (max-width: 520px) {
+  .button {
+    height: 52px;
+  }
+  button {
+    height: 44px;
+  }
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 28px;
+  font-size: 13px;
   color: var(--muted);
-  font-size: 0.9rem;
 }
 
-/* Everything that can be clicked shows the pointing hand, as everywhere
-   on the web: browsers leave buttons on the default arrow. */
+.notes a {
+  color: var(--soft);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Clickable means the pointing hand (CLAUDE.md): browsers leave buttons on
+   the default arrow. */
 a[href],
-button:not(:disabled),
-summary,
-select:not(:disabled),
-label:has(> input:not(:disabled)),
-input:is([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="button"], [type="submit"], [type="reset"]):not(:disabled),
-:is([role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"]):not([aria-disabled="true"], [data-disabled]) {
+button:not(:disabled) {
   cursor: pointer;
 }
-:disabled,
-[aria-disabled="true"],
-[data-disabled]:not([data-disabled="false"]) {
+
+:disabled {
   cursor: not-allowed;
 }

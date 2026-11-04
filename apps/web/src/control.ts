@@ -155,6 +155,18 @@ export class ControlPlane {
     return { kind: answer.kind, sealed: unhex(answer.sealed) };
   }
 
+  /** Creates a space, with a creation code if this key needs one. */
+  createSpace(name: string, displayName: string, creatorCode: string | null): Promise<SpaceAnswer> {
+    const body: Record<string, string> = { name, room: "general", display_name: displayName };
+    if (creatorCode) body.creator_code = creatorCode;
+    return this.call("POST", "/v1/spaces", body);
+  }
+
+  /** A new invitation code to a space, for 10 people and 7 days. */
+  createInvitation(space: string): Promise<{ code: string; invitation: { max_uses: number; expires_at: string } }> {
+    return this.call("POST", `/v1/spaces/${space}/invitations`, {});
+  }
+
   redeem(code: Bytes, displayName: string): Promise<SpaceAnswer> {
     return this.call("POST", "/v1/invitations/redeem", { code: hex(code), display_name: displayName });
   }

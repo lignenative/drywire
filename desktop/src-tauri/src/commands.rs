@@ -8,8 +8,8 @@ use tauri_plugin_autostart::ManagerExt;
 use std::time::Duration;
 
 use crate::app::{
-    AccountView, CalibrationView, Desktop, DeviceCodeView, LoopbackView, Preferences, RestoredView,
-    SpaceView,
+    AccountView, CalibrationView, Desktop, DeviceCodeView, InvitationView, LoopbackView,
+    Preferences, RestoredView, SpaceView,
 };
 use crate::error::AppError;
 use crate::session::{CallView, METER_FLOOR_DBFS};
@@ -53,6 +53,28 @@ pub fn restore_account(
     shell::update_overlay(&app);
     shell::refresh_tray(&app, false);
     spaces
+}
+
+/// Creates a space, with a creation code if one is needed.
+#[tauri::command(async)]
+pub fn create_space(
+    desktop: State<'_, Desktop>,
+    instance: String,
+    creator_code: Option<String>,
+    name: String,
+    display_name: String,
+) -> Result<SpaceView, AppError> {
+    desktop.create_space(&instance, creator_code.as_deref(), &name, &display_name)
+}
+
+/// Makes an invitation link to a space.
+#[tauri::command(async)]
+pub fn create_invitation(
+    desktop: State<'_, Desktop>,
+    instance: String,
+    space_id: String,
+) -> Result<InvitationView, AppError> {
+    desktop.create_invitation(&instance, &space_id)
 }
 
 /// Redeems an invitation link.

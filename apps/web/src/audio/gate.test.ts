@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { calibrate, DEFAULT_GATE, levelDbfs, VoiceGate } from "./gate";
+import { calibrate, DEFAULT_GATE, gateFrame, levelDbfs, VoiceGate } from "./gate";
 
 // The same cases as core/drywire-core/src/gate.rs, with 5 ms frames.
 const at = (dbfs: number) => levelDbfs(new Float32Array(240).fill(10 ** (dbfs / 20)));
@@ -31,4 +31,22 @@ test("calibration proposes a threshold above the noise's peaks", () => {
   expect(calibrate(levels)).toEqual({ noiseDbfs: -67, peakDbfs: -55, gateDbfs: -51, tooLoud: false });
   expect(calibrate(Array(10).fill(-10))?.tooLoud).toBe(true);
   expect(calibrate([])).toBeNull();
+});
+
+test("muting mid-spurt sends silence until the gate's end mark, never the voice", () => {
+  const gate = new VoiceGate(DEFAULT_GATE, 5);
+  const voice = () => new Float32Array(240).fill(0.3);
+  expect(gateFrame(gate, voice(), false).decision).toBe("start");
+  const decisions: string[] = [];
+  for (let i = 0; i < 31; i++) {
+    const frame = voice();
+    const { level, decision } = gateFrame(gate, frame, true);
+    decisions.push(decision);
+    expect(frame.every((s) => s === 0)).toBe(true);
+    expect(level).toBeCloseTo(levelDbfs(voice()), 5);
+  }
+  // The hold runs out on silence: 29 frames sent, the 30th marks the end.
+  expect(decisions.slice(0, 29).every((d) => d === "send")).toBe(true);
+  expect(decisions[29]).toBe("end");
+  expect(decisions[30]).toBe("silent");
 });

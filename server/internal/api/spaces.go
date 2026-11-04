@@ -51,16 +51,15 @@ type createSpaceRequest struct {
 	Name        string `json:"name"`
 	Room        string `json:"room"`
 	DisplayName string `json:"display_name"`
+	// CreatorCode lets an identity the operator did not list create this
+	// one space (ADR 0054).
+	CreatorCode string `json:"creator_code,omitempty"`
 }
 
-// createSpace: POST /v1/spaces. Only the identities the operator lists may
-// create spaces (DRYWIRE_SPACE_CREATORS): an instance is not an open
-// sign-up (spec section 9).
+// createSpace: POST /v1/spaces. Only the identities the operator lists
+// (DRYWIRE_SPACE_CREATORS), or one with a creation code from them, may
+// create spaces: an instance is not an open sign-up (spec section 9).
 func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, c caller) {
-	if !s.cfg.AnyoneCreates && !slices.Contains(s.cfg.SpaceCreators, c.key) {
-		writeError(w, http.StatusForbidden, "this instance does not let you create spaces: ask its operator")
-		return
-	}
 	var req createSpaceRequest
 	if !readJSON(w, r, &req) {
 		return
@@ -68,7 +67,25 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, c caller) {
 	if req.Room == "" {
 		req.Room = "general"
 	}
-	space, _, err := s.store.CreateSpace(r.Context(), c.key, req.DisplayName, req.Name, req.Room, s.cfg.MaxMembers)
+	listed := s.cfg.AnyoneCreates || slices.Contains(s.cfg.SpaceCreators, c.key)
+	var space store.Space
+	var err error
+	switch {
+	case listed:
+		space, _, err = s.store.CreateSpace(r.Context(), c.key, req.DisplayName, req.Name, req.Room, s.cfg.MaxMembers)
+	case req.CreatorCode != "":
+		// A creation code from the operator stands for being listed, once
+		// (ADR 0054).
+		code, perr := store.ParseCreatorCode(req.CreatorCode)
+		if perr != nil {
+			writeError(w, http.StatusBadRequest, perr.Error())
+			return
+		}
+		space, _, err = s.store.CreateSpaceWithCode(r.Context(), code, c.key, req.DisplayName, req.Name, req.Room, s.cfg.MaxMembers)
+	default:
+		writeError(w, http.StatusForbidden, "this instance does not let you create spaces: ask its operator for a creation code")
+		return
+	}
 	if err != nil {
 		s.fail(w, err)
 		return

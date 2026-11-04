@@ -120,6 +120,10 @@ and can be switched in the settings (Display).
   the room back. A reconnection shows `pending` until the new call
   verifies again. The definition, and what a closed lock does not prove,
   are in ADR 0041.
+- **Spaces are made and shared here.** Join a space › Create a space
+  makes one, with a creation code when the instance asks for one (ADR
+  0054); the person-plus button on a space's header, for its owner and
+  admins, makes an invitation link for 10 people and 7 days.
 - **The account follows its person** (ADR 0051). Settings › Account
   makes a recovery code or a device code; Join a space › I already have
   an account opens one. The vault is sealed on this side, so the server

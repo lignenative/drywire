@@ -322,7 +322,22 @@ impl Client {
         room: &str,
         display_name: &str,
     ) -> Result<SpaceView, Error> {
-        let body = json!({ "name": name, "room": room, "display_name": display_name });
+        self.create_space_with_code(name, room, display_name, None)
+    }
+
+    /// Creates a space, with a creation code from the operator when this
+    /// identity is not one the instance lets create spaces (ADR 0054).
+    pub fn create_space_with_code(
+        &self,
+        name: &str,
+        room: &str,
+        display_name: &str,
+        creator_code: Option<&str>,
+    ) -> Result<SpaceView, Error> {
+        let mut body = json!({ "name": name, "room": room, "display_name": display_name });
+        if let Some(code) = creator_code {
+            body["creator_code"] = json!(code);
+        }
         self.call(Method::Post, "/v1/spaces", Some(&body))
     }
 

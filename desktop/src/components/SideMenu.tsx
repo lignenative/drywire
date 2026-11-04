@@ -10,6 +10,7 @@ import { useLanguage } from "@/lang";
 import { callRoom, inCall, isMultiRoom, meFirst, refOf, sameRoom, signalOf, whereLabel } from "@/model";
 import type { AppState } from "@/state";
 import { LeaveIcon, Logo, MicIcon, SettingsIcon, SignalBars, SpeakingBars } from "./icons";
+import { canInvite, InviteButton } from "./ShareDialog";
 
 export function SideMenu({ app }: { app: AppState }) {
   const { t } = useLanguage();
@@ -45,7 +46,12 @@ function SpaceRows({ app, space, last }: { app: AppState; space: SpaceView; last
   const multi = isMultiRoom(space);
   return (
     <div className={cn("flex flex-col pt-2.5 pb-1.5", !last && "border-b border-line")}>
-      {multi && <span className="px-2.5 pb-1 text-[0.9375rem] font-semibold tracking-[-0.01em]">{space.name}</span>}
+      {multi && (
+        <div className="flex items-center gap-1 pr-0.5 pb-1 pl-2.5">
+          <span className="min-w-0 flex-1 text-[0.9375rem] font-semibold tracking-[-0.01em]">{space.name}</span>
+          {canInvite(space) && <InviteButton app={app} space={space} narrow={false} />}
+        </div>
+      )}
       {space.error && (
         <div className="flex flex-col gap-0.5 px-2.5 py-1">
           <span className="text-[0.9375rem] font-semibold text-muted-foreground">{space.name}</span>
@@ -75,27 +81,33 @@ function RoomRow({ app, space, room, multi }: { app: AppState; space: SpaceView;
   const selected = sameRoom(app.selected, ref);
   const call = inCall(app.call) ? app.call : null;
   const live = !!call && sameRoom(callRoom(call), ref);
+  // A space with one room has no header of its own: its row is the header,
+  // and the invite button sits beside it, outside the selected highlight.
+  const invite = !multi && canInvite(space);
   return (
     <div className="flex flex-col">
-      <Button
-        variant="ghost"
-        aria-current={selected ? "page" : undefined}
-        onClick={() => app.select(ref)}
-        className={cn(
-          "h-auto justify-start gap-2 rounded-[0.625rem] px-2.5 text-left whitespace-normal",
-          multi ? "min-h-8.5 text-sm font-medium" : "min-h-10 text-[0.9375rem] font-semibold",
-          selected ? "bg-accent text-white hover:bg-accent" : multi ? "text-subtle" : "text-foreground",
-        )}
-      >
-        {multi && <span className="text-faint">#</span>}
-        <span className="min-w-0 flex-1">{multi ? room.name : space.name}</span>
-        {live && (
-          <span
-            title={t("spaces.here")}
-            className={cn("size-1.75 rounded-full", call.reconnecting ? "bg-warning" : "bg-primary")}
-          />
-        )}
-      </Button>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          aria-current={selected ? "page" : undefined}
+          onClick={() => app.select(ref)}
+          className={cn(
+            "h-auto min-w-0 flex-1 justify-start gap-2 rounded-[0.625rem] px-2.5 text-left whitespace-normal",
+            multi ? "min-h-8.5 text-sm font-medium" : "min-h-10 text-[0.9375rem] font-semibold",
+            selected ? "bg-accent text-white hover:bg-accent" : multi ? "text-subtle" : "text-foreground",
+          )}
+        >
+          {multi && <span className="text-faint">#</span>}
+          <span className="min-w-0 flex-1">{multi ? room.name : space.name}</span>
+          {live && (
+            <span
+              title={t("spaces.here")}
+              className={cn("size-1.75 rounded-full", call.reconnecting ? "bg-warning" : "bg-primary")}
+            />
+          )}
+        </Button>
+        {invite && <InviteButton app={app} space={space} narrow={false} />}
+      </div>
       {live ? (
         <LivePeople call={call} indent={multi} />
       ) : (

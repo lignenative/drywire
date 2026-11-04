@@ -177,6 +177,14 @@ export interface RestoredView {
   spaces: SpaceView[];
 }
 
+/** An invitation link made for a space: 10 uses, 7 days. */
+export interface InvitationView {
+  /** The link, which holds the space key: shown, never logged. */
+  link: string;
+  uses: number;
+  expiresAt: string;
+}
+
 /** A device code, waiting on an instance for ten minutes. */
 export interface DeviceCodeView {
   code: string;
@@ -207,6 +215,13 @@ const tauri = {
       listSpaces gives them. */
   restoreAccount: (instance: string, code: string, replace: boolean) =>
     invoke<RestoredView>("restore_account", { instance, code, replace }),
+  /** Creates a space, with a creation code from the instance's operator
+      when this account is not one it lets create spaces (ADR 0054). */
+  createSpace: (instance: string, creatorCode: string | null, name: string, displayName: string) =>
+    invoke<SpaceView>("create_space", { instance, creatorCode, name, displayName }),
+  /** An invitation link to a space, for owners and admins. */
+  createInvitation: (instance: string, spaceId: string) =>
+    invoke<InvitationView>("create_invitation", { instance, spaceId }),
   acceptInvitation: (link: string, displayName: string) =>
     invoke<SpaceView>("accept_invitation", { link, displayName }),
   listSpaces: () => invoke<SpaceView[]>("list_spaces"),

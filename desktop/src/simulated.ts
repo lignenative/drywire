@@ -72,8 +72,10 @@ const OCCUPANTS: Record<string, string[]> = {
 function spaces(scene: Scene): SpaceView[] {
   if (scene === "empty") return [];
   const list: SpaceView[] = [
-    space("voice.example.org", "team", "Team", ["general", "scrims", "afk"]),
-    space("drywire.example.net", "friday", "Friday night", ["general"]),
+    // As on the canvas: alex owns Team, is an admin of Friday night and a
+    // plain member of Old crew, so the invite button shows on the first two.
+    { ...space("voice.example.org", "team", "Team", ["general", "scrims", "afk"]), role: "owner" },
+    { ...space("drywire.example.net", "friday", "Friday night", ["general"]), role: "admin" },
     space("old.example.com", "crew", "Old crew", ["general"]),
   ];
   if (scene === "unreachable") {
@@ -295,6 +297,25 @@ export const simulated: Api = {
   newDeviceCode: () => {
     if (state.spaces.length === 0) return Promise.reject({ code: "no_space", message: "join a space first" });
     return resolve({ code: "7Q2M-KD4X-0RTA-9WEP-HJ3N-B5VC-6G", instance: state.spaces[0].instance, expiresInS: 600 });
+  },
+  createSpace: (instance: string, creatorCode: string | null, name: string, _displayName: string) => {
+    if (creatorCode && /^[0-]+$/.test(creatorCode.trim())) {
+      return Promise.reject({ code: "creator_code_unknown", message: "unknown, used or expired" });
+    }
+    const created = { ...space(instance.replace(/^https?:\/\//, ""), `s${state.spaces.length}`, name.trim(), ["general"]), role: "owner" };
+    state.spaces = [...state.spaces, created];
+    return resolve(created);
+  },
+  createInvitation: (_instance: string, spaceId: string) => {
+    const known = state.spaces.find((s) => s.id === spaceId);
+    if (known && known.role === "member") {
+      return Promise.reject({ code: "refused", message: "only admins invite" });
+    }
+    return resolve({
+      link: "https://drywire.gg/i#AckIpj6zO30eop-ITYyuLAyf4ErNi0oHviC93RJ8316dAhgtPsxV2hd6Zi-XHZEB6Gh0dHBzOi8vdm9pY2UuZXhhbXBsZS5vcmc",
+      uses: 10,
+      expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+    });
   },
   restoreAccount: (_instance: string, code: string, replace: boolean) => {
     if (!looksLikeCode(code)) return Promise.reject({ code: "bad_code", message: "this is not a Drywire code" });

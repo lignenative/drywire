@@ -33,3 +33,16 @@ export function offerInvitation(link: string | null): void {
 export function offeredInvitation(): string | null {
   return offered;
 }
+
+/** A creation code the window was opened with (ADR 0054): the web client's
+    address carries one as `#create=<code>`, which `make creator-code`
+    prints. The form opens on "Create a space" with it filled in. */
+let offeredCode: string | null = null;
+
+export function offerCreation(code: string | null): void {
+  offeredCode = code;
+}
+
+export function offeredCreation(): string | null {
+  return offeredCode;
+}

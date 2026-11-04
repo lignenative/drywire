@@ -5,7 +5,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@/App";
 import { provideApi } from "@/api";
-import { offerInvitation } from "@/invite";
+import { offerCreation, offerInvitation } from "@/invite";
 import { LanguageProvider } from "@/lang";
 import { createWebApi } from "./api";
 import { MicDialog } from "./components/MicDialog";
@@ -41,7 +41,14 @@ if (!support.codec || support.missing.length > 0) {
   if (import.meta.env.DEV) Object.assign(window, { drywire: api });
   // An invitation link opens the client with the link in its fragment,
   // which the browser never sends anywhere: offer it to the form.
-  if (location.hash.length > 1) offerInvitation(`https://drywire.gg/i${location.hash}`);
+  // A creation code from `make creator-code` comes as #create=<code>
+  // (ADR 0054): the form opens on "Create a space" with it.
+  if (location.hash.startsWith("#create=")) {
+    offerCreation(decodeURIComponent(location.hash.slice("#create=".length)));
+    history.replaceState(null, "", location.pathname + location.search);
+  } else if (location.hash.length > 1) {
+    offerInvitation(`https://drywire.gg/i${location.hash}`);
+  }
   root.render(
     <StrictMode>
       <LanguageProvider>

@@ -15,8 +15,11 @@ sends nothing.
 Every invitation link points here, whichever instance it is for:
 `https://drywire.gg/i#<payload>` (protocol section 14). The page reads the
 fragment in the browser, shows which instance the invitation is for, and
-offers to open it in the Drywire app (`drywire://i#…`) or with
-`drywire join --link`.
+offers to open it in the Drywire app (`drywire://i#…`), in the
+instance's own web client (`https://<instance>/#…`, which every instance
+deployed with `deploy/` serves, ADR 0049; https only, or a server on the
+same machine), or with `drywire join --link`. Following either link
+carries the fragment to the next page in the browser, never to a server.
 
 What it never does, and how that is enforced:
 
@@ -30,14 +33,16 @@ What it never does, and how that is enforced:
   `/i`. A browser may still have recorded the full link when the page
   opened, and some sync their history to their vendor: the link stays a
   secret to share privately, and the page says so.
-- **No cookie, no analytics, no external font**, and `noindex`.
+- **No cookie, no analytics, no external font**, and `noindex`: Geist and
+  Geist Mono come with the page (`i/fonts/`, SIL Open Font License).
 
 | File | What it does |
 | --- | --- |
 | `i/index.html` | The page and its security policy |
 | `i/invite.js` | Decodes the payload; tested against the shared vector |
 | `i/page.js` | Fills the page, in English or French |
-| `i/style.css` | Light and dark |
+| `i/style.css` | The app's dark colours and fonts, from the design canvas |
+| `i/fonts/` | Geist and Geist Mono, with their license (`OFL.txt`) |
 
 ## Run and test it
 

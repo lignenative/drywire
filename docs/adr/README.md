@@ -70,3 +70,4 @@ Status: Accepted · YYYY-MM-DD
 | [0051](0051-make-the-identity-an-account-that-follows-its-person.md) | Make the identity an account that follows its person |
 | [0052](0052-take-space-keys-out-of-invitation-links-with-mls.md) | Take space keys out of invitation links with MLS (proposed) |
 | [0053](0053-compare-a-safety-code-to-check-who-a-key-belongs-to.md) | Compare a safety code to check who a key belongs to |
+| [0054](0054-let-the-operator-hand-out-codes-that-create-a-space.md) | Let the operator hand out codes that create a space |
