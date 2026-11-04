@@ -163,9 +163,13 @@ const state = {
   listeners: new Set<(notice: Notice) => void>(),
 };
 
-// The canvas's person is alex: the name an invitation would have saved.
-if (typeof localStorage !== "undefined" && localStorage.getItem("drywire.displayName") === null) {
-  localStorage.setItem("drywire.displayName", "alex");
+/** The canvas's person is alex: the name an invitation would have saved.
+ * Only `make ui` calls it: this module is loaded by the desktop app and the
+ * web client too, where a first visit must find no name at all. */
+export function seedSimulatedName() {
+  if (localStorage.getItem("drywire.displayName") === null) {
+    localStorage.setItem("drywire.displayName", "alex");
+  }
 }
 
 // The in-call scenes open the window in Team's general room.
