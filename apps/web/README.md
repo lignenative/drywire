@@ -38,6 +38,17 @@ Ed25519 in WebCrypto: Chrome or Edge 137+, Firefox 136+ on the desktop,
 Safari 26.4+ (ADR 0038 to 0040). Only Chromium has been tried so far
 (see "Measure").
 
+## On an instance
+
+Every instance deployed with [`deploy/`](../../deploy/README.md) serves
+this client at its own address, beside its API: the reverse proxy sends
+`/v1/…` to the control plane and the rest to `drywire-static`, which
+serves this directory's build (ADR 0049). `make deploy` builds it. Page
+and control plane share one origin, so no cross-origin request is made.
+To open an invitation in a browser, keep everything from the `#` of the
+link and put the instance's address before it:
+`https://voice.example.org/#…`.
+
 ## How it is built
 
 | File | What it does |
@@ -135,6 +146,24 @@ frames flow again), the per-person volume, the calibration and the
 encryption lock (verified with sam) were checked on the same call. These
 are not mouth-to-ear figures: nothing here went through a microphone or
 a speaker, and a synthetic stream has no capture latency.
+
+2026-11-04, the same browser on the same Mac (Wi-Fi), against an
+instance deployed with `make deploy` on a small rented server in another
+country, the page served by the instance itself (ADR 0049), the echo bot
+on the Mac, synthetic microphone again and the page's output silenced.
+About three minutes in the room:
+
+| | |
+| --- | --- |
+| Round trip to the relay, WebTransport (chip) | 28 ms |
+| Round trip to the relay, the bot's UDP | 27 to 29 ms (min 26.6) |
+| Frames the bot received from the page, played | 7,344, 7,313 |
+| Concealed, late, dropped at the bot | 145, 12, 19 |
+| The page's uplink lost (relay's count) | 0 |
+| Frames the page decoded from the bot, 5 s, mic on / muted | 717 / 0 |
+
+Muting stopped the page's frames at once, and they came back on
+unmute; leaving stopped them for good.
 
 ### Mouth to ear, the reference method
 

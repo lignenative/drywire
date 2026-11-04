@@ -3,9 +3,11 @@
 # variables below in /srv/drywire/.env on the host, which Docker Compose
 # reads by itself; nothing here is set by hand.
 #
-# The server leaves the host's network for the proxy's: the proxy reaches
-# the control plane as drywire:10050, which no host port publishes, and
-# only the relay's UDP port is published on the host.
+# Both containers leave the host's network for the proxy's: the proxy
+# reaches the control plane as drywire:10050 and the web client's files as
+# drywire-web:10052, which no host port publishes. Only the relay's two
+# UDP ports are published on the host: the native clients' one, and the
+# WebTransport one for browsers.
 services:
   drywire:
     network_mode: !reset null
@@ -18,6 +20,14 @@ services:
       DRYWIRE_TRUST_PROXY: ${DRYWIRE_PROXY_SUBNET:?the proxy network's subnet}
     ports:
       - "${DRYWIRE_RELAY_PORT:?the relay port}:${DRYWIRE_RELAY_PORT}/udp"
+      - "${DRYWIRE_WEB_RELAY_PORT:?the relay's WebTransport port}:${DRYWIRE_WEB_RELAY_PORT}/udp"
+
+  web:
+    network_mode: !reset null
+    networks: [proxy]
+    environment:
+      # Always 10052 here: route.caddy points at drywire-web:10052.
+      DRYWIRE_STATIC_ADDR: 0.0.0.0:10052
 
 networks:
   proxy:

@@ -1,15 +1,17 @@
 #!/bin/sh
 # Deploy Drywire to HOST. Idempotent: run it again after any change.
 #
-# 1. Build drywire-server here, a static Linux binary (CGO_ENABLED=0) for
-#    the host's processor.
-# 2. Send it over rsync to /srv/drywire, with deploy/'s Dockerfile,
+# 1. Build drywire-server and drywire-static here, static Linux binaries
+#    (CGO_ENABLED=0) for the host's processor, and the web client
+#    (apps/web, with its WebAssembly module) that drywire-static serves.
+# 2. Send them over rsync to /srv/drywire, with deploy/'s Dockerfiles,
 #    Compose files, host scripts and instance.env, plus two generated
 #    files: .env, which tells Docker Compose how the server meets its
-#    reverse proxy, and route.caddy, the proxy's route to the instance.
-# 3. Open the relay's UDP port in the host's firewall (ufw).
-# 4. Build the image there (from scratch: nothing is downloaded) and start
-#    it with Docker Compose, then wait for its health check.
+#    reverse proxy, and route.caddy, the proxy's route to the instance:
+#    /v1/… to the control plane, the rest to the web client (ADR 0049).
+# 3. Open the relay's UDP ports in the host's firewall (ufw).
+# 4. Build the images there (from scratch: nothing is downloaded) and
+#    start them with Docker Compose, then wait for their health checks.
 # 5. If ROUTE_PUBLISH_CMD is set in .env, hand route.caddy to that command
 #    on the host.
 #
@@ -47,6 +49,17 @@ case $(instance_setting DRYWIRE_PUBLIC_RELAY) in
 *:"$relay_port") ;;
 *) fail "DRYWIRE_PUBLIC_RELAY must end with the port of DRYWIRE_UDP_ADDR, :$relay_port" ;;
 esac
+# The relay's WebTransport side, for the web client the instance serves.
+web_addr=$(instance_setting DRYWIRE_WEB_ADDR)
+[ -n "$web_addr" ] ||
+	fail "set DRYWIRE_WEB_ADDR and DRYWIRE_PUBLIC_WEB_RELAY in deploy/instance.env, for browsers (see instance.env.example)"
+web_port=${web_addr##*:}
+[ "$web_port" != "$relay_port" ] ||
+	fail "DRYWIRE_WEB_ADDR needs a UDP port of its own, not the relay's $relay_port (ADR 0038)"
+case $(instance_setting DRYWIRE_PUBLIC_WEB_RELAY) in
+*:"$web_port") ;;
+*) fail "DRYWIRE_PUBLIC_WEB_RELAY must end with the port of DRYWIRE_WEB_ADDR, :$web_port" ;;
+esac
 
 proxy_network=${DRYWIRE_PROXY_NETWORK:-}
 case $proxy_network in
@@ -66,14 +79,29 @@ esac
 
 version=$(git describe --tags --always --dirty)
 stage=.dev/deploy
-echo "==> building drywire-server $version for linux/$arch"
+echo "==> building drywire-server and drywire-static $version for linux/$arch"
 rm -rf "$stage"
 mkdir -p "$stage"
 (cd server && GOOS=linux GOARCH=$arch CGO_ENABLED=0 \
 	go build -trimpath -ldflags "-s -w -X main.version=$version" \
-	-o "../$stage/drywire-server" ./cmd/drywire-server)
-cp -R deploy/Dockerfile deploy/compose.yaml deploy/compose.proxy.yaml \
-	deploy/instance.env deploy/host "$stage/"
+	-o "../$stage/drywire-server" ./cmd/drywire-server &&
+	GOOS=linux GOARCH=$arch CGO_ENABLED=0 \
+		go build -trimpath -ldflags "-s -w" -o "../$stage/drywire-static" ./cmd/drywire-static)
+
+echo "==> building the web client"
+PATH="$PATH:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$HOME/.bun/bin"
+command -v bun >/dev/null 2>&1 || fail "the web client needs Bun (https://bun.sh)"
+rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$' ||
+	fail "the web client needs: rustup target add wasm32-unknown-unknown"
+(cd core && cargo build -q --release -p drywire-wasm --target wasm32-unknown-unknown)
+mkdir -p apps/web/public
+cp core/target/wasm32-unknown-unknown/release/drywire_wasm.wasm apps/web/public/drywire.wasm
+# Errors only: the UI libraries' "use client" directives warn by the hundred.
+(cd apps/web && bun install --frozen-lockfile >/dev/null &&
+	bun run build --logLevel error --outDir "../../$stage/web" --emptyOutDir >/dev/null)
+
+cp -R deploy/Dockerfile deploy/static.Dockerfile deploy/compose.yaml \
+	deploy/compose.proxy.yaml deploy/instance.env deploy/host "$stage/"
 
 # .env in the project's directory is where Docker Compose finds which
 # files to use and the values compose.proxy.yaml needs; every docker
@@ -82,6 +110,8 @@ if [ -z "$proxy_network" ]; then
 	echo "==> the reverse proxy is on the host: the server uses the host's network"
 	echo "COMPOSE_FILE=compose.yaml" >"$stage/.env"
 	upstream=$http_addr
+	# compose.yaml's address for drywire-static.
+	front=127.0.0.1:10052
 else
 	subnet=$(ssh_host "docker network inspect --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' $proxy_network") ||
 		fail "no Docker network named $proxy_network on $HOST (DRYWIRE_PROXY_NETWORK)"
@@ -94,21 +124,33 @@ COMPOSE_FILE=compose.yaml:compose.proxy.yaml
 DRYWIRE_PROXY_NETWORK=$proxy_network
 DRYWIRE_PROXY_SUBNET=$subnet
 DRYWIRE_RELAY_PORT=$relay_port
+DRYWIRE_WEB_RELAY_PORT=$web_port
 ENV
-	# compose.proxy.yaml sets the control plane's address in the network.
+	# compose.proxy.yaml sets both addresses in the network.
 	upstream=drywire:10050
+	front=drywire-web:10052
 fi
 
-# The proxy's route to the instance, as a Caddy site block.
+# The proxy's route to the instance, as a Caddy site block: the control
+# plane's API under /v1/, the web client's files everywhere else.
 cat >"$stage/route.caddy" <<ROUTE
 $public_host {
-	reverse_proxy $upstream {
-		# While the server restarts during a deploy, wait for it instead
-		# of failing requests at once.
-		lb_try_duration 10s
-		lb_try_interval 250ms
-		# Hand presence events (text/event-stream) on as they come.
-		flush_interval -1
+	handle /v1/* {
+		reverse_proxy $upstream {
+			# While the server restarts during a deploy, wait for it
+			# instead of failing requests at once.
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			# Hand presence events (text/event-stream) on as they come.
+			flush_interval -1
+		}
+	}
+	handle {
+		encode zstd gzip
+		reverse_proxy $front {
+			lb_try_duration 10s
+			lb_try_interval 250ms
+		}
 	}
 }
 ROUTE
@@ -119,7 +161,7 @@ echo "==> sending it to $HOST:$dir"
 # open to its owner (host/prepare.sh), whatever the files' own modes.
 rsync -rlt --delete -e "ssh $ssh_opts" "$stage/" "$HOST:$dir/"
 
-echo "==> opening the relay port"
+echo "==> opening the relay's ports"
 ssh_host "sudo -n sh $dir/host/setup.sh"
 
 echo "==> starting it"
@@ -132,9 +174,11 @@ if [ -n "${ROUTE_PUBLISH_CMD:-}" ]; then
 fi
 
 echo "==> checking $public_url from here"
-if curl -fsS --max-time 10 "$public_url/v1/version"; then
+if curl -fsS --max-time 10 "$public_url/v1/version" &&
+	curl -fsS --max-time 10 -o /dev/null "$public_url/"; then
 	echo
-	echo "Deployed. Next: make status, and deploy/README.md for the first space."
+	echo "Deployed, with the web client at $public_url/."
+	echo "Next: make status, and deploy/README.md for the first space."
 else
 	echo "The server runs on $HOST, but $public_url does not answer yet." >&2
 	echo "Set up the reverse proxy and DNS: deploy/README.md, \"Reverse proxy\"; the" >&2

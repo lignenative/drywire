@@ -107,7 +107,7 @@ silently to another port. Each one can be moved with an environment variable.
 | 10050/tcp | Server HTTP API | `DRYWIRE_HTTP_ADDR` |
 | 10050/udp | Relay | `DRYWIRE_UDP_ADDR` |
 | 10051 | Vite dev server, desktop UI | `DEV_PORT` |
-| 10052 | Project site preview (later) | `SITE_PORT` |
+| 10052 | A built front served alone: the invitation page's preview (`site/`), and `drywire-static` with the web client in a deployment (ADR 0049) | `DRYWIRE_STATIC_ADDR` |
 | 10057 | Vite dev server, web client | `WEB_PORT` |
 | 10058/udp | Relay, WebTransport side for browsers | `DRYWIRE_WEB_ADDR` |
 

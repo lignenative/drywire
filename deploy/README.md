@@ -1,17 +1,20 @@
 # deploy
 
 How to run a real Drywire instance: the relay and the control plane on a
-Linux server, the control plane behind your reverse proxy's TLS, operated
-from your own machine with `make`.
+Linux server, the control plane behind your reverse proxy's TLS, and the
+web client served at the same address; operated from your own machine
+with `make`.
 
 ```text
  your machine                         the host (HOST, an SSH alias)
  ────────────                         ─────────────────────────────
  make deploy ──build, rsync──▶ /srv/drywire ──docker compose──▶ drywire-server
- make backup ◀──snapshot, encrypted here with age──               │
+ make backup ◀──snapshot, encrypted here with age──              drywire-static
                                                                     │ host network
- clients ──HTTPS 443──▶ reverse proxy (Caddy, nginx) ──▶ 127.0.0.1:10050/tcp
- clients ──UDP──────────────────────────────────────────▶ :30050/udp (relay)
+ clients ──HTTPS 443──▶ reverse proxy ──/v1/…──▶ 127.0.0.1:10050/tcp (control plane)
+                       (Caddy, nginx) ──else──▶ 127.0.0.1:10052/tcp (web client)
+ apps ─────UDP──────────────────────────────────▶ :30050/udp (relay)
+ browsers ─UDP, WebTransport────────────────────▶ :30058/udp (relay, browsers' side)
 ```
 
 - Your machine is the reference. `make deploy` builds the server here and
@@ -21,6 +24,10 @@ from your own machine with `make`.
 - The container runs on the host's own network: nothing sits between the
   network and the relay, and the reverse proxy reaches the control plane
   on the host's `127.0.0.1` ([ADR 0026](../docs/adr/0026-run-the-server-in-a-scratch-image-on-the-host-network.md)).
+- The web client is a second container, `drywire-web`: `drywire-static`
+  serving the client's build, beside the server, which stays an API. One
+  address serves both, so a browser needs nothing but the instance's URL
+  ([ADR 0049](../docs/adr/0049-serve-the-web-client-from-each-instance-beside-its-api.md)).
 
 ## What you need
 
@@ -30,13 +37,15 @@ On **the host**:
 - **Docker Engine 25** or newer with the Compose plugin, usable by the user
   you log in as (in the `docker` group).
 - **sudo without a password** for that user: `make deploy` uses it to
-  create `/srv/drywire` and to open the relay port in ufw (the scripts are
+  create `/srv/drywire` and to open the relay's ports in ufw (the scripts are
   [`host/prepare.sh`](host/prepare.sh) and [`host/setup.sh`](host/setup.sh);
   read them first).
 - A **DNS name** for the instance, such as `voice.example.org`, and a
   **reverse proxy** on the same host that serves it over HTTPS (below).
 
-On **your machine**: Go (the version in `server/go.mod`), rsync, curl, and
+On **your machine**: Go (the version in `server/go.mod`), rsync, curl,
+[Bun](https://bun.sh) and Rust with the `wasm32-unknown-unknown` target
+(`rustup target add wasm32-unknown-unknown`) for the web client, and
 [age](https://age-encryption.org) for the backups (`brew install age`, or
 `apt install age`). `drywire` to create the first space: see
 [`core/drywire-cli/README.md`](../core/drywire-cli/README.md).
@@ -61,6 +70,7 @@ On **your machine**: Go (the version in `server/go.mod`), rsync, curl, and
    ```sh
    DRYWIRE_PUBLIC_URL=https://voice.example.org
    DRYWIRE_PUBLIC_RELAY=voice.example.org:30050
+   DRYWIRE_PUBLIC_WEB_RELAY=voice.example.org:30058
    DRYWIRE_SPACE_CREATORS=<your key>
    ```
 
@@ -77,9 +87,10 @@ On **your machine**: Go (the version in `server/go.mod`), rsync, curl, and
    make deploy
    ```
 
-   It builds, sends, opens the relay port if the host uses ufw, starts the
-   server, waits for its health check, and ends by asking the public URL
-   for `/v1/version`. Run it again after any change: it is idempotent, and
+   It builds the server, `drywire-static` and the web client, sends them,
+   opens the relay's two ports if the host uses ufw, starts both
+   containers, waits for their health checks, and ends by asking the
+   public URL for `/v1/version` and for the web client's page. Run it again after any change: it is idempotent, and
    restarts the server only when something changed.
 
 5. **Check it:** `make status` shows the container, then the version,
@@ -88,8 +99,10 @@ On **your machine**: Go (the version in `server/go.mod`), rsync, curl, and
 
 ## Reverse proxy
 
-The control plane speaks plain HTTP on `127.0.0.1:10050` only; the proxy
-terminates TLS in front of it. Three things matter:
+The control plane speaks plain HTTP on `127.0.0.1:10050` only, and the
+web client's files are on `127.0.0.1:10052`; the proxy terminates TLS in
+front of both, on one address. It sends `/v1/…` to the control plane and
+every other path to the web client. Four things matter:
 
 - **Same host, loopback.** The proxy must reach `127.0.0.1:10050` of the
   host. A proxy installed on the host does. A proxy that runs in a
@@ -103,6 +116,11 @@ terminates TLS in front of it. Three things matter:
 - **Event streams.** Presence comes as a long-lived
   `text/event-stream` response: the proxy must pass it through without
   buffering and without a short read timeout.
+- **WebTransport is not the proxy's.** Browsers reach the relay's
+  WebTransport side directly on its UDP port, with a certificate the
+  server makes and the page pins by its hash
+  ([ADR 0039](../docs/adr/0039-pin-the-web-relay-certificate-by-its-hash.md)):
+  nothing to configure on the proxy, which only serves HTTPS.
 
 ### Caddy
 
@@ -112,10 +130,19 @@ your instance to `/srv/drywire/route.caddy` on the host:
 
 ```caddyfile
 voice.example.org {
-	reverse_proxy 127.0.0.1:10050 {
-		lb_try_duration 10s
-		lb_try_interval 250ms
-		flush_interval -1
+	handle /v1/* {
+		reverse_proxy 127.0.0.1:10050 {
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			flush_interval -1
+		}
+	}
+	handle {
+		encode zstd gzip
+		reverse_proxy 127.0.0.1:10052 {
+			lb_try_duration 10s
+			lb_try_interval 250ms
+		}
 	}
 }
 ```
@@ -130,6 +157,9 @@ voice.example.org {
 - `lb_try_duration` and `lb_try_interval` make Caddy retry for up to
   10 seconds while the server restarts during a deploy, instead of
   answering 502 at once.
+- `encode` compresses the web client's script and WebAssembly module on
+  the way; the control plane's answers are small and its event streams
+  must not be held back, so they are left alone.
 
 **Publishing the route by itself.** If the host has a command that
 installs a route read on its standard input (one that checks the site
@@ -157,7 +187,8 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/voice.example.org/privkey.pem;
     ssl_protocols       TLSv1.3;
 
-    location / {
+    # The control plane.
+    location /v1/ {
         proxy_pass http://127.0.0.1:10050;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -166,6 +197,14 @@ server {
         # Presence events: pass them on as they come, keep the stream open.
         proxy_buffering off;
         proxy_read_timeout 1h;
+    }
+
+    # The web client.
+    location / {
+        proxy_pass http://127.0.0.1:10052;
+        proxy_http_version 1.1;
+        gzip on;
+        gzip_types application/javascript application/wasm text/css;
     }
 }
 ```
@@ -185,13 +224,14 @@ DRYWIRE_PROXY_NETWORK=edge
 generated `/srv/drywire/.env` that Docker Compose reads by itself
 ([ADR 0027](../docs/adr/0027-let-a-proxy-on-a-private-network-reach-the-control-plane.md)):
 
-- the server leaves the host's network and joins the proxy's, where the
-  proxy reaches the control plane as `drywire:10050` (the route in
-  `route.caddy` says so); no host port is published for it;
-- it serves plain HTTP there, accepts connections from that subnet and
-  loopback only, and believes `X-Forwarded-For` from them; it refuses to
-  start if the subnet is not a private one;
-- only the relay's UDP port is published on the host.
+- both containers leave the host's network and join the proxy's, where
+  the proxy reaches the control plane as `drywire:10050` and the web
+  client as `drywire-web:10052` (the route in `route.caddy` says so); no
+  host port is published for either;
+- the server serves plain HTTP there, accepts connections from that
+  subnet and loopback only, and believes `X-Forwarded-For` from them; it
+  refuses to start if the subnet is not a private one;
+- only the relay's two UDP ports are published on the host.
 
 A port Docker publishes goes around ufw: the relay is reachable whatever
 ufw says, and the rule `make deploy` adds keeps `ufw status` truthful.
@@ -202,27 +242,31 @@ applications you trust.
 
 ## Firewall
 
-Clients need two ports on the host: the proxy's **443/tcp** (and 80/tcp if
-your ACME client uses the HTTP challenge), and the relay's **30050/udp**,
+Clients need three ports on the host: the proxy's **443/tcp** (and 80/tcp
+if your ACME client uses the HTTP challenge), the relay's **30050/udp**,
 or whatever port `DRYWIRE_UDP_ADDR` names
 ([ADR 0028](../docs/adr/0028-serve-the-relay-on-udp-30050-in-production.md):
-10050 is the development port). The control plane's 10050/tcp stays
-closed: nothing outside the host, or the proxy's Docker network, reaches
-it.
+10050 is the development port), and the relay's side for browsers,
+**30058/udp**, or whatever port `DRYWIRE_WEB_ADDR` names
+([ADR 0049](../docs/adr/0049-serve-the-web-client-from-each-instance-beside-its-api.md):
+10058 in development). The control plane's 10050/tcp and the web
+client's 10052/tcp stay closed: nothing outside the host, or the proxy's
+Docker network, reaches them.
 
-With **ufw**, `make deploy` opens the relay port itself (and only that);
-the equivalent by hand:
+With **ufw**, `make deploy` opens the relay's two ports itself (and only
+those); the equivalent by hand:
 
 ```sh
 sudo ufw allow 443/tcp comment 'https'
 sudo ufw allow 30050/udp comment 'drywire relay'
+sudo ufw allow 30058/udp comment 'drywire relay for browsers'
 ```
 
 With **nftables**, in the `input` chain of your `inet filter` table:
 
 ```nft
 tcp dport 443 accept
-udp dport 30050 accept
+udp dport { 30050, 30058 } accept
 ```
 
 On the host's network, these rules really decide what is reachable. On a
@@ -232,7 +276,8 @@ goes around them.
 If your **provider** has a network firewall in front of the server (a
 "security group", an "edge firewall"…), open the same ports there too. A
 relay port closed there shows as clients that join a room but never hear
-anyone.
+anyone; a closed 30058 shows as browsers that cannot connect to the
+relay.
 
 ## The first space and invitation
 
@@ -251,7 +296,15 @@ privately. Each teammate then joins and talks with:
 drywire join --link '<the link>' --display-name sam
 ```
 
-Later, `drywire join` alone takes them back to the space. `make status`
+Later, `drywire join` alone takes them back to the space.
+
+In a browser, the same invitation opens the instance's own web client:
+replace `https://drywire.gg/i` by the instance's address and keep
+everything from the `#`, as in
+`https://voice.example.org/#<what follows # in the link>`. The client
+offers to join the space; the fragment never leaves the browser. It runs
+in Chrome and Edge 137+, Firefox 136+ on the desktop and Safari 26.4+
+([`apps/web/README.md`](../apps/web/README.md)). `make status`
 shows the rooms in use and the packet counters.
 
 ## Updating
@@ -359,7 +412,10 @@ first deploy with this image starts the directory.
 [`drywire.service`](drywire.service) runs the server under systemd, as
 its own system user, with the same `instance.env` and the same
 confinement as the container (the install steps are at the top of the
-file). Build the binary on your machine and copy it over:
+file). It runs the server alone: for the web client, serve the build of
+`apps/web` (`bun run build`, with `public/drywire.wasm` in place as `make
+test` puts it) from your own web server, and send `/v1/` to the control
+plane. Build the binary on your machine and copy it over:
 
 ```sh
 cd server && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o drywire-server ./cmd/drywire-server
@@ -392,27 +448,34 @@ The journal keeps the access log; set its retention to a year at most
 ## Try it locally
 
 Docker Desktop has no host network by default, so
-[`compose.local.yaml`](compose.local.yaml) runs the same image with a
+[`compose.local.yaml`](compose.local.yaml) runs the same images with a
 Caddy container playing the host and its reverse proxy, on this machine's
-`127.0.0.1:10050` (stop `make dev` first: same ports):
+`127.0.0.1:10050`, with the browsers' side on `127.0.0.1:10058/udp` (stop
+`make dev` and `make web` first: same ports). `make test` has already put
+the WebAssembly module in `apps/web/public/`:
 
 ```sh
-mkdir -p .dev/try && cp deploy/Dockerfile deploy/compose.yaml deploy/compose.local.yaml .dev/try/
-(cd server && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ../.dev/try/drywire-server ./cmd/drywire-server)
+mkdir -p .dev/try && cp deploy/Dockerfile deploy/static.Dockerfile deploy/compose.yaml deploy/compose.local.yaml .dev/try/
+(cd server && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ../.dev/try/drywire-server ./cmd/drywire-server &&
+  GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ../.dev/try/drywire-static ./cmd/drywire-static)
+(cd apps/web && bun run build --outDir ../../.dev/try/web --emptyOutDir)
 cd .dev/try && docker compose -f compose.yaml -f compose.local.yaml up --build -d
 curl http://127.0.0.1:10050/v1/status
 ```
 
 (`GOARCH=amd64` on an Intel machine.) Then use `drywire` with
-`--instance http://127.0.0.1:10050` as with `make dev`, and finish with
-`docker compose -f compose.yaml -f compose.local.yaml down -v`.
+`--instance http://127.0.0.1:10050` as with `make dev`, open the web
+client at `http://127.0.0.1:10050/#<what follows # in an invitation>`,
+and finish with
+`docker compose -f compose.yaml -f compose.local.yaml down -v --rmi local`.
 
 ## Files
 
 | File | What it does |
 | --- | --- |
-| `Dockerfile` | The release image: the prebuilt static binary in `scratch`, unprivileged, state in `/data` |
-| `compose.yaml` | The service on the host network, its volume, health check and log rotation |
+| `Dockerfile` | The server's release image: the prebuilt static binary in `scratch`, unprivileged, state in `/data` |
+| `static.Dockerfile` | The web client's image: `drywire-static` and the client's build in `scratch`, unprivileged, nothing to write |
+| `compose.yaml` | The two services on the host network, the server's volume, health checks and log rotation |
 | `instance.env.example` | An instance's settings; copied to `instance.env` |
 | `compose.proxy.yaml` | Added by `make deploy` for a reverse proxy in a Docker network (`DRYWIRE_PROXY_NETWORK`) |
 | `compose.local.yaml` | Trying the image on Docker Desktop |

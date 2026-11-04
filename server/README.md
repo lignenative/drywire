@@ -116,6 +116,7 @@ spaces: `drywire identity` prints a device's key.
 | `internal/clientref` | Reference of what clients do above the relay (key derivation, audio encryption, payload framing, signed announcements, invitation links); used only to build and check test vectors |
 | `internal/vectors` | Builds, writes and reads the shared test vectors |
 | `cmd/drywire-vectors` | Writes the vectors to `core/drywire-proto/vectors/` (`make vectors`) |
+| `cmd/drywire-static` | Serves the web client's build in a deployment, beside the API, never inside it (ADR 0049) |
 
 Start reading at `internal/relay/relay.go`: `Handle` follows protocol
 section 10.1 step by step. Everything follows

@@ -613,7 +613,7 @@ variable.
 | 10050/tcp | Control plane | `DRYWIRE_HTTP_ADDR` |
 | 10050/udp | Relay | `DRYWIRE_UDP_ADDR` |
 | 10051 | Vite dev server, desktop UI | `DEV_PORT` |
-| 10052 | Project site preview | `SITE_PORT` |
+| 10052 | A built front served alone: the invitation page's preview (`site/`), and `drywire-static` with the web client in a deployment (ADR 0049) | `DRYWIRE_STATIC_ADDR` |
 | 10057 | Vite dev server, web client | `WEB_PORT` |
 | 10058/udp | Relay, WebTransport side for browsers | `DRYWIRE_WEB_ADDR` |
 
@@ -727,9 +727,10 @@ None blocks phase 1.
 - [ ] TLS termination on the relay host: existing reverse proxy or
       certificates handled by the server.
 - [ ] Production UDP port, and the firewall rules that open it.
-- [ ] Production port of the relay's WebTransport side (ADR 0038), and
+- [x] Production port of the relay's WebTransport side (ADR 0038), and
       whether the web client is served by each instance or from the
-      project's domain (which needs CORS on the control plane).
+      project's domain: UDP 30058, and each instance serves it at its own
+      address, beside its API (ADR 0049).
 - [ ] Apple Developer and Google Play accounts.
 - [ ] Windows code signing: manual installation within the team at first,
       certificate later.
