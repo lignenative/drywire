@@ -1,6 +1,6 @@
 # 0052. Take space keys out of invitation links with MLS
 
-Status: Accepted · 2026-11-04 · steps 1 and 2 of 5 built
+Status: Accepted · 2026-11-04 · steps 1 and 2 of 5 built, step 3 in the core
 
 ## Context
 
@@ -93,9 +93,11 @@ remains, in order, each a slice with its tests:
    storage, saved as a whole), adding pending devices, removing members'
    devices, renewing its own leaf.
 3. **The audio path's key**: the room key from the exporter per epoch,
-   the previous epoch's kept for a few seconds so packets in flight still
-   open, and `drywire-core` taking a key per epoch instead of the space
-   key.
+   the previous one kept so packets in flight still open, and
+   `drywire-core` taking a room key instead of the space key. Built in
+   the core: a call takes a room key, and the next one with
+   `CallMembers::set_room_key` (protocol section 8.3); the apps still
+   derive it from the space key until step 4.
 4. **The apps**: the CLI first, then the desktop app, then the web
    client, whose module grows from 187 KB to about 2.1 MB with OpenMLS
    and needs `wasm-bindgen`'s glue (checked above).

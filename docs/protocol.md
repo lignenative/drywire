@@ -295,6 +295,16 @@ sender_key = HKDF-SHA256(ikm  = room_key,
 
 The `info` strings are ASCII, without a terminating zero.
 
+A space with an MLS group (ADR 0052) takes its room key from the group
+instead, for the group's current epoch:
+
+```text
+room_key = MLS-Exporter("drywire/room/v1", room_id, 32)
+```
+
+Only where the room key comes from changes: `sender_key`, the
+announcements and the encryption below are the same for both.
+
 Why this design: AES-GCM breaks completely if a key and nonce pair is ever
 used twice. Each `sender_key` depends on randomness its sender drew, so two
 senders never share a key, a restarted client never reuses an old one, and the
@@ -337,6 +347,14 @@ message = "drywire/sender-announce/v1" ‖ room_id (16) ‖ session (4)
   replaces the old one: the sender restarted. Receivers keep the keys of at
   least the current and the previous epoch of each sender, so packets
   reordered across an epoch change still decrypt.
+- **When the room key changes** (the space's MLS group moved to a new
+  epoch), each sender starts a new key epoch under it at its next packet,
+  announced first, as when its sequence runs out. Members do not all learn
+  the new room key at the same instant, so a receiver keeps the previous
+  room key too: for an epoch announced but not heard yet, it derives the
+  sender key under both, and keeps the one that opens the first packet.
+  An epoch announced before the receiver learned the new key is derived
+  again when it does. Nothing on the wire changes.
 - An audio packet for a `(session, epoch)` with no key yet cannot be
   decrypted. Receivers drop it and count it as `no_key`; they do not hold it
   back, since holding audio would add latency and the next announcement is

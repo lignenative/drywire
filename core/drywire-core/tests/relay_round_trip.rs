@@ -201,7 +201,8 @@ fn audio_crosses_the_relay_at_every_frame_size() {
     let relay = Relay::start();
     let team = relay.team(&["alex", "sam"]);
     let (alex_seat, sam_seat) = (&team.seats[0], &team.seats[1]);
-    let (room_id, space_key) = (team.room_id, team.space_key);
+    let room_id = team.room_id;
+    let room_key = drywire_proto::crypto::room_key(&team.space_key, &room_id);
     let sam = Client::join(&relay, sam_seat);
     let alex_identity = alex_seat.identity.clone();
     let alex_session = alex_seat.session;
@@ -222,7 +223,7 @@ fn audio_crosses_the_relay_at_every_frame_size() {
             alex_identity.clone(),
             alex_session,
             room_id,
-            &space_key,
+            &room_key,
             config,
         )
         .expect("an Opus encoder");
@@ -245,7 +246,7 @@ fn audio_crosses_the_relay_at_every_frame_size() {
         // Every packet arrived and decrypted, and the frames are complete.
         let mut inbound = Inbound::new(
             room_id,
-            &space_key,
+            &room_key,
             [(alex_session, alex_identity.verifying_key())],
         );
         let output = decode_all(&received, &mut inbound, frame);
