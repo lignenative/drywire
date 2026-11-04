@@ -156,6 +156,21 @@ fn one_call(
     started: Instant,
     first: bool,
 ) -> Outcome {
+    // A space with an MLS group: this device must be in it before the
+    // call, since the room key comes from it.
+    let mut group = if space.uses_group() {
+        let home = match crate::home::Home::open(args.home.as_deref()) {
+            Ok(home) => home,
+            Err(e) => return Outcome::Done(Err(e)),
+        };
+        match crate::group::Runner::ready(home, client, space) {
+            Ok(runner) => Some(runner),
+            Err(e) if !first => return Outcome::Lost(e),
+            Err(e) => return Outcome::Done(Err(e)),
+        }
+    } else {
+        None
+    };
     let joined = match client.join(&room.id) {
         Ok(joined) => joined,
         // The first join says what is wrong; a later one waits for the
@@ -166,7 +181,17 @@ fn one_call(
         Err(e) => return Outcome::Done(Err(e.to_string())),
     };
     match call_on(
-        args, identity, client, space, room, events, input, duration, started, joined,
+        args,
+        identity,
+        client,
+        space,
+        room,
+        events,
+        input,
+        duration,
+        started,
+        joined,
+        group.as_mut(),
     ) {
         Ok(outcome) => outcome,
         Err(e) => Outcome::Done(Err(e)),
@@ -185,6 +210,7 @@ fn call_on(
     duration: Option<Duration>,
     started: Instant,
     joined: drywire_control::JoinAnswer,
+    mut group: Option<&mut crate::group::Runner>,
 ) -> Result<Outcome, String> {
     let joined_at = Instant::now();
     let relay = resolve(&joined.relay)?;
@@ -201,9 +227,12 @@ fn call_on(
     }
     let config = ClientConfig {
         room_id: room.id.0,
-        // Until the space has an MLS group (ADR 0052, step 4), the room
-        // key comes from the space key.
-        room_key: drywire_proto::crypto::room_key(&space.space_key()?, &room.id.0),
+        // From the space's MLS group, or from the space key of a space
+        // that has none (ADR 0052).
+        room_key: match group.as_deref_mut() {
+            Some(group) => group.room_key(&room.id)?,
+            None => drywire_proto::crypto::room_key(&space.space_key()?, &room.id.0),
+        },
         session: me,
         session_secret: joined.session_secret.0,
         identity: identity.clone(),
@@ -269,6 +298,10 @@ fn call_on(
     while ended.is_none() {
         std::thread::sleep(Duration::from_millis(50));
         while let Ok((opened, event)) = events.try_recv() {
+            // The group moved: the room key may have changed.
+            if let (Event::Mls(_), Some(group)) = (&event, group.as_deref_mut()) {
+                group.refresh(client, &room.id, &call_members);
+            }
             // A stream opened before this join gave a snapshot without it.
             let fresh = opened < joined_at;
             ended = ended.or(on_event(
@@ -284,6 +317,11 @@ fn call_on(
         if crate::stop::requested() {
             eprintln!("leaving");
             break;
+        }
+        if let Some(group) = group.as_deref_mut()
+            && group.last_sync.elapsed() > crate::group::RESYNC
+        {
+            group.refresh(client, &room.id, &call_members);
         }
         let finished = match &file_device {
             Some(device) => device.is_finished(),

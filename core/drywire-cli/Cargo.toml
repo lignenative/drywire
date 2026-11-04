@@ -20,6 +20,7 @@ bundled-opus = ["drywire-core/bundled-opus"]
 
 [dependencies]
 drywire-control.workspace = true
+drywire-mls.workspace = true
 drywire-core.workspace = true
 drywire-proto.workspace = true
 getrandom.workspace = true
