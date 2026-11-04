@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use crate::app::{
     AccountView, CalibrationView, Desktop, DeviceCodeView, InvitationView, LoopbackView,
-    Preferences, RestoredView, SpaceView,
+    PendingInvitationView, Preferences, RestoredView, SignedInView, SpaceView,
 };
 use crate::error::AppError;
 use crate::session::{CallView, METER_FLOOR_DBFS};
@@ -226,4 +226,75 @@ pub fn set_launch_at_login(app: AppHandle, enabled: bool) -> Result<bool, AppErr
     };
     done.map_err(|e| AppError::new("autostart", e.to_string()))?;
     launch_at_login(app)
+}
+
+/// The instance the app signs in to without asking, if it was built with
+/// one (ADR 0055).
+#[tauri::command(async)]
+pub fn default_instance(desktop: State<'_, Desktop>) -> String {
+    desktop.default_instance()
+}
+
+/// Mails a sign-in code to the address.
+#[tauri::command(async)]
+pub fn email_code(
+    desktop: State<'_, Desktop>,
+    instance: String,
+    email: String,
+    lang: String,
+) -> Result<(), AppError> {
+    desktop.email_code(&instance, &email, &lang)
+}
+
+/// Signs this device in with the mailed code.
+#[tauri::command(async)]
+pub fn email_sign_in(
+    desktop: State<'_, Desktop>,
+    instance: String,
+    email: String,
+    code: String,
+) -> Result<SignedInView, AppError> {
+    desktop.email_sign_in(&instance, &email, &code)
+}
+
+/// Chooses the account's user name.
+#[tauri::command(async)]
+pub fn set_username(
+    desktop: State<'_, Desktop>,
+    instance: String,
+    username: String,
+    display_name: String,
+) -> Result<String, AppError> {
+    desktop.set_username(&instance, &username, &display_name)
+}
+
+/// The invitations by user name waiting for this account.
+#[tauri::command(async)]
+pub fn pending_invitations(
+    desktop: State<'_, Desktop>,
+    instance: String,
+) -> Result<Vec<PendingInvitationView>, AppError> {
+    desktop.pending_invitations(&instance)
+}
+
+/// Accepts or declines an invitation by user name.
+#[tauri::command(async)]
+pub fn answer_invitation(
+    desktop: State<'_, Desktop>,
+    instance: String,
+    space_id: String,
+    accept: bool,
+) -> Result<Option<SpaceView>, AppError> {
+    desktop.answer_invitation(&instance, &space_id, accept)
+}
+
+/// Invites someone into a space by user name.
+#[tauri::command(async)]
+pub fn invite_user(
+    desktop: State<'_, Desktop>,
+    instance: String,
+    space_id: String,
+    username: String,
+) -> Result<String, AppError> {
+    desktop.invite_user(&instance, &space_id, &username)
 }

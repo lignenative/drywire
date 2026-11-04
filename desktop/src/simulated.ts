@@ -95,6 +95,8 @@ function space(instance: string, id: string, name: string, rooms: string[]): Spa
     role: "member",
     rooms: rooms.map((room) => ({ id: room, name: room, occupants: OCCUPANTS[`${id}/${room}`] ?? [] })),
     error: null,
+    // The canvas's spaces have MLS groups (ADR 0055), as every new one.
+    group: true,
   };
 }
 
@@ -338,6 +340,34 @@ export const simulated: Api = {
     return resolve(state.spaces[0]);
   },
   listSpaces: () => resolve(state.spaces.map((s) => ({ ...s }))),
+  // Signing in by e-mail (ADR 0055): any address; the code 000000 is a
+  // wrong one, and the user name "sam" is taken.
+  defaultInstance: () => resolve("https://voice.example.org"),
+  emailCode: (_instance: string, email: string, _lang: string) =>
+    email.includes("@") ? resolve(undefined) : Promise.reject({ code: "refused", message: "not an e-mail address" }),
+  emailSignIn: (_instance: string, _email: string, code: string) =>
+    code.replace(/\D/g, "") === "000000"
+      ? Promise.reject({ code: "wrong_code", message: "this code does not match (4 tries left)" })
+      : resolve({ newAccount: true, username: null }),
+  setUsername: (_instance: string, username: string, _displayName: string) =>
+    username.trim().toLowerCase() === "sam"
+      ? Promise.reject({ code: "username_taken", message: "sam_92,sam.gg" })
+      : resolve(username.trim().toLowerCase()),
+  pendingInvitations: (instance: string) =>
+    resolve(
+      state.spaces.length === 0
+        ? [{ instance, spaceId: "team", spaceName: "Team", invitedBy: "sam" }]
+        : [],
+    ),
+  answerInvitation: (_instance: string, _spaceId: string, accept: boolean) => {
+    if (!accept) return resolve(null);
+    if (state.spaces.length === 0) state.spaces = spaces("idle");
+    return resolve(state.spaces[0]);
+  },
+  inviteUser: (_instance: string, _spaceId: string, username: string) =>
+    username.trim().toLowerCase() === "nobody"
+      ? Promise.reject({ code: "not_found", message: "not found" })
+      : resolve(username.trim()),
   joinRoom: (instance: string, spaceId: string, roomId: string) => {
     const space = state.spaces.find((s) => s.instance === instance && s.id === spaceId);
     if (!space) return Promise.reject({ code: "not_found", message: "no such space" });
