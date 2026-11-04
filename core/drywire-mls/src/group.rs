@@ -140,6 +140,11 @@ impl Group {
                 .map_err(|_| Error::Malformed)?
                 .validate(device.provider.crypto(), ProtocolVersion::Mls10)
                 .map_err(mls)?;
+            // One suite only: the others' code is not ours to vouch for
+            // (core/deny.toml).
+            if package.ciphersuite() != CIPHERSUITE {
+                return Err(Error::Malformed);
+            }
             let leaf = package.leaf_node();
             if leaf.signature_key().as_slice() != p.device {
                 return Err(Error::WrongDevice);

@@ -46,3 +46,12 @@ unknown-git = "deny"
 [advisories]
 # A crate with a known vulnerability fails the check; yanked crates too.
 yanked = "deny"
+ignore = [
+    # Timing leaks in crypto-bigint 0.5's arithmetic, fixed only in 0.7.
+    # OpenMLS's crypto provider brings it for the P-256 and P-384 suites
+    # (p256, p384, elliptic-curve 0.13). Drywire's groups use X25519 and
+    # Ed25519 only (drywire-mls refuses any other suite), so that code
+    # never handles a secret: at most it checks a hostile key package's
+    # public signature. Looked at again with each OpenMLS release.
+    { id = "RUSTSEC-2026-0387", reason = "P-256/P-384 code never runs on secrets in drywire-mls" },
+]
