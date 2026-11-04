@@ -39,6 +39,8 @@ create-space options:
   --name NAME          The space's name
   --room NAME          Its first room (default general)
   --display-name NAME  Your name, if this is your first space there
+  --code CODE          A creation code from the instance's operator, if
+                       your key is not one it lets create spaces
 
 invite options:
   --space NAME         Which space (by name or id; default: the only one)

@@ -307,6 +307,8 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, store.ErrInvalidCode):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, store.ErrInvalidCreatorCode):
+		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, store.ErrVaultTooLarge):
 		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, store.ErrTooManyVaults):

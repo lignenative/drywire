@@ -61,6 +61,8 @@ pub struct Account {
     pub value: Option<String>,
     /// `--force`: replace this device's account (`restore`).
     pub force: bool,
+    /// `--code`: a creation code from the operator (`create-space`).
+    pub code: Option<String>,
 }
 
 /// The display name to use when none is given: the system's user name.
@@ -227,6 +229,7 @@ impl Account {
                 "--room" => account.room = Some(flags.value(flag)?.to_string()),
                 "--display-name" => account.display_name = flags.value(flag)?.to_string(),
                 "--force" => account.force = true,
+                "--code" => account.code = Some(flags.value(flag)?.to_string()),
                 "--uses" => account.uses = Some(flags.parsed(flag)?),
                 "--days" => {
                     let days: f64 = flags.parsed(flag)?;

@@ -85,6 +85,16 @@ CREATE INDEX vaults_by_identity ON vaults (identity_id);
 -- One recovery vault per identity: a new code replaces the old one.
 CREATE UNIQUE INDEX one_recovery_vault ON vaults (identity_id) WHERE kind = 'recovery';
 `,
+	// 3: creation codes, which let one person create one space without
+	// being listed in DRYWIRE_SPACE_CREATORS (ADR 0054). Only their SHA-256
+	// is kept, as for invitations, and nothing about who used them.
+	`
+CREATE TABLE creator_codes (
+	code_hash  BLOB    PRIMARY KEY CHECK (length(code_hash) = 32),
+	created_at INTEGER NOT NULL,
+	expires_at INTEGER NOT NULL
+);
+`,
 }
 
 // migrate applies the migrations the database has not seen yet.

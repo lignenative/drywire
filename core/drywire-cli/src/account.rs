@@ -31,10 +31,11 @@ pub fn create_space(args: Account) -> Result<(), String> {
     let name = args.name.ok_or("create-space needs --name NAME")?;
     let client = client(&home, &instance)?;
     let view = client
-        .create_space(
+        .create_space_with_code(
             &name,
             args.room.as_deref().unwrap_or("general"),
             &args.display_name,
+            args.code.as_deref(),
         )
         .map_err(|e| e.to_string())?;
     // 256 random bits that only the members will ever hold.

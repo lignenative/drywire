@@ -617,7 +617,12 @@ space the caller is not a member of answers `404`, as if it did not exist.
 - Names (display, space, room) are 1 to 32 characters of valid UTF-8,
   trimmed, without control or format characters.
 - Who may create spaces is the operator's choice
-  (`DRYWIRE_SPACE_CREATORS`): an instance is not an open sign-up.
+  (`DRYWIRE_SPACE_CREATORS`): an instance is not an open sign-up. An
+  identity not listed may create one space with a **creation code** from
+  the operator (ADR 0054): `creator_code` in the body, 26 characters as
+  in section 15.1. The code is spent with the space; an unknown, used or
+  expired one answers `404`, one that is not a code `400`. The server
+  keeps only its SHA-256, for 7 days.
 - A space has a maximum number of members, set when it is created
   (`DRYWIRE_MAX_MEMBERS`, 50 by default).
 - A ban names a public key and outlives the identity, so deleting an

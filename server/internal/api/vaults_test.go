@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/hex"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lignenative/drywire/server/internal/store"
 )
 
 func TestAVaultCarriesAnAccountToANewDevice(t *testing.T) {
@@ -84,5 +87,31 @@ func TestOpeningVaultsIsPacedLikeLogins(t *testing.T) {
 	}
 	if !limited {
 		t.Fatal("twenty guesses in a row were all answered")
+	}
+}
+
+func TestACreationCodeLetsAnUnlistedKeyCreateOneSpace(t *testing.T) {
+	h := newHarness(t, Config{})
+	sam := h.client(2).login()
+	body := map[string]string{"name": "Scrims", "display_name": "sam"}
+	if status := sam.do("POST", "/v1/spaces", body, nil); status != http.StatusForbidden {
+		t.Fatalf("no code: %d", status)
+	}
+	code := store.NewCreatorCode()
+	if _, err := h.store.AddCreatorCode(context.Background(), code, store.CreatorCodeLifetime); err != nil {
+		t.Fatal(err)
+	}
+	body["creator_code"] = "not a code"
+	if status := sam.do("POST", "/v1/spaces", body, nil); status != http.StatusBadRequest {
+		t.Fatalf("bad code: %d", status)
+	}
+	body["creator_code"] = strings.ToLower(code.String())
+	var v SpaceView
+	sam.must(http.StatusCreated, "POST", "/v1/spaces", body, &v)
+	if v.Role != "owner" {
+		t.Fatalf("role %q", v.Role)
+	}
+	if status := sam.do("POST", "/v1/spaces", body, nil); status != http.StatusNotFound {
+		t.Fatalf("code used twice: %d", status)
 	}
 }
