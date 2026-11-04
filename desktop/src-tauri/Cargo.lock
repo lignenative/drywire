@@ -880,6 +880,7 @@ name = "drywire-control"
 version = "0.1.0"
 dependencies = [
  "drywire-proto",
+ "getrandom 0.4.3",
  "rustls",
  "serde",
  "serde_json",

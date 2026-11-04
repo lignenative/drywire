@@ -1,8 +1,9 @@
 //! The commands about this device's identity, its spaces and invitations:
 //! everything but talking, which is `join`.
 
-use drywire_control::{Client, SpaceView};
+use drywire_control::{Client, Hex, SpaceView, VaultContents, VaultKind, VaultSpace};
 use drywire_proto::invite::Invitation;
+use drywire_proto::vault::VaultCode;
 
 use crate::args::Account;
 use crate::home::{Home, KnownSpace, printable};
@@ -45,6 +46,7 @@ pub fn create_space(args: Account) -> Result<(), String> {
         &view.space.name,
         &space_key,
     ))?;
+    seal_recovery_again(&home);
     println!(
         "Created {} on {} with the room {}. Invite people with: drywire invite --space {:?}",
         printable(&view.space.name),
@@ -88,6 +90,7 @@ pub fn accept_link(home: &Home, link: &str, display_name: &str) -> Result<KnownS
         &invitation.space_key,
     );
     home.remember(space.clone())?;
+    seal_recovery_again(home);
     Ok(space)
 }
 
@@ -174,6 +177,7 @@ pub fn leave_space(args: Account) -> Result<(), String> {
         .leave_space(&space.space_id)
         .map_err(|e| e.to_string())?;
     home.forget(&space.instance, Some(&space.space_id))?;
+    seal_recovery_again(&home);
     println!("You left {}.", space.name);
     Ok(())
 }
@@ -194,5 +198,175 @@ pub fn delete_identity(args: Account) -> Result<(), String> {
         home.forget_identity()?;
         println!("This device's key is forgotten; a new one is made on next use.");
     }
+    Ok(())
+}
+
+/// What this device would put in a vault: its account and spaces. The
+/// name is the one `client`'s instance knows.
+fn vault_contents(home: &Home, client: &Client) -> Result<VaultContents, String> {
+    let identity = home.identity()?;
+    let spaces = home.spaces()?;
+    let name = client
+        .me()
+        .ok()
+        .flatten()
+        .map(|id| id.name)
+        .unwrap_or_else(crate::args::default_display_name);
+    let spaces = spaces
+        .iter()
+        .map(|s| {
+            Ok(VaultSpace {
+                instance: s.instance.clone(),
+                id: s.space_id,
+                name: s.name.clone(),
+                key: Hex(s.space_key()?),
+            })
+        })
+        .collect::<Result<_, String>>()?;
+    Ok(VaultContents {
+        account: Hex(identity.to_bytes()),
+        name,
+        spaces,
+    })
+}
+
+/// The instances the recovery vault lives on: those of the spaces.
+fn space_instances(home: &Home) -> Result<Vec<String>, String> {
+    let mut all: Vec<String> = home.spaces()?.into_iter().map(|s| s.instance).collect();
+    all.sort();
+    all.dedup();
+    Ok(all)
+}
+
+/// Seals the recovery vault with this device's spaces again, on every
+/// instance, if this device knows the recovery code. A failure is told,
+/// never fatal: the change it follows is done.
+fn seal_recovery_again(home: &Home) {
+    let result = (|| -> Result<(), String> {
+        let Some(secret) = home.recovery_secret()? else {
+            return Ok(());
+        };
+        let code = VaultCode::from_secret(secret);
+        put_recovery_everywhere(home, &code)
+    })();
+    if let Err(e) = result {
+        eprintln!(
+            "warning: the recovery vault was not updated ({e}); run `drywire recovery-code` again"
+        );
+    }
+}
+
+/// Seals the recovery vault with `code` on every instance of the spaces,
+/// one login each.
+fn put_recovery_everywhere(home: &Home, code: &VaultCode) -> Result<(), String> {
+    let clients = space_instances(home)?
+        .iter()
+        .map(|i| client(home, i))
+        .collect::<Result<Vec<_>, _>>()?;
+    let Some(first) = clients.first() else {
+        return Ok(());
+    };
+    let contents = vault_contents(home, first)?;
+    for c in &clients {
+        c.put_recovery_vault(code, &contents)
+            .map_err(|e| format!("{}: {e}", c.instance()))?;
+    }
+    Ok(())
+}
+
+/// `recovery-code`: makes a new recovery code, seals this account in a
+/// vault on every instance of its spaces, and prints the code once. The
+/// previous code opens nothing any more.
+pub fn recovery_code(args: Account) -> Result<(), String> {
+    let home = Home::open(args.home.as_deref())?;
+    let instances = space_instances(&home)?;
+    if instances.is_empty() {
+        return Err("this account has no space yet: join or create one first".into());
+    }
+    let code = drywire_control::new_code();
+    put_recovery_everywhere(&home, &code)?;
+    home.set_recovery_secret(Some(&code.secret()))?;
+    eprintln!(
+        "Your recovery code. Whoever has it has your account: keep it like a password,          offline. A new code replaces this one."
+    );
+    println!("{}", code.to_text());
+    eprintln!(
+        "On a new device: drywire restore CODE --instance {}",
+        instances[0]
+    );
+    Ok(())
+}
+
+/// `device-code`: lets one new device become this account, for ten minutes.
+pub fn device_code(args: Account) -> Result<(), String> {
+    let home = Home::open(args.home.as_deref())?;
+    let instance = match args.instance {
+        Some(i) => i,
+        None => space_instances(&home)?
+            .into_iter()
+            .next()
+            .ok_or("this account has no space yet: join or create one first")?,
+    };
+    let code = drywire_control::new_code();
+    let client = client(&home, &instance)?;
+    let contents = vault_contents(&home, &client)?;
+    let waiting = client
+        .put_device_vault(&code, &contents)
+        .map_err(|e| e.to_string())?;
+    println!("{}", code.to_text());
+    eprintln!(
+        "On the new device, within {} minutes: drywire restore CODE --instance {}",
+        waiting.expires_in / 60,
+        client.instance()
+    );
+    Ok(())
+}
+
+/// `restore CODE`: becomes the account a recovery or device code opens.
+pub fn restore(args: Account) -> Result<(), String> {
+    let home = Home::open(args.home.as_deref())?;
+    let instance = args
+        .instance
+        .clone()
+        .ok_or("restore needs --instance https://HOST, where the code was made")?;
+    let text = args.value.clone().unwrap_or_default();
+    let (kind, contents) =
+        drywire_control::open_vault(&instance, &text).map_err(|e| e.to_string())?;
+    let account = contents.signing_key();
+    let current = home.spaces()?;
+    let same = home.identity()?.verifying_key() == account.verifying_key();
+    if !same && !current.is_empty() && !args.force {
+        return Err(format!(
+            "this device already has an account, with {} space(s): restore with --force to              replace it (its key is then forgotten here)",
+            current.len()
+        ));
+    }
+    let mut spaces = contents
+        .spaces
+        .iter()
+        .map(|s| KnownSpace::new(&s.instance, s.id, &s.name, &s.key.0))
+        .collect::<Vec<_>>();
+    if same {
+        // The same account: keep the spaces only this device knew.
+        for s in current {
+            if !spaces
+                .iter()
+                .any(|v| v.instance == s.instance && v.space_id == s.space_id)
+            {
+                spaces.push(s);
+            }
+        }
+    }
+    home.become_account(&account.to_bytes(), spaces)?;
+    if kind == VaultKind::Recovery {
+        // This device knows the code now: it keeps the vault up to date.
+        let code = VaultCode::parse(&text).map_err(|e| e.to_string())?;
+        home.set_recovery_secret(Some(&code.secret()))?;
+    }
+    println!(
+        "You are {} on this device, with {} space(s). Talk with: drywire join",
+        printable(&contents.name),
+        contents.spaces.len()
+    );
     Ok(())
 }

@@ -55,6 +55,7 @@ impl From<drywire_control::Error> for AppError {
             drywire_control::Error::Network(_) => "network",
             drywire_control::Error::Protocol(_) => "protocol",
             drywire_control::Error::BadInstance(_) => "bad_instance",
+            drywire_control::Error::BadCode(_) => "bad_code",
         };
         AppError::new(code, e.to_string())
     }

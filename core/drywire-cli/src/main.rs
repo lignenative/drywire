@@ -21,6 +21,9 @@ Commands:
   invite            Print an invitation link to a space
   accept LINK       Become a member of the space a link is for
   spaces            List the spaces this device knows
+  recovery-code     Make your account's recovery code (replaces the old one)
+  device-code       Let one new device become your account (10 minutes)
+  restore CODE      Become the account a recovery or device code opens
   join              Join a room and talk (see options below)
   rename NAME       Change your display name
   export            Print what the instances store about you, as JSON
@@ -44,6 +47,13 @@ invite options:
 
 accept options:
   --display-name NAME  Your name, if you are new on that instance
+
+device-code options:
+  --instance URL       Which instance keeps it (default: your first)
+
+restore options:
+  --instance URL       The instance the code was made on (required)
+  --force              Replace the account this device already has
 
 rename, export, delete-identity options:
   --instance URL       Only this instance (default: every one you know)
@@ -91,6 +101,9 @@ fn main() -> ExitCode {
         Some("invite") => args::Account::parse(&rest, None).and_then(account::invite),
         Some("accept") => args::Account::parse(&rest, Some("LINK")).and_then(account::accept),
         Some("spaces") => args::Account::parse(&rest, None).and_then(account::spaces),
+        Some("recovery-code") => args::Account::parse(&rest, None).and_then(account::recovery_code),
+        Some("device-code") => args::Account::parse(&rest, None).and_then(account::device_code),
+        Some("restore") => args::Account::parse(&rest, Some("CODE")).and_then(account::restore),
         Some("rename") => args::Account::parse(&rest, Some("NAME")).and_then(account::rename),
         Some("export") => args::Account::parse(&rest, None).and_then(account::export),
         Some("leave-space") => args::Account::parse(&rest, None).and_then(account::leave_space),

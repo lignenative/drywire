@@ -24,6 +24,7 @@
 
 mod events;
 mod types;
+mod vault;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -39,6 +40,7 @@ use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
 pub use events::Events;
 pub use types::*;
+pub use vault::{DeviceVault, VaultContents, VaultKind, VaultSpace, new_code, open_vault};
 
 /// Why a request failed.
 #[derive(Debug)]
@@ -57,6 +59,8 @@ pub enum Error {
     Protocol(String),
     /// The instance address cannot be used.
     BadInstance(String),
+    /// A vault's code is not one, or does not open the vault (section 15).
+    BadCode(String),
 }
 
 impl std::fmt::Display for Error {
@@ -65,7 +69,7 @@ impl std::fmt::Display for Error {
             Error::Refused { status, message } => write!(f, "{message} (HTTP {status})"),
             Error::Network(e) => write!(f, "cannot reach the server: {e}"),
             Error::Protocol(e) => write!(f, "unexpected answer from the server: {e}"),
-            Error::BadInstance(e) => f.write_str(e),
+            Error::BadInstance(e) | Error::BadCode(e) => f.write_str(e),
         }
     }
 }
@@ -92,6 +96,7 @@ impl Error {
 enum Method {
     Get,
     Post,
+    Put,
     Patch,
     Delete,
 }
@@ -256,6 +261,9 @@ impl Client {
             (Method::Delete, _) => with_auth!(self.agent.delete(&url)).call(),
             (Method::Post, Some(b)) => with_auth!(self.agent.post(&url)).send_json(b),
             (Method::Post, None) => with_auth!(self.agent.post(&url)).send_empty(),
+            (Method::Put, b) => {
+                with_auth!(self.agent.put(&url)).send_json(b.unwrap_or(&Value::Null))
+            }
             (Method::Patch, b) => {
                 with_auth!(self.agent.patch(&url)).send_json(b.unwrap_or(&Value::Null))
             }

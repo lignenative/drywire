@@ -18,6 +18,7 @@
 //! - [`replay`]: the window that drops duplicate audio.
 //! - [`login`]: the signed control plane login and instance addresses.
 //! - [`invite`]: invitation links.
+//! - [`vault`]: account vaults and their codes.
 //!
 //! The crate does no I/O and keeps no clock: it turns bytes into values and
 //! back, so it can be tested exhaustively.
@@ -33,6 +34,7 @@ pub mod login;
 mod parse;
 pub mod payload;
 pub mod replay;
+pub mod vault;
 
 pub use error::Error;
 pub use header::{Header, PacketType};
