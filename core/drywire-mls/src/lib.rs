@@ -10,9 +10,9 @@
 //! does no I/O: the apps carry the bytes to and from the control plane's
 //! delivery service (protocol section 16), which orders them.
 //!
-//! - A [`Device`] is this device's MLS identity: an Ed25519 key of its own,
-//!   certified by the account key (see [`credential`]), and the state of
-//!   every group it is in. [`Device::save`] gives it all as bytes for the
+//! - A [`Device`] is this device in the groups: the Ed25519 key it logs in
+//!   with (ADR 0055, see [`credential`]), and the state of every group it
+//!   is in. [`Device::save`] gives it all as bytes for the
 //!   device's sealed store.
 //! - A [`Group`] is one space's group, as this device sees it.
 
@@ -33,12 +33,11 @@ pub const CIPHERSUITE: openmls::prelude::Ciphersuite =
 pub enum Error {
     /// Bytes that are not the expected MLS message.
     Malformed,
-    /// A leaf whose credential is not certified by the account it names.
+    /// A leaf whose credential does not name its own key.
     BadCredential,
-    /// A key package for another device than the one it was posted for,
-    /// or for another account.
+    /// A key package for another device than the one it was posted for.
     WrongDevice,
-    /// A leaf for an account that is not a member of the space.
+    /// A leaf that is no device of a member of the space.
     NotMember,
     /// Saved state this version cannot read.
     BadState,
@@ -50,11 +49,11 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Malformed => f.write_str("not the expected MLS message"),
-            Error::BadCredential => f.write_str("a device is not certified by its account"),
+            Error::BadCredential => f.write_str("a device does not name its own key"),
             Error::WrongDevice => {
                 f.write_str("a key package is not the device's it was posted for")
             }
-            Error::NotMember => f.write_str("a device belongs to someone who is not a member"),
+            Error::NotMember => f.write_str("a device is not one of a member's"),
             Error::BadState => f.write_str("saved group state this version cannot read"),
             Error::Mls(e) => write!(f, "MLS: {e}"),
         }

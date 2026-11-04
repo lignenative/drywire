@@ -15,10 +15,8 @@ use crate::{CIPHERSUITE, Device, Error, credential, mls};
 
 /// A device that waits to join, as the delivery service lists it.
 pub struct PendingDevice {
-    /// The device's signature key, which it posted the key package for.
+    /// The device's key, which it posted the key package for.
     pub device: [u8; 32],
-    /// The account the control plane says posted it.
-    pub account: [u8; 32],
     /// The key package, as posted.
     pub key_package: Vec<u8>,
 }
@@ -39,9 +37,7 @@ pub struct Commit {
 pub struct Leaf {
     /// Its index in the tree.
     pub index: u32,
-    /// The account it belongs to.
-    pub account: [u8; 32],
-    /// The device's signature key.
+    /// The device's key.
     pub device: [u8; 32],
 }
 
@@ -77,9 +73,8 @@ impl Group {
     }
 
     /// Joins a group from the welcome the delivery service kept for this
-    /// device. Every leaf must be certified by its account, and that
-    /// account a member of the space, as `is_member` says from the control
-    /// plane's list.
+    /// device. Every leaf must be a device of a member of the space, as
+    /// `is_member` says from the control plane's list of members' devices.
     pub fn join(
         device: &Device,
         welcome: &[u8],
@@ -123,17 +118,20 @@ impl Group {
                 let identity = BasicCredential::try_from(m.credential).ok()?;
                 Some(Leaf {
                     index: m.index.u32(),
-                    account: credential::verify(identity.identity(), &m.signature_key)?,
-                    device: m.signature_key.try_into().ok()?,
+                    device: credential::device(identity.identity(), &m.signature_key)?,
                 })
             })
             .collect()
     }
 
     /// Stages a commit that adds waiting devices. Each key package must be
-    /// signed by the device it was posted for and certified by the account
-    /// that posted it; the caller lists only members' devices.
-    pub fn add(&mut self, device: &Device, pending: &[PendingDevice]) -> Result<Commit, Error> {
+    /// signed by the device it was posted for, a device of a member.
+    pub fn add(
+        &mut self,
+        device: &Device,
+        pending: &[PendingDevice],
+        is_member: impl Fn(&[u8; 32]) -> bool,
+    ) -> Result<Commit, Error> {
         let mut packages = Vec::with_capacity(pending.len());
         for p in pending {
             let package = KeyPackageIn::tls_deserialize_exact(p.key_package.as_slice())
@@ -149,14 +147,11 @@ impl Group {
             if leaf.signature_key().as_slice() != p.device {
                 return Err(Error::WrongDevice);
             }
-            let account = check(
+            check(
                 leaf.credential(),
                 leaf.signature_key().as_slice(),
-                &|_: &[u8; 32]| true,
+                &is_member,
             )?;
-            if account != p.account {
-                return Err(Error::WrongDevice);
-            }
             packages.push(package);
         }
         let (commit, welcome, _) = self
@@ -170,19 +165,20 @@ impl Group {
         })
     }
 
-    /// Stages a commit that removes every device of these accounts: a
-    /// member who left, was removed or banned. Nothing to remove gives
-    /// `None`. This device never removes itself.
-    pub fn remove(
+    /// Stages a commit that removes every leaf that is no longer a device
+    /// of a member: someone who left, was removed or banned, or a device
+    /// signed out. Nothing to remove gives `None`. This device never
+    /// removes itself.
+    pub fn prune(
         &mut self,
         device: &Device,
-        accounts: &[[u8; 32]],
+        is_member: impl Fn(&[u8; 32]) -> bool,
     ) -> Result<Option<Commit>, Error> {
         let own = self.inner.own_leaf_index();
         let leaves: Vec<_> = self
             .leaves()
             .into_iter()
-            .filter(|l| accounts.contains(&l.account) && l.index != own.u32())
+            .filter(|l| !is_member(&l.device) && l.index != own.u32())
             .map(|l| LeafNodeIndex::new(l.index))
             .collect();
         if leaves.is_empty() {
@@ -287,8 +283,8 @@ impl Group {
     }
 }
 
-/// The account a leaf belongs to, if its credential certifies its
-/// signature key and the account is a member.
+/// The device a leaf is, if its credential names its own key and that key
+/// is a device of a member.
 fn check(
     credential: &Credential,
     signature_key: &[u8],
@@ -296,10 +292,10 @@ fn check(
 ) -> Result<[u8; 32], Error> {
     let identity =
         BasicCredential::try_from(credential.clone()).map_err(|_| Error::BadCredential)?;
-    let account =
-        credential::verify(identity.identity(), signature_key).ok_or(Error::BadCredential)?;
-    if !is_member(&account) {
+    let device =
+        credential::device(identity.identity(), signature_key).ok_or(Error::BadCredential)?;
+    if !is_member(&device) {
         return Err(Error::NotMember);
     }
-    Ok(account)
+    Ok(device)
 }

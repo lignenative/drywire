@@ -7,19 +7,20 @@ provider. It does no I/O: the apps carry its messages to and from the
 control plane's delivery service ([protocol section
 16](../../docs/protocol.md)), which orders them and reads none.
 
-- **`Device`**: this device's own Ed25519 key, certified by the account
-  key (`credential.rs` says how), and the state of all its groups.
+- **`Device`**: this device in the groups: the Ed25519 key it logs in
+  with (ADR 0055, `credential.rs`), and the state of all its groups.
   `save` and `load` give that state as bytes for the device's sealed
-  store; it never goes into the account's vault.
+  store.
 - **`Group`**: one space's group. `create`, `join` from a welcome, `add`
-  waiting devices, `remove` an account's devices, `renew` this device's
+  waiting devices, `prune` the devices no longer a member's, `renew` this device's
   leaf; each of these stages a commit, which the app posts and then
   `confirm`s, or `abandon`s when another member's came first. `apply`
   reads another member's commit. `room_key` is the key of a room in the
   current epoch.
 
-Every leaf that comes in is checked: certified by the account it names,
-and that account a member of the space, as the control plane lists it.
+Every leaf that comes in is checked: its credential names its own key,
+and that key is one of a member's devices, as the control plane lists
+them.
 
 ```sh
 cargo test -p drywire-mls

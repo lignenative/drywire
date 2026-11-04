@@ -46,15 +46,13 @@ The direction, to build after the accounts of ADR 0051:
 - **Each device signs as itself in the group.** A spike (2026-11-04,
   OpenMLS 0.9.2) confirmed what RFC 9420 requires: two leaves cannot
   share a signature key ("Duplicate signature key in proposals and
-  group"), so the account key that a person's devices share (ADR 0051)
-  cannot be their MLS key. Each device makes an Ed25519 MLS key of its
-  own, kept with its other secrets and never put in a vault (a restored
-  device makes a new one and joins as a new leaf). Its credential is a
-  basic credential whose identity is the account's public key followed by
-  the account key's signature over `"drywire/mls-device/v1" ‖ device MLS
-  public key`. A member accepts a leaf only if that signature verifies
-  and the account is a member of the space, as the control plane lists
-  it. Announcements stay signed by the account key, as now.
+  group"). Since ADR 0055 each device has an Ed25519 key of its own, the
+  one it logs in with, and that key signs for it in every group; its
+  basic credential's identity is that same public key. A member accepts
+  a leaf only if its identity is its signature key and the control plane
+  lists that key among a member's devices. (Before ADR 0055 the key was
+  the account's, shared by its devices, and each device was to have an
+  MLS key of its own certified by it; that went with the shared key.)
 - **The room key comes from the group**, through MLS's exporter
   (`room_key = MLS-Exporter("drywire/room/v1", room_id, 32)` in the
   current epoch). Everything after it does not change: per-sender keys,
