@@ -5,7 +5,12 @@
 //! a separate program, not a crate anyone can depend on.
 //!
 //! The relay is built from `server/` with `go build` once per test binary,
-//! or taken from `DRYWIRE_SERVER_BIN` if that variable names a binary. It
+//! or taken from `DRYWIRE_SERVER_BIN` if that variable names a binary.
+//! Test binaries run in parallel, so each builds its own copy; the first
+//! build of a process also deletes what earlier runs left in the tests'
+//! temporary directory more than an hour ago (copies of the binary, the
+//! relays' databases, a test's files after it failed), which would
+//! otherwise pile up by the gigabyte. It
 //! listens on ports the system picks, so tests run in parallel, with a
 //! database of its own. Tests get their sessions from its control plane,
 //! as real clients do ([`Relay::team`]). These tests need Go: without it
@@ -18,7 +23,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use drywire_control::Client;
 use drywire_proto::crypto::SigningKey;
@@ -59,9 +64,31 @@ pub struct Team {
     pub seats: Vec<Seat>,
 }
 
+/// Deletes what is older than an hour in the tests' temporary directory:
+/// no test lasts that long, so nothing in use goes. Failures are ignored
+/// (a binary another test still runs, on Windows): the next run tries again.
+fn sweep_stale(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let hour_ago = SystemTime::now() - Duration::from_secs(3600);
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        if meta.modified().is_ok_and(|m| m < hour_ago) {
+            let path = entry.path();
+            let _ = if meta.is_dir() {
+                std::fs::remove_dir_all(&path)
+            } else {
+                std::fs::remove_file(&path)
+            };
+        }
+    }
+}
+
 fn server_binary() -> &'static Path {
     static BINARY: OnceLock<PathBuf> = OnceLock::new();
     BINARY.get_or_init(|| {
+        sweep_stale(Path::new(env!("CARGO_TARGET_TMPDIR")));
         if let Some(path) = std::env::var_os("DRYWIRE_SERVER_BIN") {
             return PathBuf::from(path);
         }
@@ -263,6 +290,8 @@ impl Drop for Relay {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        // Its database, which no one reads once it stopped.
+        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
