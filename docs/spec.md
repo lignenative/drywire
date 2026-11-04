@@ -514,7 +514,9 @@ bursts) against the jitter buffer. It runs in CI as a regression test.
 ## 12. Repository, licenses and conventions
 
 All code is MIT-licensed, in one public monorepo from day one. The name and
-logo belong to Ligne Native and are not covered by the license.
+logo belong to Ligne Native and are not covered by the license
+([`TRADEMARKS.md`](../TRADEMARKS.md)). The project's website, its pricing and
+the hosted offer's billing live in a separate private repository (ADR 0043).
 
 ### Licenses
 
@@ -546,7 +548,8 @@ drywire/
     apple/            SwiftUI (iOS, macOS)
     android/          Kotlin + Compose
     web/              Web client
-  site/               Project site: landing page, invitation page, privacy policy
+  site/               The invitation page, static (ADR 0043); the website's
+                      other pages live in a separate private repository
   docs/               spec.md, protocol.md, baseline.md, measurements.md,
                       privacy.md, adr/ (architecture decision records)
   deploy/             Dockerfile, compose file, systemd unit
@@ -661,7 +664,8 @@ phase ends on a measurable criterion.
    measured latency below the phase 0 Android baseline.
 6. **Linux.** The desktop app on PipeWire. **Exit**: a full session on a
    mainstream distribution.
-7. **Web client and landing page** on the final domain.
+7. **Web client and landing page** on the final domain (the landing page in
+   its own private repository, ADR 0043).
 8. **Public opening.** Hosted instance, quotas per space, several relay
    regions, MLS, linking several devices to one identity (QR code), handling
    of minors and impact assessment, features for esport teams (coach channel,
@@ -669,19 +673,26 @@ phase ends on a measurable criterion.
 
 ## 15. Hosting model and funding
 
-Anyone can self-host the server; later, Ligne Native runs a default instance
-so a new group has nothing to install. No monetisation for now, but the data
-model keeps per-space quotas possible.
+Anyone can self-host the server, for free; Ligne Native also runs a hosted
+instance, so a new group has nothing to install.
 
-- Self-hosted: one Go binary and one SQLite file.
-- Hosted: an official instance, several relay regions as close to players as
-  possible.
+- Self-hosted: one Go binary and one SQLite file, under the MIT license.
+- Hosted: an official instance, hosted in France, with plans billed per
+  space; the data model keeps per-space quotas possible. The plans and their
+  prices are not decided yet. Later, several relay regions as close to
+  players as possible.
 
 Price is not a lever: mainstream voice apps are free, and established
 self-hosted servers have free tiers. The levers are latency, quality and
-privacy. Options to decide later: a free hosted tier with a paid community
-plan, paid features for esport teams, or no monetisation at all (sponsorship,
-and the project as a showcase for Ligne Native).
+privacy, and prices stay low and honest.
+
+The hosted offer is a business built on the software, not part of it
+(ADR 0043). The website that presents it, its pricing page, and later the
+billing and the accounts it needs live in a separate private repository.
+This repository keeps the software and the invitation page, which every
+instance's links use; nothing here depends on payment or on customer
+accounts. The code is MIT; the Drywire name and logo are not
+([`TRADEMARKS.md`](../TRADEMARKS.md)).
 
 ## 16. Open decisions
 

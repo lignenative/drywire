@@ -1,9 +1,14 @@
 # site
 
-The project's static site, served from `https://drywire.gg`. For now it
-holds the invitation page; the landing page and the privacy policy come
-later (spec section 14). Plain HTML, CSS and JavaScript: no build step, no
-framework, no server code. The Go server never serves any of it.
+The invitation page, served at `https://drywire.gg/i`. Plain HTML, CSS and
+JavaScript: no build step, no framework, no server code. The Go server
+never serves any of it.
+
+It is the only part of the project's website in this repository. The
+landing page, the pricing page and the hosted offer live in a separate
+private repository (ADR 0043); the invitation page stays here because
+every instance's links open it, and anyone must be able to check that it
+sends nothing.
 
 ## The invitation page: `i/`
 
