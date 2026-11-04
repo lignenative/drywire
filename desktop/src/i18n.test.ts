@@ -16,10 +16,10 @@ describe("i18n", () => {
   });
 
   test("placeholders are filled, unknown ones kept", () => {
-    expect(translate("en", "accept.done", { space: "Team" })).toBe(
-      "You are now a member of Team.",
+    expect(translate("en", "peek.switching", { where: "Team · # general" })).toBe(
+      "You will leave Team · # general.",
     );
-    expect(translate("fr", "accept.done")).toContain("{space}");
+    expect(translate("fr", "peek.switching")).toContain("{where}");
   });
 
   test("the system's language is used when the app speaks it", () => {

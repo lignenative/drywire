@@ -25,17 +25,35 @@ mobile ones it adds).
 
 ## What it does
 
-- Shows this device's public key, which an operator lists to let the
-  device create spaces.
-- Accepts an invitation link, and lists the spaces it knows with their
-  rooms.
-- Joins a room on the default sound card, and leaves.
-- In a call, the compact widget (spec section 10): the instance and the
-  ping to the relay, the room, everyone in it with a speaking light, the
-  microphone's level meter with the voice gate's threshold on it, a mute
-  button, the gate's threshold, and each person's volume from 0 to 200 %,
-  with their jitter buffer and recent loss. The gate and the volumes are
-  remembered (`settings.json`, by public key for volumes); mute is not.
+- The window follows the design canvas's final page (CLAUDE.md, "Design
+  first"). Wide, a permanent menu on the left lists the spaces this device
+  knows: a space with one room is a single row named after the space, a
+  space with several lists its rooms under its name, and each room shows
+  who sits in it. Under the spaces, the call this device is in (one click
+  back to it, one to leave), then its own bar: name, mute, settings.
+- Beside the menu, the room picked in it. Out of a call: who is there and
+  a button to join (joining another room leaves the current one). In a
+  call: everyone's name in large, with bars that move while they speak,
+  and three controls, the voice gate, mute and leave. A click on a name
+  opens that person: the estimated mouth-to-ear latency (always labelled
+  as an estimate), their volume from 0 to 200 % and their playback
+  counters. A click on your own name or on the gate's button opens the
+  level meter with the gate's threshold on it, as a white mark to drag. A
+  click on the signal chip opens the connection: the round trip to the
+  relay, this device's latency, what is lost on the way, and the audio
+  devices. Connecting, reconnecting and a Bluetooth device each say so in
+  a line above the names; a call the server ended offers to join again.
+- Narrow (under 640 px), the spaces are the first screen and a bar at the
+  bottom keeps the call one click away; a click on a room joins it.
+- Accepts an invitation link and the name to show in that space. With no
+  space yet, the window asks for one.
+- The settings have their own menu: Voice (the gate's threshold and its
+  10-second calibration, the mute shortcut), Sounds, Display (the overlay
+  and its corner, the language, starting with the session), and Advanced
+  (the loopback device test, and the device key an operator lists to let
+  the device create spaces). Every setting applies at once. The gate and
+  the volumes are remembered (`settings.json`, by public key for
+  volumes); mute is not.
 - Out of the window, for a player in a match: a tray icon (show, mute,
   quit; closing the window only hides it), a global mute shortcut
   (`Ctrl+Shift+M` by default, changed in the settings), three short
@@ -55,18 +73,16 @@ mobile ones it adds).
   in the settings; off by default. On Windows this is a value under the
   current user's `Run` registry key, removed when unticked (untick it
   before uninstalling); on macOS, a launch agent.
-- The latency lab (spec section 11), out of a call: the loopback device
-  test (the earphone held against the microphone; the median of nine
-  clicks is input plus output latency, kept for the estimates), and the
-  10-second voice gate calibration, controller in hand, which proposes a
-  threshold 4 dB above the noise's loudest moments. In a call, each person
-  shows an estimated mouth-to-ear latency, always labelled as an estimate
-  (`src-tauri/src/latency.rs` says what it adds up and assumes), and a
-  "Statistics" section lists the round trip, the device latency and each
-  person's playback counters. None of it leaves the device.
+- The latency lab (spec section 11), out of a call, in the settings: the
+  loopback device test (the earphone held against the microphone; the
+  median of nine clicks is input plus output latency, kept for the
+  estimates), and the 10-second voice gate calibration, controller in
+  hand, which proposes a threshold 4 dB above the noise's loudest moments.
+  The estimates (`src-tauri/src/latency.rs` says what they add up and
+  assume), the round trip and the playback counters stay on the device.
 
 The interface is in English and French; it follows the system's language
-and can be switched in the header.
+and can be switched in the settings (Display).
 
 ## How it is put together
 
@@ -85,7 +101,13 @@ and can be switched in the header.
   `DRYWIRE_DESKTOP_HOME` moves them, to run two copies side by side.
 - **The interface is built from shadcn components on Base UI**
   (`src/components/ui/`), themed in `src/index.css` from the design
-  canvas (ADR 0037).
+  canvas (ADR 0037). Drywire's screens (`src/components/`) are made of
+  them; `src/state.ts` holds the window's state and `src/model.ts` what
+  the screens derive from the Rust side's views, tested without a
+  browser. Where the Rust side does not report something the canvas shows
+  yet (who sits in a room you are not in, the reconnection countdown, the
+  microphone's level out of a call), `src/api.ts` marks the field
+  optional with a TODO and the interface leaves it out.
 - **The binary is `drywire-desktop`**, never `drywire`, which is the
   command-line client (ADR 0029). The installer and the window say
   "Drywire".
@@ -120,10 +142,15 @@ make ui        # Vite on 127.0.0.1:10051; open it in any browser
 ```
 
 Outside the Tauri window, `src/api.ts` answers every command from
-`src/simulated.ts`: three spaces, people who talk, a voice gate that
-opens, presence sounds. Nothing there is measured; it exists to check
+`src/simulated.ts`: the canvas's spaces, people who talk, a voice gate
+that opens, presence sounds. Nothing there is measured; it exists to check
 the interface against the design canvas (CLAUDE.md, "Design first")
-without building the Rust side or starting a server.
+without building the Rust side or starting a server. `?scene=` in the
+address opens one of the canvas's states: `call`, `muted`, `alone`,
+`connecting`, `reconnecting`, `ended`, `poor`, `firstRun`, `empty` or
+`unreachable` (the default is out of a call). The overlay is at
+`/overlay.html?scene=call`. Compare the wide window at 1120 × 700 and
+the narrow one at 380 × 640.
 
 From `desktop/`:
 
@@ -154,10 +181,10 @@ run. What only a person on a Windows PC can check:
 - [ ] **A real call.** Paste an invitation link, join a room on the
       default sound card, hear a teammate and be heard; leave, and the
       teammate sees you go at once.
-- [ ] **Devices.** "Audio devices" shows WASAPI and small buffers; a
+- [ ] **Devices.** The connection (the signal chip) shows WASAPI and small buffers; a
       Bluetooth headset is flagged.
-- [ ] **Widget.** The meter moves with your voice and turns green above the
-      gate's mark; muting stops your teammate hearing you within a word;
+- [ ] **Call.** The voice gate's meter moves with your voice and turns green
+      above the white mark; muting stops your teammate hearing you within a word;
       a teammate at 200 % is clearly louder, at 0 % silent.
 - [ ] **Global shortcut in a game.** With a game in the foreground (and in
       a game that runs as administrator: then Drywire must too), the mute

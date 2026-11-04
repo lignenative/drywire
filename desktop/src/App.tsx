@@ -1,115 +1,59 @@
-// The window: the call when there is one, else this device's spaces, the
-// invitation form and the device key.
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type CallView } from "./api";
-import { LabCard } from "./LabCard";
-import { SettingsCard } from "./SettingsCard";
-import { playPresence } from "./sounds";
-import { CallPanel } from "./CallPanel";
-import { Home } from "./Home";
-import { LANGUAGES } from "./i18n";
-import { useLanguage } from "./lang";
-
-/** How often the call's numbers are read while in a room. */
-const POLL_MS = 100;
+// The window. Wide: the side menu of spaces on the left, and beside it the
+// call, a room seen from outside, or the settings. Narrow: one screen at a
+// time, the spaces first (the canvas's V3 page, ADR 0037).
+import { CallView } from "@/components/CallView";
+import { InviteDialog } from "@/components/InviteDialog";
+import { NarrowHome } from "@/components/NarrowHome";
+import { EndedView, NoSpaceView, PeekView } from "@/components/RoomViews";
+import { NarrowSettings, SettingsPage } from "@/components/Settings";
+import { SideMenu } from "@/components/SideMenu";
+import { useNarrow } from "@/hooks";
+import { findRoom } from "@/model";
+import { showsCall, useAppState, type AppState } from "@/state";
 
 export function App() {
-  const { lang, setLang, t } = useLanguage();
-  const [call, setCall] = useState<CallView | null>(null);
-  const soundVolume = useRef(0.5);
-  // Unknown until the settings are read: no banner flashes meanwhile.
-  const [gateChosen, setGateChosen] = useState(true);
-
-  // The tray menu speaks the interface's language.
-  useEffect(() => {
-    api.setLanguage(lang).catch(() => {});
-  }, [lang]);
-
-  // The presence sounds. Events, not polling: they arrive even while
-  // the window is hidden in the tray and its timers are slowed down.
-  useEffect(() => {
-    api.getSettings().then((s) => {
-      soundVolume.current = s.soundVolume;
-      setGateChosen(s.gateOpenDbfs !== null);
-    }, () => {});
-    const unlisten = api.onPresence((notice) => playPresence(notice.kind, soundVolume.current));
-    return () => {
-      unlisten.then((f) => f());
-    };
-  }, []);
-
-  // Polled, never pushed: the numbers are a copy the session thread
-  // refreshes, so reading them never touches the audio.
-  useEffect(() => {
-    if (!call) return;
-    const timer = setInterval(() => {
-      api.callStatus().then(setCall, () => {});
-    }, POLL_MS);
-    return () => clearInterval(timer);
-  }, [call !== null]);
-
-  // A call that was running before a reload of the window.
-  useEffect(() => {
-    api.callStatus().then(setCall, () => {});
-  }, []);
-
-  const leave = useCallback(async () => {
-    // The slider may have chosen a threshold during the call.
-    if (call?.gateChosen) setGateChosen(true);
-    await api.leaveRoom();
-    setCall(null);
-  }, [call?.gateChosen]);
-
+  const app = useAppState();
+  const narrow = useNarrow();
   return (
-    <div className="app">
-      <header className="header">
-        <div className="brand">
-          <span className="logo" aria-hidden="true" />
-          <div>
-            <h1>Drywire</h1>
-            <p className="muted small">{t("app.tagline")}</p>
+    <div className="h-screen overflow-hidden bg-background text-sm leading-[1.4] text-foreground">
+      {app.page === "settings" ? (
+        narrow ? (
+          <NarrowSettings app={app} />
+        ) : (
+          <SettingsPage app={app} />
+        )
+      ) : narrow ? (
+        app.narrowScreen === "call" && app.call ? (
+          <div className="flex h-full flex-col">
+            <CallView app={app} call={app.call} narrow />
           </div>
+        ) : (
+          <NarrowHome app={app} />
+        )
+      ) : (
+        <div className="flex h-full">
+          <SideMenu app={app} />
+          <main className="relative flex min-w-0 flex-1 flex-col">
+            <MainArea app={app} />
+          </main>
         </div>
-        <div className="lang" role="group" aria-label={t("language.label")}>
-          {LANGUAGES.map((l) => (
-            <button
-              key={l}
-              className={l === lang ? "chip active" : "chip"}
-              onClick={() => setLang(l)}
-              aria-pressed={l === lang}
-            >
-              {l.toUpperCase()}
-            </button>
-          ))}
-        </div>
-      </header>
-      <main>
-        {!call && !gateChosen && <CalibrateBanner />}
-        {call ? <CallPanel call={call} onLeave={leave} /> : <Home onJoined={setCall} />}
-        {!call && <LabCard onGateChosen={() => setGateChosen(true)} />}
-        {!call && <SettingsCard onSaved={(s) => (soundVolume.current = s.soundVolume)} />}
-      </main>
+      )}
+      <InviteDialog app={app} narrow={narrow} />
     </div>
   );
 }
 
-/** Asks for the voice gate's calibration until a threshold was chosen: the
-    default cannot suit every microphone (ADR 0034). */
-function CalibrateBanner() {
-  const { t } = useLanguage();
-  return (
-    <section className="banner">
-      <strong>{t("calibrate.title")}</strong>
-      <p className="small">{t("calibrate.help")}</p>
-      <div>
-        <button
-          onClick={() =>
-            document.getElementById("calibration")?.scrollIntoView({ behavior: "smooth" })
-          }
-        >
-          {t("calibrate.go")}
-        </button>
-      </div>
-    </section>
-  );
+function MainArea({ app }: { app: AppState }) {
+  if (!app.spaces) return null;
+  if (app.call && showsCall(app)) {
+    const found = findRoom(app.spaces, app.selected);
+    return app.call.ended ? (
+      <EndedView app={app} space={found?.space ?? null} room={found?.room ?? null} />
+    ) : (
+      <CallView app={app} call={app.call} />
+    );
+  }
+  const found = findRoom(app.spaces, app.selected);
+  if (found) return <PeekView app={app} space={found.space} room={found.room} />;
+  return app.spaces.length === 0 ? <NoSpaceView app={app} /> : null;
 }

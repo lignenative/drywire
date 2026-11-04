@@ -49,8 +49,8 @@ function Overlay() {
   const speaking = call.participants.filter((p) => p.speaking && !(p.me && call.muted));
   return (
     <div className={`overlay ${corner}`}>
-      {call.reconnecting && <div className="pill notice disconnect">{t("call.reconnecting")}</div>}
-      {call.muted && <div className="pill muted">{t("call.muted")}</div>}
+      {call.reconnecting && <div className="pill notice disconnect">{t("overlay.reconnecting")}</div>}
+      {call.muted && <div className="pill muted">{t("me.muted")}</div>}
       {speaking.map((p) => (
         <div key={p.session} className="pill speaking">
           <span className="dot" />
