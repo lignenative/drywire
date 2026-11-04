@@ -325,11 +325,12 @@ fn trying_now_joins_again_without_waiting_for_the_pause() {
     let long_pause = |v: &CallView| v.reconnecting && v.retry_in_s.is_some_and(|s| s >= 5);
     wait_long(&sam, "an 8 s pause", 20, long_pause);
 
-    // Trying now while the server is still away fails at once, and the
-    // sequence starts over: the next attempt comes a second later, not
-    // after 15.
+    // Trying now while the server is still away fails, and the sequence
+    // starts over: the next attempt comes a second later, not after 15.
+    // The attempt itself takes up to two seconds on Windows, which retries
+    // a connection to a closed local port before it gives up.
     sam.retry_now();
-    wait_long(&sam, "a one-second pause", 2, |v| {
+    wait_long(&sam, "a one-second pause", 6, |v| {
         v.reconnecting && v.retry_in_s == Some(1)
     });
 
