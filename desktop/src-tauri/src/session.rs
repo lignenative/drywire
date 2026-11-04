@@ -12,9 +12,10 @@
 //! dropped long enough for the relay to time it out or the server
 //! restarted, the session thread joins the room again on its own, with
 //! growing pauses between attempts, and the interface shows it as
-//! reconnecting. Mute, the gate and the volumes carry over. Only a
-//! session the server ended on purpose (this device joined elsewhere, or
-//! was removed) ends the call.
+//! reconnecting. The person may start the waiting attempt at once
+//! (ADR 0050). Mute, the gate and the volumes carry over. Only a session
+//! the server ended on purpose (this device joined elsewhere, or was
+//! removed) ends the call.
 //!
 //! The session thread owns the sound card, because a device may not be
 //! movable between threads; it stops it before the call, as the core
@@ -77,7 +78,8 @@ pub(crate) const TICK: Duration = Duration::from_millis(20);
 const EVENTS_RETRY: Duration = Duration::from_secs(2);
 
 /// The pause before each attempt to join again, then the longest pause:
-/// quick at first, for a blip, then every 15 seconds.
+/// quick at first, for a blip, then every 15 seconds. An attempt the
+/// person starts restarts the sequence (ADR 0050).
 const RECONNECT_FIRST: Duration = Duration::from_secs(1);
 const RECONNECT_MAX: Duration = Duration::from_secs(15);
 
@@ -138,6 +140,8 @@ pub struct JoinRequest {
 enum Command {
     /// Play everyone with this public key (hex) at this volume.
     Volume(String, f32),
+    /// While reconnecting, start the waiting attempt now.
+    RetryNow,
 }
 
 /// Someone in the room, for display.
@@ -466,6 +470,13 @@ impl Session {
             .send(Command::Volume(public_key.to_string(), volume));
     }
 
+    /// While reconnecting, makes the waiting attempt start at the next
+    /// tick instead of after its pause. Does nothing during an attempt,
+    /// which is already what was asked, nor in a running call.
+    pub fn retry_now(&self) {
+        let _ = self.commands.send(Command::RetryNow);
+    }
+
     /// Ends the call. With `tell_server`, the control plane frees the
     /// room at once rather than after the relay's timeout.
     pub fn end(mut self, tell_server: bool) {
@@ -516,7 +527,31 @@ struct SessionThread {
 /// The next attempt to join again.
 struct Retry {
     at: Instant,
-    pause: Duration,
+    /// The pause before the attempt after this one, if this one fails.
+    then: Duration,
+}
+
+impl Retry {
+    /// The first attempt of a sequence, `pause` from now.
+    fn first(pause: Duration) -> Retry {
+        Retry {
+            at: Instant::now() + pause,
+            then: (pause * 2).min(RECONNECT_MAX),
+        }
+    }
+
+    /// The attempt after this one failed: the sequence goes on.
+    fn next(&self) -> Retry {
+        Retry::first(self.then)
+    }
+
+    /// The person asked for the attempt now: it starts at the next tick,
+    /// and the sequence starts over from it, so a network that is coming
+    /// back is tried again a second later rather than in 15.
+    fn now(&mut self) {
+        self.at = Instant::now();
+        self.then = RECONNECT_FIRST;
+    }
 }
 
 impl SessionThread {
@@ -531,15 +566,34 @@ impl SessionThread {
             }
             return;
         }
-        // Volumes chosen meanwhile apply to the next call.
-        while let Ok(Command::Volume(public_key, volume)) = self.inbox.try_recv() {
-            self.request.settings.volumes.insert(public_key, volume);
-        }
+        self.read_commands(true);
         if self.retry.as_ref().is_some_and(|r| Instant::now() >= r.at) {
             self.reconnect();
+            // A click made during the attempt asked for what just
+            // happened: it must not start a second one at once.
+            self.read_commands(false);
         }
         if self.live.is_none() {
             self.show_countdown();
+        }
+    }
+
+    /// Reads the commands sent while no call runs. Volumes chosen meanwhile
+    /// apply to the next call; a request to retry now only counts when
+    /// `retry` is true, that is not when it came during an attempt.
+    fn read_commands(&mut self, retry: bool) {
+        while let Ok(command) = self.inbox.try_recv() {
+            match command {
+                Command::Volume(public_key, volume) => {
+                    self.request.settings.volumes.insert(public_key, volume);
+                }
+                Command::RetryNow if retry => {
+                    if let Some(next) = self.retry.as_mut() {
+                        next.now();
+                    }
+                }
+                Command::RetryNow => {}
+            }
         }
     }
 
@@ -582,10 +636,7 @@ impl SessionThread {
         }
         log_reconnection(&why);
         *self.view.lock().expect("not poisoned") = view;
-        self.retry = Some(Retry {
-            at: Instant::now() + RECONNECT_FIRST,
-            pause: RECONNECT_FIRST,
-        });
+        self.retry = Some(Retry::first(RECONNECT_FIRST));
         self.show_countdown();
     }
 
@@ -624,11 +675,7 @@ impl SessionThread {
             }
             Err(e) if e.code == "stopped" => {}
             Err(e) if e.is_temporary() => {
-                let pause = (retry.pause * 2).min(RECONNECT_MAX);
-                self.retry = Some(Retry {
-                    at: Instant::now() + pause,
-                    pause,
-                });
+                self.retry = Some(retry.next());
             }
             Err(e) => {
                 let mut view = self.view.lock().expect("not poisoned");
@@ -847,6 +894,8 @@ impl Live {
                     }
                     self.volumes.insert(public_key, volume);
                 }
+                // A click that reached a call already running again.
+                Command::RetryNow => {}
             }
         }
         while let Ok(event) = self.events.try_recv() {
@@ -1181,6 +1230,27 @@ mod tests {
         })
         .unwrap();
         assert_eq!(json["retryInS"], 4);
+    }
+
+    #[test]
+    fn retrying_now_starts_the_sequence_over() {
+        let first = Retry::first(RECONNECT_FIRST);
+        let pauses: Vec<u64> = std::iter::successors(Some(first), |r| Some(r.next()))
+            .take(7)
+            .map(|r| r.then.as_secs())
+            .collect();
+        assert_eq!(pauses, [2, 4, 8, 15, 15, 15, 15], "ADR 0035's pauses");
+
+        let mut late = Retry::first(RECONNECT_MAX);
+        late.now();
+        assert!(late.at <= Instant::now(), "the attempt is due at once");
+        let after = late.next();
+        assert_eq!(
+            seconds_until(after.at, Instant::now()),
+            1,
+            "a failed manual attempt is tried again a second later"
+        );
+        assert_eq!(after.then, Duration::from_secs(2), "then 2, 4, 8, 15");
     }
 
     #[test]

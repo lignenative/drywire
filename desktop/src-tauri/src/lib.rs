@@ -114,6 +114,7 @@ pub fn run() {
             commands::leave_room,
             commands::call_status,
             commands::set_muted,
+            commands::retry_now,
             commands::set_gate,
             commands::set_volume,
             commands::get_settings,

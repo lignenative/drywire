@@ -56,6 +56,7 @@ link and put the instance's address before it:
 | `src/main.tsx` | Checks the browser, loads the module and the identity, hands the interface its commands, renders it |
 | `src/api.ts` | The interface's commands (`Api` of `desktop/src/api.ts`) in a browser |
 | `src/call.ts` | A call: join, bind to the relay, send, receive, presence, the lock, joining again (ADR 0035, 0041) |
+| `src/retry.ts` | When a lost call tries again, and "Try now" (ADR 0035, 0050) |
 | `src/audio/engine.ts` | The microphone and the speakers: the AudioContext, the two worklets, the permission |
 | `src/audio/capture.worklet.ts` | On the audio thread: frames of the microphone, their level, the voice gate |
 | `src/audio/playback.worklet.ts` | On the audio thread: one jitter buffer per person, volumes, the mix |

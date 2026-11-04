@@ -129,11 +129,17 @@ const BIND_S = 0.6;
 /** How often a lost session tries again, as the countdown shows it. */
 const RETRY_S = 5;
 
+/** How long a simulated attempt to join again runs before it fails. */
+const ATTEMPT_S = 1.5;
+
 interface Call {
   space: SpaceView;
   roomId: string;
   since: number;
   muted: boolean;
+  /** When the last attempt the person asked for started: the countdown
+      starts over after it (ms since the epoch). */
+  triedAt?: number;
 }
 
 const scene = sceneFromAddress();
@@ -224,7 +230,7 @@ function view(call: Call): CallView {
     roomName: call.space.rooms.find((r) => r.id === call.roomId)?.name ?? call.roomId,
     ended: ended ? "the server ended this session: joined elsewhere, or removed" : null,
     reconnecting: scene === "reconnecting",
-    retryInS: scene === "reconnecting" ? RETRY_S - (Math.floor(t) % RETRY_S) : null,
+    retryInS: scene === "reconnecting" ? retryIn(call) : null,
     bound: bound && !ended,
     rttMs: bound ? (poor ? 182 : 14) : null,
     minRttMs: bound ? (poor ? 96 : 11) : null,
@@ -239,6 +245,16 @@ function view(call: Call): CallView {
     devices: poor ? BLUETOOTH : USB,
     encryption: encryption(people, bound && !ended),
   };
+}
+
+/** The countdown to the next attempt, which never succeeds here; null
+    while an attempt runs. "Try now" starts one that fails after
+    ATTEMPT_S, then the countdown starts over. */
+function retryIn(call: Call): number | null {
+  const now = Date.now();
+  if (call.triedAt !== undefined && now - call.triedAt < ATTEMPT_S * 1000) return null;
+  const from = call.triedAt !== undefined ? call.triedAt + ATTEMPT_S * 1000 : call.since;
+  return RETRY_S - (Math.floor((now - from) / 1000) % RETRY_S);
 }
 
 function encryption(people: Participant[], bound: boolean): EncryptionView {
@@ -312,6 +328,11 @@ export const simulated: Api = {
   callStatus: () => resolve(state.call ? view(state.call) : null),
   setMuted: (muted: boolean) => {
     if (state.call) state.call.muted = muted;
+    return resolve(undefined);
+  },
+  retryNow: () => {
+    const call = state.call;
+    if (call && scene === "reconnecting" && retryIn(call) !== null) call.triedAt = Date.now();
     return resolve(undefined);
   },
   setGate: (openDbfs: number) => {

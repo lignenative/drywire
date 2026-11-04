@@ -113,7 +113,7 @@ export function CallView({ app, call, narrow = false }: { app: AppState; call: C
         </RoomHeader>
       )}
 
-      <CallBanner call={call} narrow={narrow} />
+      <CallBanner call={call} narrow={narrow} onRetry={app.retryNow} />
 
       <div className={cn("flex min-h-0 flex-1 items-center", narrow ? "justify-center px-5" : "px-14")}>
         {call.ended && narrow ? (
@@ -262,8 +262,10 @@ function SignalChip({ signal, className, ...props }: { signal: Signal } & React.
 
 /** Connecting, reconnecting, or a Bluetooth device: one line above the
     names. Bluetooth is said at once, not in the details: it can add more
-    latency than everything else together. */
-function CallBanner({ call, narrow }: { call: Call; narrow: boolean }) {
+    latency than everything else together. While a lost call waits for its
+    next attempt, a button starts it now (ADR 0050); during the attempt
+    there is no countdown and no button. */
+function CallBanner({ call, narrow, onRetry }: { call: Call; narrow: boolean; onRetry: () => void }) {
   const { t } = useLanguage();
   const bluetooth = call.devices.some((d) => d.bluetooth);
   const banner = call.ended
@@ -275,6 +277,7 @@ function CallBanner({ call, narrow }: { call: Call; narrow: boolean }) {
             t("call.reconnecting") +
             (call.retryInS != null ? ` ${t("call.retryIn", { seconds: call.retryInS })}` : ""),
           warn: true,
+          retry: call.retryInS != null,
         }
       : !call.bound
         ? { icon: <SpinIcon />, text: t("call.connecting"), warn: false }
@@ -282,17 +285,33 @@ function CallBanner({ call, narrow }: { call: Call; narrow: boolean }) {
           ? { icon: <Bluetooth className="size-4" strokeWidth={2.2} />, text: t("call.bluetooth"), warn: true }
           : null;
   if (!banner) return null;
+  // Wide, the button ends the line; narrow, it goes under the text, on
+  // the right, so the text keeps the width it needs.
   return (
     <div className={narrow ? "flex justify-center px-4 pt-1" : "px-7 pb-1"}>
       <div
-        role="status"
         className={cn(
-          "inline-flex max-w-115 items-center gap-2.5 rounded-xl border px-3.5 py-2.25 text-[0.8125rem]",
+          "inline-flex rounded-xl border px-3.5 py-2.25 text-[0.8125rem]",
+          narrow ? "max-w-115 flex-col items-stretch gap-2" : "items-center gap-2.5",
           banner.warn ? "border-warning/35 bg-warning/10 text-warning-foreground" : "border-track bg-muted text-soft",
         )}
       >
-        {banner.icon}
-        <span>{banner.text}</span>
+        <span role="status" className="flex items-center gap-2.5">
+          {banner.icon}
+          <span>{banner.text}</span>
+        </span>
+        {"retry" in banner && banner.retry && (
+          <Button
+            variant="ghost"
+            onClick={onRetry}
+            className={cn(
+              "rounded-lg bg-warning/15 px-2.5 text-[0.8125rem] font-semibold text-warning-foreground hover:bg-warning/25 hover:text-warning-foreground",
+              narrow ? "-mr-1 h-9 self-end" : "-my-1 -mr-1.5 ml-0.5 h-6.5",
+            )}
+          >
+            {t("call.retryNow")}
+          </Button>
+        )}
       </div>
     </div>
   );

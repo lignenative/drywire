@@ -319,6 +319,8 @@ export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec:
 
     setMuted: async (muted: boolean) => call?.setMuted(muted),
 
+    retryNow: async () => call?.retryNow(),
+
     setGate: async (openDbfs: number) => {
       settings = { ...settings, gateOpenDbfs: openDbfs };
       save();

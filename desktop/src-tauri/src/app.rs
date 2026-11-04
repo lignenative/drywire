@@ -491,6 +491,14 @@ impl Desktop {
         }
     }
 
+    /// While the call is reconnecting, starts the waiting attempt now
+    /// (ADR 0050).
+    pub fn retry_now(&self) {
+        if let Some(session) = self.session.lock().expect("not poisoned").as_ref() {
+            session.retry_now();
+        }
+    }
+
     /// Mutes if unmuted, and the other way round; returns whether the
     /// microphone is now muted, or `None` out of a call.
     pub fn toggle_muted(&self) -> Option<bool> {
