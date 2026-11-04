@@ -676,6 +676,9 @@ space the caller is not a member of answers `404`, as if it did not exist.
   space is deleted, or when the subscriber falls 256 events behind; the
   client reconnects and gets a fresh snapshot. An identity may hold 8
   streams at a time.
+- A client takes a stream silent for 45 seconds, three keepalives, as
+  dead: it closes it and opens a new one. It does the same after any
+  read error or malformed event, since an event may have been lost.
 - Presence is kept in memory only, never stored.
 
 ### 13.7 Personal data

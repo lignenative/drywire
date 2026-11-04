@@ -15,16 +15,22 @@ use crate::{Error, Event, Presence};
 
 /// A space's events, in order. Iterating blocks until the next one; the
 /// iterator ends when the server closes the stream (the caller left the
-/// space, fell behind, or the server stopped): open a new one to resume
-/// from a fresh snapshot.
+/// space, fell behind, or the server stopped), and right after the first
+/// error it yields: a broken connection, a stream silent for longer than
+/// [`STREAM_SILENCE`](crate::STREAM_SILENCE), or an event that breaks the
+/// protocol. Whatever followed is lost then, so open a new stream to
+/// resume from a fresh snapshot; reading on would at best skip an event,
+/// at worst spin on a socket that fails at once.
 pub struct Events {
     reader: BufReader<Box<dyn Read + Send>>,
+    failed: bool,
 }
 
 impl Events {
     pub(crate) fn new(reader: Box<dyn Read + Send>) -> Events {
         Events {
             reader: BufReader::new(reader),
+            failed: false,
         }
     }
 }
@@ -54,6 +60,18 @@ impl Iterator for Events {
     type Item = Result<Event, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.failed {
+            return None;
+        }
+        let next = self.read_event();
+        self.failed = matches!(next, Some(Err(_)));
+        next
+    }
+}
+
+impl Events {
+    /// Reads up to the end of the next event.
+    fn read_event(&mut self) -> Option<Result<Event, Error>> {
         let mut name = String::new();
         let mut data = String::new();
         let mut line = String::new();
@@ -132,5 +150,17 @@ mod tests {
         let long = format!("data: {}\n\n", "x".repeat(MAX_LINE as usize));
         let mut events = Events::new(Box::new(std::io::Cursor::new(long.into_bytes())));
         assert!(matches!(events.next(), Some(Err(Error::Protocol(_)))));
+        assert!(events.next().is_none(), "nothing after an error");
+    }
+
+    #[test]
+    fn a_malformed_event_ends_the_stream() {
+        let text = "event: join\ndata: {}\n\nevent: snapshot\ndata: {\"sessions\":[]}\n\n";
+        let mut events = Events::new(Box::new(std::io::Cursor::new(text.as_bytes().to_vec())));
+        assert!(matches!(events.next(), Some(Err(Error::Protocol(_)))));
+        assert!(
+            events.next().is_none(),
+            "a fresh snapshot comes with a new stream"
+        );
     }
 }

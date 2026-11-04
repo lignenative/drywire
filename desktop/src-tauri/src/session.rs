@@ -1120,7 +1120,9 @@ fn public_key(p: &Presence) -> Result<VerifyingKey, AppError> {
 }
 
 /// Reads the space's events on a thread of its own, opening the stream
-/// again whenever it ends, until the receiver is dropped.
+/// again whenever it ends, until the receiver is dropped. A stream ends
+/// at its first error, a silent one included (`drywire_control::Events`),
+/// and the next begins with a snapshot that puts the call right.
 fn follow(client: &Arc<Client>, space: &Id) -> Result<Receiver<Event>, AppError> {
     let first = client.events(space)?;
     let (tx, rx) = mpsc::channel();

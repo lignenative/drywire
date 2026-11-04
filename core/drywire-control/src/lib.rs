@@ -100,7 +100,8 @@ enum Method {
 /// again whenever its token expires.
 pub struct Client {
     agent: Agent,
-    /// For event streams: no overall time limit, since they last.
+    /// For event streams: no overall time limit, since they last, but at
+    /// most [`STREAM_SILENCE`] between two reads.
     stream_agent: Agent,
     instance: String,
     identity: SigningKey,
@@ -116,7 +117,15 @@ fn is_loopback(host: &str) -> bool {
             .is_ok_and(|ip| ip.is_loopback())
 }
 
-fn agent(timeout: Option<Duration>) -> Agent {
+/// How long an event stream may stay silent before it counts as dead: three
+/// of the server's keepalives, sent every 15 seconds (protocol section
+/// 13.6). A connection that died without a word (a laptop asleep, a
+/// network change) then ends the stream, and its reader opens a new one,
+/// instead of waiting for the system to give up on TCP.
+pub const STREAM_SILENCE: Duration = Duration::from_secs(45);
+
+/// An HTTP agent: `timeout` bounds a whole exchange, `silence` each read.
+fn agent(timeout: Option<Duration>, silence: Option<Duration>) -> Agent {
     let tls = TlsConfig::builder()
         .provider(TlsProvider::Rustls)
         .root_certs(RootCerts::PlatformVerifier)
@@ -125,6 +134,7 @@ fn agent(timeout: Option<Duration>) -> Agent {
     Agent::config_builder()
         .http_status_as_error(false)
         .timeout_global(timeout)
+        .timeout_per_read(silence)
         .timeout_connect(Some(Duration::from_secs(10)))
         .tls_config(tls)
         .user_agent(concat!("drywire/", env!("CARGO_PKG_VERSION")))
@@ -151,8 +161,8 @@ impl Client {
             }
         }
         Ok(Client {
-            agent: agent(Some(Duration::from_secs(30))),
-            stream_agent: agent(None),
+            agent: agent(Some(Duration::from_secs(30)), None),
+            stream_agent: agent(None, Some(STREAM_SILENCE)),
             instance,
             identity,
             token: Mutex::new(None),
@@ -401,5 +411,60 @@ impl Client {
             return Err(Error::Refused { status, message });
         }
         Ok(Events::new(Box::new(response.into_body().into_reader())))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    use std::time::Instant;
+
+    #[test]
+    fn a_stream_that_falls_silent_ends() {
+        // A server that sends one event, then nothing, the connection
+        // left open: what a dead network looks like from here.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/v1/spaces/x/events",
+            listener.local_addr().unwrap()
+        );
+        let server = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(socket.try_clone().unwrap());
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() > 2 {
+                line.clear();
+            }
+            let mut socket = socket;
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
+                      Connection: close\r\n\r\nevent: snapshot\ndata: {\"sessions\":[]}\n\n",
+                )
+                .unwrap();
+            // Silent until the client hangs up, or five seconds at most
+            // should it never notice.
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let _ = reader.read_line(&mut line);
+        });
+
+        let silence = Duration::from_millis(300);
+        let response = agent(None, Some(silence)).get(&url).call().unwrap();
+        let mut events = Events::new(Box::new(response.into_body().into_reader()));
+        assert_eq!(events.next().unwrap().unwrap(), Event::Snapshot(vec![]));
+        let start = Instant::now();
+        assert!(matches!(events.next(), Some(Err(Error::Network(_)))));
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            start.elapsed()
+        );
+        assert!(events.next().is_none(), "the stream ends after its error");
+        drop(events);
+        server.join().unwrap();
     }
 }
