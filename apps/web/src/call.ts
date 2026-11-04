@@ -16,7 +16,7 @@
 //   arrival and departure sounds, and tells a lost session (a disconnect
 //   for this device, or a fresh snapshot without it) from an ended one (a
 //   leave): a lost session joins again, after 1, 2, 4, 8 then every 15
-//   seconds (ADR 0035).
+//   seconds (ADR 0035), or at once when the person asks (ADR 0050).
 //
 // The interface polls `view()` ten times a second; nothing here waits on
 // it.
@@ -30,6 +30,7 @@ import { ControlError, type ControlPlane, type JoinAnswer, type PresenceEvent } 
 import { type Identity, sign } from "./identity";
 import { type Bytes, HELLO_ACK, hex, PONG, type Protocol, sessionOf, unhex } from "./protocol";
 import { RelayLink } from "./relay";
+import { Retries } from "./retry";
 import type { StoredSpace, WebSettings } from "./store";
 
 const PING_MS = 1000;
@@ -39,8 +40,6 @@ const HELLO_TRIES = 10;
 const HELLO_WAIT_MS = 300;
 /** A rejected voice keeps the lock open this long (ADR 0041). */
 const REJECTED_MS = 10_000;
-/** ADR 0035's waits between attempts, in seconds, the last one repeating. */
-const RETRY_S = [1, 2, 4, 8, 15];
 /** Losses are counted over this many seconds. */
 const LOSS_WINDOW_S = 5;
 
@@ -103,7 +102,8 @@ export class WebCall {
   private muted = false;
   private ended: string | null = null;
   private reconnecting = false;
-  private retryAt: number | null = null;
+  /** When to join again, while reconnecting. */
+  private retries: Retries | null = null;
   private connecting = false;
   private left = false;
   /** This device's session, from the last join's answer. */
@@ -439,15 +439,15 @@ export class WebCall {
   }
 
   private async rejoin(): Promise<void> {
-    for (let attempt = 0; !this.left && !this.ended; attempt++) {
-      const wait = RETRY_S[Math.min(attempt, RETRY_S.length - 1)];
-      this.retryAt = performance.now() + wait * 1000;
-      await sleep(wait * 1000);
+    const retries = new Retries();
+    this.retries = retries;
+    while (!this.left && !this.ended) {
+      await retries.wait();
       if (this.left || this.ended) return;
-      this.retryAt = null;
       try {
         await this.connect();
         this.reconnecting = false;
+        this.retries = null;
         return;
       } catch (e) {
         this.dropLink();
@@ -459,9 +459,15 @@ export class WebCall {
     }
   }
 
+  /** While waiting for the next attempt, starts it now (ADR 0050). */
+  retryNow(): void {
+    this.retries?.now();
+  }
+
   private end(reason: string): void {
     this.ended = reason;
     this.reconnecting = false;
+    this.retries = null;
     this.dropLink();
   }
 
@@ -477,6 +483,8 @@ export class WebCall {
   async leave(): Promise<void> {
     if (this.left) return;
     this.left = true;
+    // A wait for the next attempt ends now: the loop sees the call left.
+    this.retries?.now();
     this.events.abort();
     this.timers.forEach(clearInterval);
     this.dropLink();
@@ -585,7 +593,7 @@ export class WebCall {
       roomName,
       ended: this.ended,
       reconnecting: this.reconnecting,
-      retryInS: this.retryAt !== null ? Math.max(0, Math.ceil((this.retryAt - performance.now()) / 1000)) : null,
+      retryInS: this.retries?.secondsLeft() ?? null,
       bound,
       rttMs: bound ? rttMs : null,
       minRttMs: bound && this.rtts.length > 0 ? Math.min(...this.rtts) : null,

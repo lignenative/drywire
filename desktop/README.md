@@ -79,8 +79,9 @@ mobile ones it adds).
   injected into it.
 - When the network drops long enough for the server to forget the
   session, or the server restarts, the call shows "reconnecting" with a
-  countdown to the next attempt, and joins the room again on its own,
-  keeping mute, the gate and the volumes (ADR 0035).
+  countdown to the next attempt and a "Try now" button, and joins the
+  room again on its own, keeping mute, the gate and the volumes (ADR 0035,
+  0050).
 - A call keeps the sound card it started on: after changing the system's
   default device, or unplugging the one in use, leave and join again.
   Following the default during a call is designed, not built (ADR 0046).

@@ -182,6 +182,9 @@ const tauri = {
   leaveRoom: () => invoke<void>("leave_room"),
   callStatus: () => invoke<CallView | null>("call_status"),
   setMuted: (muted: boolean) => invoke<void>("set_muted", { muted }),
+  /** While reconnecting, starts the waiting attempt now instead of after
+      the countdown (ADR 0050). Does nothing during an attempt. */
+  retryNow: () => invoke<void>("retry_now"),
   setGate: (openDbfs: number) => invoke<void>("set_gate", { openDbfs }),
   setVolume: (publicKey: string, volume: number) =>
     invoke<void>("set_volume", { publicKey, volume }),

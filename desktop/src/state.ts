@@ -42,6 +42,8 @@ export interface AppState {
   join: (ref: RoomRef) => Promise<void>;
   leave: () => Promise<void>;
   toggleMute: () => void;
+  /** While reconnecting, joins again now instead of after the countdown. */
+  retryNow: () => void;
   reloadSpaces: () => void;
   openSettings: (tab?: SettingsTab) => void;
   closeSettings: () => void;
@@ -166,6 +168,13 @@ export function useAppState(): AppState {
     api.setMuted(muted).catch(() => {});
   }, [call]);
 
+  const retryNow = useCallback(() => {
+    // The countdown goes at once, so the button does too: no second click
+    // on a control that already did its work.
+    if (inCall(call)) setCall({ ...call, retryInS: null });
+    api.retryNow().catch(() => {});
+  }, [call]);
+
   const openSettings = useCallback(
     (tab?: SettingsTab) => {
       if (tab) setSettingsTab(tab);
@@ -212,6 +221,7 @@ export function useAppState(): AppState {
     join,
     leave,
     toggleMute,
+    retryNow,
     reloadSpaces,
     openSettings,
     closeSettings: () => setPage("main"),
