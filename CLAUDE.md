@@ -66,6 +66,30 @@ fixed in the same change.
 - **Logs stay minimal.** Application logs never contain audio, tokens, secrets
   or IP addresses.
 
+## Design first
+
+The design canvas is the picture of every client's interface, and it must
+always match the code. Any change a user can see goes through the canvas
+first, then the code:
+
+1. **Mockup.** Change the artboards of the canvas's current page, or add
+   them, until they show the new screen or state as it will ship, in every
+   size it exists in (wide window, narrow window, phone).
+2. **Code.** Build what the mockup shows, nothing more and nothing less.
+
+- The two land together: a change to the interface without its mockup, or a
+  mockup the code does not follow, is a bug. When you find a gap between
+  them, close it in the same change, mockup first.
+- What counts: layout, wording in either language, colour, size, icons,
+  states (errors, empty, loading) and how a control behaves. Pure refactors
+  that change nothing on screen do not need the canvas.
+- A new design version is a new page of the same canvas, never a new canvas.
+  Earlier pages stay untouched, as history.
+- The canvas is private to the maintainer. Its link is in
+  `.dev/design/README.md`, which is not committed. A contributor without
+  access describes the visual change in the pull request, and the maintainer
+  updates the canvas before merging.
+
 ## Local ports
 
 Development ports are fixed, bound to `127.0.0.1` only, and never fall back
