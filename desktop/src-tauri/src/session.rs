@@ -297,6 +297,9 @@ pub struct CallView {
     /// Whether the server forgot this device's session and the app is
     /// joining again on its own.
     pub reconnecting: bool,
+    /// While reconnecting, the seconds until the next attempt, rounded up;
+    /// `None` during an attempt, and out of a reconnection.
+    pub retry_in_s: Option<u32>,
     /// Whether the relay acknowledged this device and still answers.
     pub bound: bool,
     /// The last round trip to the relay, in milliseconds.
@@ -535,6 +538,19 @@ impl SessionThread {
         if self.retry.as_ref().is_some_and(|r| Instant::now() >= r.at) {
             self.reconnect();
         }
+        if self.live.is_none() {
+            self.show_countdown();
+        }
+    }
+
+    /// Shows how long until the next attempt, for the interface's
+    /// countdown.
+    fn show_countdown(&self) {
+        let seconds = self
+            .retry
+            .as_ref()
+            .map(|r| seconds_until(r.at, Instant::now()));
+        self.view.lock().expect("not poisoned").retry_in_s = seconds;
     }
 
     /// The server forgot this device's session: stops the call, keeps
@@ -570,6 +586,7 @@ impl SessionThread {
             at: Instant::now() + RECONNECT_FIRST,
             pause: RECONNECT_FIRST,
         });
+        self.show_countdown();
     }
 
     /// One attempt to join the room again.
@@ -577,6 +594,8 @@ impl SessionThread {
         let Some(retry) = self.retry.take() else {
             return;
         };
+        // No countdown while the attempt runs: it may take seconds.
+        self.show_countdown();
         let muted = self.controls.lock().expect("not poisoned").is_muted();
         self.attempting.store(true, Ordering::Relaxed);
         let attempt = Live::start(
@@ -625,6 +644,13 @@ impl SessionThread {
             live.refresh(&self.view);
         }
     }
+}
+
+/// Whole seconds from `now` until `at`, rounded up, so the countdown
+/// never shows 0 before the attempt starts.
+fn seconds_until(at: Instant, now: Instant) -> u32 {
+    let left = at.saturating_duration_since(now);
+    u32::try_from(left.as_millis().div_ceil(1000)).unwrap_or(u32::MAX)
 }
 
 /// Why the call was lost goes to the app's log: never an address, a key
@@ -1135,6 +1161,25 @@ pub fn printable(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_countdown_rounds_up() {
+        let now = Instant::now();
+        assert_eq!(seconds_until(now + Duration::from_millis(14_001), now), 15);
+        assert_eq!(seconds_until(now + Duration::from_secs(1), now), 1);
+        assert_eq!(seconds_until(now + Duration::from_millis(1), now), 1);
+        assert_eq!(
+            seconds_until(now, now + Duration::from_secs(1)),
+            0,
+            "overdue"
+        );
+        let json = serde_json::to_value(CallView {
+            retry_in_s: Some(4),
+            ..CallView::default()
+        })
+        .unwrap();
+        assert_eq!(json["retryInS"], 4);
+    }
 
     #[test]
     fn the_lock_reaches_the_interface_in_camel_case() {

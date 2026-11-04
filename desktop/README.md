@@ -75,9 +75,9 @@ mobile ones it adds).
   or goes. The game must run in borderless windowed mode; nothing is
   injected into it.
 - When the network drops long enough for the server to forget the
-  session, or the server restarts, the call shows "reconnecting" and
-  joins the room again on its own, keeping mute, the gate and the volumes
-  (ADR 0035).
+  session, or the server restarts, the call shows "reconnecting" with a
+  countdown to the next attempt, and joins the room again on its own,
+  keeping mute, the gate and the volumes (ADR 0035).
 - Starting with the session, hidden in the tray, if the person ticks it
   in the settings; off by default. On Windows this is a value under the
   current user's `Run` registry key, removed when unticked (untick it

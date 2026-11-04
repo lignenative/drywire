@@ -267,6 +267,11 @@ fn a_call_joins_again_after_the_server_restarts() {
     relay.start_again();
     wait_long(&sam, "sam reconnecting", 15, |v| v.reconnecting);
     assert!(sam.call().unwrap().ended.is_none());
+    // The first attempt comes a second after the loss: a countdown shows
+    // until then.
+    wait_long(&sam, "the countdown", 5, |v| {
+        v.reconnecting && v.retry_in_s.is_some_and(|s| (1..=15).contains(&s))
+    });
     // Muted while joining again: it must hold in the new call.
     sam.set_muted(true);
     assert!(sam.call().unwrap().muted);
@@ -278,6 +283,7 @@ fn a_call_joins_again_after_the_server_restarts() {
     });
     let view = sam.call().unwrap();
     assert!(view.ended.is_none(), "{view:#?}");
+    assert_eq!(view.retry_in_s, None, "no countdown in a call");
     assert!(view.muted, "the mute made while reconnecting holds");
     assert_eq!(view.gate_dbfs, -61.0, "same gate");
     assert_eq!(view.participants[1].volume, 1.5, "same volume for alex");
