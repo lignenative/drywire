@@ -26,8 +26,8 @@ test("an unknown space is refused with an app error", async () => {
   await expect(simulated.joinRoom("nowhere.example", "x", "y")).rejects.toMatchObject({ code: "not_found" });
 });
 
-test("the gate stays the default until chosen", async () => {
-  expect((await simulated.getSettings()).gateOpenDbfs).toBeNull();
+test("the gate starts at the canvas's calibrated threshold", async () => {
+  expect((await simulated.getSettings()).gateOpenDbfs).toBe(-58);
   await simulated.setGate(-50);
   expect((await simulated.getSettings()).gateOpenDbfs).toBe(-50);
 });

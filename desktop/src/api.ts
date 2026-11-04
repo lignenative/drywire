@@ -13,6 +13,11 @@ export interface AppError {
 export interface RoomView {
   id: string;
   name: string;
+  /** Who sits in the room, for a room this device is not in. Absent when
+      unknown: the Rust side does not report it yet (TODO: a command that
+      reads the room's presence from the server), and the interface then
+      shows the room without names. */
+  occupants?: string[];
 }
 
 export interface SpaceView {
@@ -80,6 +85,10 @@ export interface CallView {
   ended: string | null;
   /** The server forgot this session: the app is joining again on its own. */
   reconnecting: boolean;
+  /** Seconds until the next attempt while reconnecting. Absent when
+      unknown: the Rust side does not report it yet (TODO: add it to the
+      session's view), and the interface then leaves the countdown out. */
+  retryInS?: number | null;
   bound: boolean;
   rttMs: number | null;
   minRttMs: number | null;

@@ -4,6 +4,10 @@
 //
 // Nothing here is measured. The numbers are made up to look like a real
 // call, so they must never be shown as Drywire's latency anywhere else.
+//
+// `?scene=` in the address picks one of the canvas's states, so each
+// artboard can be compared with the interface: call, muted, alone,
+// connecting, reconnecting, ended, poor, firstRun, empty, unreachable.
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type {
   Api,
@@ -18,39 +22,38 @@ import type {
   SpaceView,
 } from "./api";
 
-const INSTANCE = "voice.example.org";
+export type Scene =
+  | "idle"
+  | "call"
+  | "muted"
+  | "alone"
+  | "connecting"
+  | "reconnecting"
+  | "ended"
+  | "poor"
+  | "firstRun"
+  | "empty"
+  | "unreachable";
 
-/** The same spaces as the design canvas. */
-const SPACES: SpaceView[] = [
-  {
-    instance: INSTANCE,
-    id: "team",
-    name: "Team",
-    role: "member",
-    rooms: [
-      { id: "general", name: "general" },
-      { id: "scrims", name: "scrims" },
-      { id: "afk", name: "afk" },
-    ],
-    error: null,
-  },
-  {
-    instance: "drywire.example.net",
-    id: "friday",
-    name: "Friday night",
-    role: "member",
-    rooms: [{ id: "general", name: "general" }],
-    error: null,
-  },
-  {
-    instance: "old.example.com",
-    id: "crew",
-    name: "Old crew",
-    role: "member",
-    rooms: [{ id: "general", name: "general" }],
-    error: null,
-  },
+const SCENES: readonly Scene[] = [
+  "idle",
+  "call",
+  "muted",
+  "alone",
+  "connecting",
+  "reconnecting",
+  "ended",
+  "poor",
+  "firstRun",
+  "empty",
+  "unreachable",
 ];
+
+/** The scene the address asks for; idle outside a browser (the tests). */
+function sceneFromAddress(): Scene {
+  const asked = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("scene");
+  return SCENES.find((s) => s === asked) ?? "idle";
+}
 
 /** Who sits in each room before you join, by space and room. */
 const OCCUPANTS: Record<string, string[]> = {
@@ -59,13 +62,61 @@ const OCCUPANTS: Record<string, string[]> = {
   "crew/general": ["jo", "max"],
 };
 
-const DEVICES: DeviceView[] = [
+/** The same spaces as the design canvas. */
+function spaces(scene: Scene): SpaceView[] {
+  if (scene === "empty") return [];
+  const list: SpaceView[] = [
+    space("voice.example.org", "team", "Team", ["general", "scrims", "afk"]),
+    space("drywire.example.net", "friday", "Friday night", ["general"]),
+    space("old.example.com", "crew", "Old crew", ["general"]),
+  ];
+  if (scene === "unreachable") {
+    list.push({
+      ...space("lan.example.com", "lan", "LAN party", []),
+      error: { code: "network", message: "dial tcp: connection refused" },
+    });
+  }
+  return list;
+}
+
+function space(instance: string, id: string, name: string, rooms: string[]): SpaceView {
+  return {
+    instance,
+    id,
+    name,
+    role: "member",
+    rooms: rooms.map((room) => ({ id: room, name: room, occupants: OCCUPANTS[`${id}/${room}`] ?? [] })),
+    error: null,
+  };
+}
+
+const USB: DeviceView[] = [
   { direction: "input", name: "Headset microphone (USB)", mode: "WASAPI exclusive", bufferMs: 10, latencyMs: 12, bluetooth: false },
   { direction: "output", name: "Headset (USB)", mode: "WASAPI exclusive", bufferMs: 10, latencyMs: 10, bluetooth: false },
 ];
 
+const BLUETOOTH: DeviceView[] = [
+  { direction: "input", name: "Wireless headset (Bluetooth)", mode: "WASAPI shared", bufferMs: 10, latencyMs: 28, bluetooth: true },
+  { direction: "output", name: "Wireless headset (Bluetooth)", mode: "WASAPI shared", bufferMs: 10, latencyMs: 32, bluetooth: true },
+];
+
 /** Estimates per person, as the real app would show them. */
 const ESTIMATES: Record<string, number> = { sam: 47, kim: 61, lee: 52, ana: 58, jo: 55, max: 64 };
+
+/** Playback counters per person, so each card reads differently. */
+const RECEIVED: Record<string, number> = { sam: 12480, kim: 11902, lee: 9310 };
+
+/** What a bad link adds to every estimate. */
+const POOR_EXTRA_MS = 168;
+
+/** The default threshold until the person chooses one, as in the core. */
+const DEFAULT_GATE = -50;
+
+/** How long the simulated relay takes to answer. */
+const BIND_S = 0.6;
+
+/** How often a lost session tries again, as the countdown shows it. */
+const RETRY_S = 5;
 
 interface Call {
   space: SpaceView;
@@ -74,10 +125,14 @@ interface Call {
   muted: boolean;
 }
 
+const scene = sceneFromAddress();
+const calibrated = !["firstRun", "alone"].includes(scene);
+
 const state = {
+  spaces: spaces(scene),
   settings: {
-    gateOpenDbfs: null,
-    volumes: {},
+    gateOpenDbfs: calibrated ? -58 : null,
+    volumes: { [keyOf("lee")]: 1.4 },
     muteShortcut: "Ctrl+Shift+M",
     soundVolume: 0.5,
     overlay: true,
@@ -88,26 +143,34 @@ const state = {
   listeners: new Set<(notice: Notice) => void>(),
 };
 
-/** The default threshold until the person chooses one (ADR 0034). */
-const DEFAULT_GATE = -58;
+// The canvas's person is alex: the name an invitation would have saved.
+if (typeof localStorage !== "undefined" && localStorage.getItem("drywire.displayName") === null) {
+  localStorage.setItem("drywire.displayName", "alex");
+}
+
+// The in-call scenes open the window in Team's general room.
+if (["call", "muted", "alone", "connecting", "reconnecting", "ended", "poor"].includes(scene)) {
+  state.call = { space: state.spaces[0], roomId: "general", since: Date.now() - 5000, muted: scene === "muted" };
+}
 
 /** A slow, uneven wave between 0 and 1, so voices come and go. */
 function wave(t: number, speed: number, phase: number): number {
   return (Math.sin(t * speed + phase) * 0.6 + Math.sin(t * speed * 3.7 + phase * 2) * 0.4 + 1) / 2;
 }
 
-function participants(call: Call, t: number, inputDbfs: number, gate: number): Participant[] {
-  const key = `${call.space.id}/${call.roomId}`;
-  const others = OCCUPANTS[key] ?? [];
-  const me: Participant = person("alex", 0, true, !call.muted && inputDbfs > gate);
+function participants(call: Call, t: number, live: boolean, inputDbfs: number, gate: number): Participant[] {
+  const others = ["alone", "connecting"].includes(scene) ? [] : (OCCUPANTS[`${call.space.id}/${call.roomId}`] ?? []);
+  const me = person("alex", 0, true, live && !call.muted && inputDbfs > gate);
   return [
     me,
-    ...others.map((name, i) => person(name, i + 1, false, i < 2 && wave(t, 0.6 + i * 0.25, i * 2) > 0.55)),
+    ...others.map((name, i) => person(name, i + 1, false, live && i < 2 && wave(t, 0.6 + i * 0.25, i * 2) > 0.55)),
   ];
 }
 
 function person(name: string, session: number, me: boolean, speaking: boolean): Participant {
   const volume = state.settings.volumes[keyOf(name)] ?? 1;
+  const received = RECEIVED[name] ?? 8000;
+  const estimate = (ESTIMATES[name] ?? 55) + (scene === "poor" ? POOR_EXTRA_MS : 0);
   return {
     session,
     name,
@@ -117,8 +180,8 @@ function person(name: string, session: number, me: boolean, speaking: boolean): 
     volume,
     bufferMs: me ? null : 20,
     lossPct: me ? null : 0,
-    estimateMs: me ? null : (ESTIMATES[name] ?? 55),
-    counters: { received: 12480, played: 12452, concealed: 18, late: 6, dropped: 4, depth: 2 },
+    estimateMs: me ? null : estimate,
+    counters: { received, played: received - 28, concealed: 18, late: 6, dropped: 4, depth: 2 },
   };
 }
 
@@ -130,27 +193,32 @@ function keyOf(name: string): string {
 function view(call: Call): CallView {
   const t = (Date.now() - call.since) / 1000;
   const gate = state.settings.gateOpenDbfs ?? DEFAULT_GATE;
-  const inputDbfs = -62 + wave(t, 1.1, 0.5) * 34;
+  const quiet = scene === "alone";
+  const inputDbfs = quiet ? -66 + wave(t, 1.1, 0.5) * 10 : -62 + wave(t, 1.1, 0.5) * 34;
+  const poor = scene === "poor";
+  const bound = scene !== "connecting" && scene !== "reconnecting" && t > BIND_S;
+  const ended = scene === "ended";
   return {
     instance: call.space.instance,
     spaceId: call.space.id,
     spaceName: call.space.name,
     roomId: call.roomId,
     roomName: call.space.rooms.find((r) => r.id === call.roomId)?.name ?? call.roomId,
-    ended: null,
-    reconnecting: false,
-    bound: t > 0.6,
-    rttMs: t > 0.6 ? 14 : null,
-    minRttMs: t > 0.6 ? 11 : null,
-    deviceMs: 88,
+    ended: ended ? "the server ended this session: joined elsewhere, or removed" : null,
+    reconnecting: scene === "reconnecting",
+    retryInS: scene === "reconnecting" ? RETRY_S - (Math.floor(t) % RETRY_S) : null,
+    bound: bound && !ended,
+    rttMs: bound ? (poor ? 182 : 14) : null,
+    minRttMs: bound ? (poor ? 96 : 11) : null,
+    deviceMs: poor ? 231 : 88,
     deviceMeasured: true,
     muted: call.muted,
     inputDbfs,
     gateDbfs: gate,
     gateChosen: state.settings.gateOpenDbfs !== null,
-    uplinkLossPct: 0,
-    participants: participants(call, t, inputDbfs, gate),
-    devices: DEVICES,
+    uplinkLossPct: poor ? 4 : 0,
+    participants: participants(call, t, bound && !ended, inputDbfs, gate),
+    devices: poor ? BLUETOOTH : USB,
   };
 }
 
@@ -162,10 +230,14 @@ const resolve = <T>(value: T) => Promise.resolve(value);
 
 export const simulated: Api = {
   publicKey: () => resolve("07e5c3a18f6d4b2907e5c3a18f6d4b2907e5c3a18f6d4b2907e5c3a18f6d4b29"),
-  acceptInvitation: (_link: string, _displayName: string) => resolve(SPACES[0]),
-  listSpaces: () => resolve(SPACES),
+  acceptInvitation: (_link: string, _displayName: string) => {
+    // Joining by invitation adds the canvas's spaces when there were none.
+    if (state.spaces.length === 0) state.spaces = spaces("idle");
+    return resolve(state.spaces[0]);
+  },
+  listSpaces: () => resolve(state.spaces.map((s) => ({ ...s }))),
   joinRoom: (instance: string, spaceId: string, roomId: string) => {
-    const space = SPACES.find((s) => s.instance === instance && s.id === spaceId);
+    const space = state.spaces.find((s) => s.instance === instance && s.id === spaceId);
     if (!space) return Promise.reject({ code: "not_found", message: "no such space" });
     state.call = { space, roomId, since: Date.now(), muted: false };
     const others = OCCUPANTS[`${spaceId}/${roomId}`] ?? [];
@@ -198,7 +270,7 @@ export const simulated: Api = {
   loopbackTest: () =>
     new Promise<LoopbackView>((done) =>
       setTimeout(
-        () => done({ medianMs: 88, delaysMs: [86, 87, 88, 88, 88, 89, 89, 90, 91], clicks: 9, devices: DEVICES }),
+        () => done({ medianMs: 88, delaysMs: [86, 87, 88, 88, 88, 89, 89, 90, 91], clicks: 9, devices: USB }),
         1200,
       ),
     ),
