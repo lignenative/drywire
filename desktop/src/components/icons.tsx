@@ -90,6 +90,36 @@ export function MicIcon({ muted, ...props }: SVGProps<SVGSVGElement> & { muted?:
   );
 }
 
+/** The encryption lock: closed when everyone heard is verified, its
+    shackle lifted otherwise. */
+export function LockIcon({ open, ...props }: SVGProps<SVGSVGElement> & { open?: boolean }) {
+  return (
+    <Stroke {...props}>
+      <rect x="5" y="11" width="14" height="10" rx="2.5" />
+      <path d={open ? "M8 11V8a4 4 0 0 1 7.5-1.9" : "M8 11V8a4 4 0 0 1 8 0v3"} />
+    </Stroke>
+  );
+}
+
+/** The space's key, which never leaves the members' devices. */
+export function KeyIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Stroke strokeWidth="2.2" {...props}>
+      <circle cx="8" cy="15" r="4" />
+      <path d="M11 12l9-9M17 6l3 3M15 8l2 2" />
+    </Stroke>
+  );
+}
+
+/** A dashed circle turning: someone's voice is being checked. */
+export function CheckingIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
+  return (
+    <Stroke strokeWidth="2.4" className={cn("size-3.5 animate-spin [animation-duration:2.4s]", className)} {...props}>
+      <circle cx="12" cy="12" r="8" strokeDasharray="4 4" />
+    </Stroke>
+  );
+}
+
 /** The settings: three sliders. */
 export function SettingsIcon(props: SVGProps<SVGSVGElement>) {
   return (

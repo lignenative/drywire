@@ -7,13 +7,15 @@
 //
 // `?scene=` in the address picks one of the canvas's states, so each
 // artboard can be compared with the interface: call, muted, alone,
-// connecting, reconnecting, ended, poor, firstRun, empty, unreachable.
+// connecting, reconnecting, ended, poor, e2eePending, e2eeFailed,
+// firstRun, empty, unreachable.
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type {
   Api,
   CalibrationView,
   CallView,
   DeviceView,
+  EncryptionView,
   LoopbackView,
   Notice,
   Participant,
@@ -31,6 +33,8 @@ export type Scene =
   | "reconnecting"
   | "ended"
   | "poor"
+  | "e2eePending"
+  | "e2eeFailed"
   | "firstRun"
   | "empty"
   | "unreachable";
@@ -44,6 +48,8 @@ const SCENES: readonly Scene[] = [
   "reconnecting",
   "ended",
   "poor",
+  "e2eePending",
+  "e2eeFailed",
   "firstRun",
   "empty",
   "unreachable",
@@ -106,6 +112,11 @@ const ESTIMATES: Record<string, number> = { sam: 47, kim: 61, lee: 52, ana: 58, 
 /** Playback counters per person, so each card reads differently. */
 const RECEIVED: Record<string, number> = { sam: 12480, kim: 11902, lee: 9310 };
 
+/** The canvas's encryption scenes: noa just joined and her announcement
+    has not arrived yet; lee's signature fails, so her audio is dropped. */
+const NEWCOMER = "noa";
+const FORGED = "lee";
+
 /** What a bad link adds to every estimate. */
 const POOR_EXTRA_MS = 168;
 
@@ -149,7 +160,7 @@ if (typeof localStorage !== "undefined" && localStorage.getItem("drywire.display
 }
 
 // The in-call scenes open the window in Team's general room.
-if (["call", "muted", "alone", "connecting", "reconnecting", "ended", "poor"].includes(scene)) {
+if (["call", "muted", "alone", "connecting", "reconnecting", "ended", "poor", "e2eePending", "e2eeFailed"].includes(scene)) {
   state.call = { space: state.spaces[0], roomId: "general", since: Date.now() - 5000, muted: scene === "muted" };
 }
 
@@ -159,11 +170,16 @@ function wave(t: number, speed: number, phase: number): number {
 }
 
 function participants(call: Call, t: number, live: boolean, inputDbfs: number, gate: number): Participant[] {
-  const others = ["alone", "connecting"].includes(scene) ? [] : (OCCUPANTS[`${call.space.id}/${call.roomId}`] ?? []);
+  const seated = ["alone", "connecting"].includes(scene) ? [] : (OCCUPANTS[`${call.space.id}/${call.roomId}`] ?? []);
+  const others = scene === "e2eePending" && seated.length > 0 ? [...seated, NEWCOMER] : seated;
   const me = person("alex", 0, true, live && !call.muted && inputDbfs > gate);
+  // A rejected voice is dropped, never played: it cannot be heard speaking.
+  const heard = (name: string) => !(scene === "e2eeFailed" && name === FORGED);
   return [
     me,
-    ...others.map((name, i) => person(name, i + 1, false, live && i < 2 && wave(t, 0.6 + i * 0.25, i * 2) > 0.55)),
+    ...others.map((name, i) =>
+      person(name, i + 1, false, live && heard(name) && i < 2 && wave(t, 0.6 + i * 0.25, i * 2) > 0.55),
+    ),
   ];
 }
 
@@ -198,6 +214,7 @@ function view(call: Call): CallView {
   const poor = scene === "poor";
   const bound = scene !== "connecting" && scene !== "reconnecting" && t > BIND_S;
   const ended = scene === "ended";
+  const people = participants(call, t, bound && !ended, inputDbfs, gate);
   return {
     instance: call.space.instance,
     spaceId: call.space.id,
@@ -217,9 +234,25 @@ function view(call: Call): CallView {
     gateDbfs: gate,
     gateChosen: state.settings.gateOpenDbfs !== null,
     uplinkLossPct: poor ? 4 : 0,
-    participants: participants(call, t, bound && !ended, inputDbfs, gate),
+    participants: people,
     devices: poor ? BLUETOOTH : USB,
+    encryption: encryption(people, bound && !ended),
   };
+}
+
+function encryption(people: Participant[], bound: boolean): EncryptionView {
+  const others = people.filter((p) => !p.me);
+  const list = others.map((p) => ({
+    publicKey: p.publicKey,
+    verified: !(scene === "e2eePending" && p.name === NEWCOMER) && !(scene === "e2eeFailed" && p.name === FORGED),
+    rejected: scene === "e2eeFailed" && p.name === FORGED,
+  }));
+  const state = list.some((p) => p.rejected)
+    ? "failed"
+    : !bound || others.length === 0 || list.some((p) => !p.verified)
+      ? "pending"
+      : "verified";
+  return { state, people: list };
 }
 
 function emit(notice: Notice) {

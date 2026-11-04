@@ -53,6 +53,32 @@ const en = {
   "call.gateDefault": "Default threshold: calibrate it out of a call, in the settings.",
   "call.gateButton": "Voice gate, {gate}",
 
+  "lock.title": "End-to-end encrypted",
+  "lock.ariaVerified": "End-to-end encrypted, everyone is verified",
+  "lock.ariaPending": "End-to-end encrypted, checking",
+  "lock.ariaFailed": "End-to-end encrypted, a voice could not be verified",
+  "lock.pillVerified": "all verified",
+  "lock.pillPending": "checking…",
+  "lock.pillFailedOne": "{count} voice rejected",
+  "lock.pillFailedMany": "{count} voices rejected",
+  "lock.textVerified":
+    "Sound is encrypted on this device; only the space's members can decrypt it. Each voice below was verified here.",
+  "lock.textPendingName": "{name} just arrived: their voice will be verified as soon as their announcement arrives.",
+  "lock.textPending": "Sound stays encrypted meanwhile.",
+  "lock.textFailedName":
+    "{name}'s voice does not match their key: it is ignored, you do not hear it. It may come from another version of the app, or from a device pretending to be {name}.",
+  "lock.textFailed":
+    "A voice does not match its key: it is ignored, you do not hear it. It may come from another version of the app, or from a device pretending to be a member.",
+  "lock.server": "The server never receives the space's key.",
+  "lock.you": "you, this device",
+  "lock.verified": "verified",
+  "lock.pending": "pending",
+  "lock.rejected": "rejected",
+  "lock.limit":
+    "Known limit: every member of the space holds its rooms' key. Send the invitation link only to people you trust.",
+  "person.rejected": "voice rejected",
+  "person.checking": "being checked",
+
   "gate.title": "Voice gate",
   "gate.sending": "Sending",
   "gate.below": "Below the gate",
@@ -234,6 +260,32 @@ const fr: Record<Key, string> = {
   "call.alone": "Personne d’autre pour l’instant.",
   "call.gateDefault": "Seuil par défaut : calibrez-le hors appel, dans les réglages.",
   "call.gateButton": "Seuil de voix, {gate}",
+
+  "lock.title": "Chiffré de bout en bout",
+  "lock.ariaVerified": "Chiffré de bout en bout, tout le monde est vérifié",
+  "lock.ariaPending": "Chiffré de bout en bout, vérification en cours",
+  "lock.ariaFailed": "Chiffré de bout en bout, une voix n’a pas pu être vérifiée",
+  "lock.pillVerified": "tous vérifiés",
+  "lock.pillPending": "vérification…",
+  "lock.pillFailedOne": "{count} voix rejetée",
+  "lock.pillFailedMany": "{count} voix rejetées",
+  "lock.textVerified":
+    "Le son est chiffré sur cet appareil ; seuls les membres de l’espace peuvent le déchiffrer. Chaque voix ci-dessous a été vérifiée ici.",
+  "lock.textPendingName": "{name} vient d’arriver : sa voix sera vérifiée dès que son annonce arrive.",
+  "lock.textPending": "Le son reste chiffré pendant ce temps.",
+  "lock.textFailedName":
+    "La voix de {name} ne correspond pas à sa clé : elle est ignorée, vous ne l’entendez pas. Cela peut venir d’une autre version de l’app, ou d’un appareil qui se fait passer pour {name}.",
+  "lock.textFailed":
+    "Une voix ne correspond pas à sa clé : elle est ignorée, vous ne l’entendez pas. Cela peut venir d’une autre version de l’app, ou d’un appareil qui se fait passer pour un membre.",
+  "lock.server": "Le serveur ne reçoit jamais la clé de l’espace.",
+  "lock.you": "vous, cet appareil",
+  "lock.verified": "vérifiée",
+  "lock.pending": "en attente",
+  "lock.rejected": "rejetée",
+  "lock.limit":
+    "Limite connue : tout membre de l’espace détient la clé de ses salons. N’envoyez le lien d’invitation qu’à des personnes de confiance.",
+  "person.rejected": "voix rejetée",
+  "person.checking": "vérification en cours",
 
   "gate.title": "Seuil de voix",
   "gate.sending": "Envoi",

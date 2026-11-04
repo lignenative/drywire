@@ -1,6 +1,6 @@
 // What the screens derive from the Rust side's views, kept apart from the
 // components so it can be tested without a browser.
-import type { CallView, RoomView, SpaceView } from "./api";
+import type { CallView, Participant, RoomView, SpaceView } from "./api";
 import { linkQuality } from "./format";
 
 /** One room of one space, the way the screens point at it. */
@@ -99,4 +99,41 @@ export function meFirst<T extends { me: boolean }>(people: T[]): T[] {
 
 export function othersFirst<T extends { me: boolean }>(people: T[]): T[] {
   return [...people.filter((p) => !p.me), ...people.filter((p) => p.me)];
+}
+
+/** What the encryption lock says, or null while the Rust side does not
+    report it: then no lock is drawn rather than a wrong one. */
+export type LockState = "verified" | "pending" | "failed";
+
+export function lockState(call: CallView): LockState | null {
+  if (!call.encryption) return null;
+  if (call.encryption.state === "failed") return "failed";
+  // Nothing is verified while the link is down: the canvas opens the lock.
+  if (!call.bound || call.reconnecting) return "pending";
+  return call.encryption.state;
+}
+
+/** One person's standing: verified, still pending, or rejected (their
+    audio is dropped). This device is always trusted. Null when unknown. */
+export type Trust = "ok" | "pending" | "failed";
+
+export function trustOf(call: CallView, person: Participant): Trust | null {
+  if (person.me) return call.encryption ? "ok" : null;
+  const entry = call.encryption?.people.find((p) => p.publicKey === person.publicKey);
+  if (!entry) return null;
+  if (entry.rejected) return "failed";
+  return entry.verified ? "ok" : "pending";
+}
+
+/** The names of the people whose voice was rejected, and of those still
+    waiting, for the lock's sentence. */
+export function trustNames(call: CallView): { failed: string[]; pending: string[] } {
+  const failed: string[] = [];
+  const pending: string[] = [];
+  for (const p of call.participants) {
+    const trust = trustOf(call, p);
+    if (trust === "failed") failed.push(p.name);
+    if (trust === "pending") pending.push(p.name);
+  }
+  return { failed, pending };
 }

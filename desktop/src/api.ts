@@ -76,6 +76,28 @@ export interface DeviceView {
   bluetooth: boolean;
 }
 
+/** Whether everyone heard in the call is verified: their signed
+    announcement matches the key the server gave, and their frames
+    authenticate (ADR 0041 on the branch that adds it). */
+export interface EncryptionView {
+  /** "verified" once everyone heard is verified (silent people do not
+      hold it back); "pending" while someone is not yet, alone, or
+      reconnecting; "failed" for a few seconds after a forged announcement
+      or a tampered frame, whose audio is dropped. */
+  state: "pending" | "verified" | "failed";
+  /** The others, in the participants' order. */
+  people: EncryptionPerson[];
+}
+
+export interface EncryptionPerson {
+  publicKey: string;
+  verified: boolean;
+  /** Whose voice was rejected, when known. The Rust side does not say yet
+      (TODO: name the person behind a "failed" state), and the interface
+      then words the failure without a name. */
+  rejected?: boolean;
+}
+
 export interface CallView {
   instance: string;
   spaceId: string;
@@ -103,6 +125,10 @@ export interface CallView {
   uplinkLossPct: number;
   participants: Participant[];
   devices: DeviceView[];
+  /** The encryption lock's state. Absent when unknown: the Rust side on
+      main does not report it yet (TODO: merge the branch that adds it),
+      and the interface then shows no lock rather than a wrong one. */
+  encryption?: EncryptionView;
 }
 
 /** The person's preferences (settings.json). */

@@ -1,6 +1,7 @@
 // What opens over the call: the voice gate, one person, the connection.
 // The contents only; CallView places them in popovers, beside what was
 // clicked in the wide window and across the narrow one.
+import { Check } from "lucide-react";
 import { cn } from "cn";
 import type { CallView, Participant } from "@/api";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +10,9 @@ import { Slider } from "@/components/ui/slider";
 import { formatCount, formatDb, formatMs, GATE_MAX_DBFS, GATE_MIN_DBFS, meterPercent, volumePercent } from "@/format";
 import { useDragged } from "@/hooks";
 import { useLanguage } from "@/lang";
-import type { GateStatus } from "@/model";
+import type { Key } from "@/i18n";
+import { meFirst, trustNames, trustOf, type GateStatus, type LockState } from "@/model";
+import { CheckingIcon, KeyIcon, LockIcon } from "./icons";
 import { api } from "@/api";
 
 /** The panel shared by every popover of the canvas. */
@@ -225,6 +228,98 @@ export function LinkDetails({ call, poor }: { call: CallView; poor: boolean }) {
           </span>
         </div>
       ))}
+    </>
+  );
+}
+
+/** The lock's colours and words for each state of the call. */
+export function lockLook(state: LockState): { button: string; title: string; pill: string; aria: Key } {
+  const looks: Record<LockState, { button: string; title: string; pill: string; aria: Key }> = {
+    verified: {
+      button: "text-muted-foreground",
+      title: "text-primary",
+      pill: "bg-primary/12 text-primary",
+      aria: "lock.ariaVerified",
+    },
+    pending: {
+      button: "text-dim",
+      title: "text-muted-foreground",
+      pill: "bg-line text-muted-foreground",
+      aria: "lock.ariaPending",
+    },
+    failed: {
+      button: "bg-warning/12 text-warning hover:bg-warning/16 hover:text-warning",
+      title: "text-warning",
+      pill: "bg-warning/14 text-warning-foreground",
+      aria: "lock.ariaFailed",
+    },
+  };
+  return looks[state];
+}
+
+/** End-to-end encryption, explained: whether everyone heard is verified,
+    who is and who is not, and the limit a member's key sets. */
+export function LockDetails({ call, state }: { call: CallView; state: LockState }) {
+  const { t } = useLanguage();
+  const look = lockLook(state);
+  const names = trustNames(call);
+  const pill =
+    state === "verified"
+      ? t("lock.pillVerified")
+      : state === "pending"
+        ? t("lock.pillPending")
+        : t(names.failed.length > 1 ? "lock.pillFailedMany" : "lock.pillFailedOne", {
+            count: Math.max(names.failed.length, 1),
+          });
+  const text =
+    state === "verified"
+      ? t("lock.textVerified")
+      : state === "pending"
+        ? [names.pending.length > 0 && t("lock.textPendingName", { name: names.pending[0] }), t("lock.textPending")]
+            .filter(Boolean)
+            .join(" ")
+        : names.failed.length > 0
+          ? t("lock.textFailedName", { name: names.failed[0] })
+          : t("lock.textFailed");
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <LockIcon open={state !== "verified"} strokeWidth={2.2} className={cn("size-4", look.title)} />
+        <span className="flex-1 text-sm font-semibold">{t("lock.title")}</span>
+        <Badge className={cn("h-auto px-2 py-0.5 text-[11.5px] font-semibold", look.pill)}>{pill}</Badge>
+      </div>
+      <p className="text-[12.5px] text-subtle">{text}</p>
+      <div className="flex items-center gap-2 text-[12.5px] text-soft">
+        <KeyIcon className="size-3.5 text-muted-foreground" />
+        {t("lock.server")}
+      </div>
+      <div className="flex flex-col border-t border-raised pt-1">
+        {meFirst(call.participants).map((p) => {
+          const trust = trustOf(call, p) ?? "pending";
+          return (
+            <div key={p.session} className="flex h-8 items-center gap-2.5 text-[13px]">
+              <span className="flex size-4 shrink-0 items-center justify-center">
+                {trust === "ok" && <Check className="size-3.5 text-primary" strokeWidth={2.6} />}
+                {trust === "pending" && <CheckingIcon className="text-muted-foreground" />}
+                {trust === "failed" && <LockIcon open strokeWidth={2.4} className="size-3.5 text-warning" />}
+              </span>
+              <span className={cn("min-w-0 flex-1 truncate", trust === "failed" ? "text-muted-foreground" : "text-foreground")}>
+                {p.name}
+              </span>
+              <span className={cn("text-xs", trust === "failed" ? "text-warning-foreground" : "text-muted-foreground")}>
+                {p.me
+                  ? t("lock.you")
+                  : trust === "failed"
+                    ? t("lock.rejected")
+                    : trust === "pending"
+                      ? t("lock.pending")
+                      : t("lock.verified")}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="border-t border-raised pt-2.5 text-xs text-muted-foreground">{t("lock.limit")}</p>
     </>
   );
 }

@@ -43,6 +43,12 @@ mobile ones it adds).
   relay, this device's latency, what is lost on the way, and the audio
   devices. Connecting, reconnecting and a Bluetooth device each say so in
   a line above the names; a call the server ended offers to join again.
+- A lock next to the space's name says whether the call is end-to-end
+  verified: closed when everyone heard is verified, open while someone is
+  being checked, open and amber when a voice is rejected (its audio is
+  dropped, and its name dimmed). A click lists who is verified. The Rust
+  side on `main` does not report it yet, so the lock is shown only in the
+  simulated call until the branch that adds it is merged.
 - Narrow (under 640 px), the spaces are the first screen and a bar at the
   bottom keeps the call one click away; a click on a room joins it.
 - Accepts an invitation link and the name to show in that space. With no
@@ -147,8 +153,8 @@ that opens, presence sounds. Nothing there is measured; it exists to check
 the interface against the design canvas (CLAUDE.md, "Design first")
 without building the Rust side or starting a server. `?scene=` in the
 address opens one of the canvas's states: `call`, `muted`, `alone`,
-`connecting`, `reconnecting`, `ended`, `poor`, `firstRun`, `empty` or
-`unreachable` (the default is out of a call). The overlay is at
+`connecting`, `reconnecting`, `ended`, `poor`, `e2eePending`,
+`e2eeFailed`, `firstRun`, `empty` or `unreachable` (the default is out of a call). The overlay is at
 `/overlay.html?scene=call`. Compare the wide window at 1120 × 700 and
 the narrow one at 380 × 640.
 

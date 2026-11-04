@@ -6,9 +6,10 @@ import { cn } from "cn";
 import type { CallView, RoomView, SpaceView } from "@/api";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lang";
-import { callRoom, inCall, isMultiRoom, meFirst, refOf, sameRoom, signalOf, whereLabel } from "@/model";
+import { callRoom, inCall, isMultiRoom, lockState, meFirst, refOf, sameRoom, signalOf, whereLabel } from "@/model";
 import type { AppState } from "@/state";
-import { LeaveIcon, Logo, MicIcon, SettingsIcon, SignalBars, SpeakingBars } from "./icons";
+import { lockLook } from "./CallDetails";
+import { LeaveIcon, LockIcon, Logo, MicIcon, SettingsIcon, SignalBars, SpeakingBars } from "./icons";
 
 export function NarrowHome({ app }: { app: AppState }) {
   const { t } = useLanguage();
@@ -154,6 +155,7 @@ function livePeople(call: CallView, t: ReturnType<typeof useLanguage>["t"]) {
 function CallBar({ app, call }: { app: AppState; call: CallView }) {
   const { t } = useLanguage();
   const signal = signalOf(call);
+  const lock = lockState(call);
   const space = app.spaces?.find((s) => s.instance === call.instance && s.id === call.spaceId);
   const status = call.reconnecting
     ? { label: t("voice.reconnecting"), className: "text-warning-foreground" }
@@ -172,8 +174,21 @@ function CallBar({ app, call }: { app: AppState; call: CallView }) {
           <SignalBars bars={signal.bars} poor={signal.poor} size={12} />
           {status.label}
         </span>
-        <span className="truncate text-[15px] font-normal text-soft">
-          {whereLabel(call.spaceName, call.roomName, space ? isMultiRoom(space) : true)}
+        <span className="flex min-w-0 items-center gap-1.5 text-[15px] font-normal text-soft">
+          <span className="truncate">{whereLabel(call.spaceName, call.roomName, space ? isMultiRoom(space) : true)}</span>
+          {lock && (
+            <LockIcon
+              open={lock !== "verified"}
+              role="img"
+              aria-hidden={false}
+              aria-label={t(lockLook(lock).aria)}
+              strokeWidth={2.2}
+              className={cn(
+                "size-[13px]",
+                lock === "verified" ? "text-muted-foreground" : lock === "pending" ? "text-dim" : "text-warning",
+              )}
+            />
+          )}
         </span>
       </Button>
       <Button

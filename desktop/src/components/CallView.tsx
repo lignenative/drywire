@@ -1,6 +1,7 @@
 // The call: large names, who speaks, and three controls (the voice gate,
 // mute, leave). A click on a name opens that person; on your own name or
-// the gate's button, the voice gate; on the signal chip, the connection.
+// the gate's button, the voice gate; on the signal chip, the connection;
+// on the lock next to the space's name, the end-to-end encryption.
 import { Bluetooth, ChevronDown } from "lucide-react";
 import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { cn } from "cn";
@@ -9,13 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatDb, formatMs, hostOf } from "@/format";
 import { useLanguage } from "@/lang";
-import { gateStatus, isMultiRoom, othersFirst, signalOf, type Signal } from "@/model";
+import { gateStatus, isMultiRoom, lockState, othersFirst, signalOf, trustOf, type LockState, type Signal } from "@/model";
 import type { AppState } from "@/state";
-import { GateDetails, LinkDetails, PANEL, PersonDetails } from "./CallDetails";
-import { GateIcon, LeaveIcon, Logo, MicIcon, SettingsIcon, SignalBars, SpeakingBars, SpinIcon } from "./icons";
+import { GateDetails, LinkDetails, LockDetails, lockLook, PANEL, PersonDetails } from "./CallDetails";
+import { GateIcon, LeaveIcon, LockIcon, Logo, MicIcon, SettingsIcon, SignalBars, SpeakingBars, SpinIcon } from "./icons";
 
-/** Which popover is open: none, the gate, the link, or a person by session. */
-type Sheet = "none" | "gate" | "link" | number;
+/** Which popover is open: none, the gate, the link, the lock, or a person
+    by session. */
+type Sheet = "none" | "gate" | "link" | "lock" | number;
 
 export function CallView({ app, call, narrow = false }: { app: AppState; call: Call; narrow?: boolean }) {
   const { t } = useLanguage();
@@ -27,6 +29,31 @@ export function CallView({ app, call, narrow = false }: { app: AppState; call: C
   const multi = space ? isMultiRoom(space) : true;
   const live = !call.ended;
   const toggle = (next: Sheet) => (open: boolean) => setSheet(open ? next : sheet === next ? "none" : sheet);
+  const lock = live ? lockState(call) : null;
+  const header = useRef<HTMLDivElement>(null);
+
+  // The lock sits right after the space's name; its popover opens under
+  // the title in the wide window, across it in the narrow one.
+  const lockButton = lock && (
+    <Popover open={sheet === "lock"} onOpenChange={toggle("lock")}>
+      <PopoverTrigger
+        render={<LockButton state={lock} narrow={narrow} />}
+        aria-label={t(lockLook(lock).aria)}
+        title={t(lockLook(lock).aria)}
+        aria-expanded={sheet === "lock"}
+      />
+      <PopoverContent
+        side="bottom"
+        align="start"
+        sideOffset={8}
+        anchor={header}
+        collisionPadding={12}
+        className={cn(PANEL, "gap-3", narrow ? "w-[calc(100vw-24px)]" : "w-[364px]")}
+      >
+        <LockDetails call={call} state={lock} />
+      </PopoverContent>
+    </Popover>
+  );
 
   const chip = (
     <Popover open={sheet === "link"} onOpenChange={toggle("link")}>
@@ -52,20 +79,23 @@ export function CallView({ app, call, narrow = false }: { app: AppState; call: C
       {narrow ? (
         <header className="flex items-center gap-2.5 pt-3.5 pr-2.5 pb-2.5 pl-3.5">
           <Logo label={t("app.name")} />
-          <Button
-            variant="ghost"
-            onClick={() => app.setNarrowScreen("spaces")}
-            aria-label={t("spaces.back")}
-            className="h-9 min-w-0 gap-2 rounded-[10px] px-2.5 text-[15px] font-semibold"
-          >
-            <span className="truncate">{call.spaceName}</span>
-            {multi && (
-              <span className="truncate font-normal text-muted-foreground">
-                <span className="text-faint">#</span> {call.roomName}
-              </span>
-            )}
-            <ChevronDown className="size-3.5 text-muted-foreground" strokeWidth={2.2} />
-          </Button>
+          <div ref={header} className="flex min-w-0 items-center">
+            <Button
+              variant="ghost"
+              onClick={() => app.setNarrowScreen("spaces")}
+              aria-label={t("spaces.back")}
+              className="h-9 min-w-0 gap-2 rounded-[10px] px-2.5 text-[15px] font-semibold"
+            >
+              <span className="truncate">{call.spaceName}</span>
+              {multi && (
+                <span className="truncate font-normal text-muted-foreground">
+                  <span className="text-faint">#</span> {call.roomName}
+                </span>
+              )}
+              <ChevronDown className="size-3.5 text-muted-foreground" strokeWidth={2.2} />
+            </Button>
+            {lockButton}
+          </div>
           <span className="flex-1" />
           {live && chip}
           <Button variant="ghost" size="icon-md" aria-label={t("settings.title")} onClick={() => app.openSettings()} className="text-subtle">
@@ -76,6 +106,8 @@ export function CallView({ app, call, narrow = false }: { app: AppState; call: C
         <RoomHeader
           title={call.spaceName}
           sub={multi ? `# ${call.roomName} · ${hostOf(call.instance)}` : hostOf(call.instance)}
+          titleRef={header}
+          afterTitle={lockButton}
         >
           {chip}
         </RoomHeader>
@@ -90,10 +122,12 @@ export function CallView({ app, call, narrow = false }: { app: AppState; call: C
           <div className={cn("flex flex-col", narrow ? "gap-2" : "gap-2.5", call.reconnecting && "opacity-40")}>
             {othersFirst(call.participants).map((p) =>
               p.me ? (
-                <NameButton key={p.session} person={p} muted={call.muted} narrow={narrow} onClick={() => setSheet("gate")} />
+                <NameButton key={p.session} person={p} muted={call.muted} narrow={narrow} trust="ok" onClick={() => setSheet("gate")} />
               ) : (
                 <Popover key={p.session} open={sheet === p.session} onOpenChange={toggle(p.session)}>
-                  <PopoverTrigger render={<NameButton person={p} muted={false} narrow={narrow} />} />
+                  <PopoverTrigger
+                    render={<NameButton person={p} muted={false} narrow={narrow} trust={nameTrust(call, p, lock)} />}
+                  />
                   <PopoverContent
                     side={narrow ? "top" : "bottom"}
                     align="start"
@@ -139,16 +173,70 @@ export function CallView({ app, call, narrow = false }: { app: AppState; call: C
 }
 
 /** The space's name in large, and where the room is under it. */
-export function RoomHeader({ title, sub, children }: { title: string; sub: string; children?: ReactNode }) {
+export function RoomHeader({
+  title,
+  sub,
+  titleRef,
+  afterTitle,
+  children,
+}: {
+  title: string;
+  sub: string;
+  titleRef?: RefObject<HTMLDivElement | null>;
+  afterTitle?: ReactNode;
+  children?: ReactNode;
+}) {
   return (
     <header className="flex items-center gap-3 px-7 pt-[22px] pb-[18px]">
       <div className="min-w-0 flex-1">
-        <div className="text-[22px] font-semibold tracking-[-0.02em]">{title}</div>
+        <div ref={titleRef} className="flex items-center gap-1.5">
+          <span className="text-[22px] font-semibold tracking-[-0.02em]">{title}</span>
+          {afterTitle}
+        </div>
         <div className="text-[13px] text-muted-foreground">{sub}</div>
       </div>
       {children}
     </header>
   );
+}
+
+/** The lock next to the space's name: closed grey when everyone heard is
+    verified, open while someone is checked, open amber when a voice is
+    rejected. A 44 px target in the narrow window, as on the phone. */
+function LockButton({
+  state,
+  narrow,
+  className,
+  ...props
+}: { state: LockState; narrow: boolean } & React.ComponentProps<"button">) {
+  const look = lockLook(state);
+  if (narrow) {
+    return (
+      <Button
+        variant="ghost"
+        {...props}
+        className={cn("-ml-2 size-11 rounded-xl hover:bg-transparent aria-expanded:bg-transparent", className)}
+      >
+        <span className={cn("flex size-[30px] items-center justify-center rounded-[9px]", look.button)}>
+          <LockIcon open={state !== "verified"} />
+        </span>
+      </Button>
+    );
+  }
+  return (
+    <Button variant="ghost" {...props} className={cn("size-7 rounded-[8px]", look.button, className)}>
+      <LockIcon open={state !== "verified"} className="size-4" />
+    </Button>
+  );
+}
+
+/** What a name shows of its encryption: a rejected voice always, a pending
+    one only while the lock is open (silent people do not hold it back). */
+function nameTrust(call: Call, person: Participant, lock: LockState | null) {
+  const trust = trustOf(call, person);
+  if (trust === "failed") return "failed";
+  if (trust === "pending" && lock !== "verified") return "pending";
+  return "ok";
 }
 
 function SignalChip({ signal, className, ...props }: { signal: Signal } & React.ComponentProps<"button">) {
@@ -214,11 +302,13 @@ function NameButton({
   person,
   muted,
   narrow,
+  trust,
   className,
   ...props
-}: { person: Participant; muted: boolean; narrow: boolean } & React.ComponentProps<"button">) {
+}: { person: Participant; muted: boolean; narrow: boolean; trust: "ok" | "pending" | "failed" } & React.ComponentProps<"button">) {
   const { t } = useLanguage();
-  const speaking = person.speaking && !muted;
+  // A rejected voice is dropped: it is never shown as speaking.
+  const speaking = person.speaking && !muted && trust !== "failed";
   return (
     <Button
       variant="ghost"
@@ -230,7 +320,13 @@ function NameButton({
       )}
     >
       <span className={cn("flex shrink-0 items-center justify-center", narrow ? "h-[18px] w-[18px]" : "h-[26px] w-[22px]")}>
+        {trust === "failed" && (
+          <LockIcon open role="img" aria-hidden={false} aria-label={t("person.rejected")} className={cn("text-warning", narrow ? "size-[18px]" : "size-5")} />
+        )}
         {speaking && <SpeakingBars size={narrow ? "md" : "lg"} label={t("person.speaking")} />}
+        {trust === "pending" && !speaking && (
+          <LockIcon open role="img" aria-hidden={false} aria-label={t("person.checking")} className={cn("text-dim", narrow ? "size-[18px]" : "size-5")} />
+        )}
         {muted && (
           <MicIcon
             muted
@@ -245,7 +341,7 @@ function NameButton({
         className={cn(
           "font-semibold tracking-[-0.03em]",
           narrow ? "text-[22px]" : "text-[34px]",
-          speaking ? "text-white" : "text-dim",
+          trust === "failed" ? "text-hush" : speaking ? "text-white" : "text-dim",
         )}
       >
         {person.name}

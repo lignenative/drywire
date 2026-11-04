@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { CallView, SpaceView } from "./api";
 import { formatDb } from "./format";
-import { findRoom, firstRoom, gateStatus, meFirst, othersFirst, signalOf, whereLabel } from "./model";
+import { findRoom, firstRoom, gateStatus, lockState, meFirst, othersFirst, signalOf, trustNames, trustOf, whereLabel } from "./model";
 import { simulated } from "./simulated";
 
 async function aCall(change: Partial<CallView> = {}): Promise<CallView> {
@@ -52,4 +52,35 @@ test("decibels are written with a true minus sign", () => {
   expect(formatDb(-58)).toBe("−58 dB");
   expect(formatDb(-57.6)).toBe("−58 dB");
   expect(formatDb(0)).toBe("0 dB");
+});
+
+test("the lock closes only when everyone heard is verified", async () => {
+  const people = [{ publicKey: "a", verified: true }];
+  expect(lockState(await aCall({ encryption: { state: "verified", people } }))).toBe("verified");
+  expect(lockState(await aCall({ encryption: undefined }))).toBeNull();
+  expect(lockState(await aCall({ encryption: { state: "pending", people } }))).toBe("pending");
+  // The link down opens it, whatever the last state said.
+  expect(lockState(await aCall({ reconnecting: true }))).toBe("pending");
+  expect(lockState(await aCall({ bound: false }))).toBe("pending");
+  expect(lockState(await aCall({ encryption: { state: "failed", people } }))).toBe("failed");
+});
+
+test("each person is verified, pending or rejected; this device is trusted", async () => {
+  const call = await aCall();
+  const [me, sam, kim] = call.participants;
+  const withTrust = await aCall({
+    encryption: {
+      state: "failed",
+      people: [
+        { publicKey: sam.publicKey, verified: false, rejected: true },
+        { publicKey: kim.publicKey, verified: false },
+      ],
+    },
+  });
+  expect(trustOf(withTrust, me)).toBe("ok");
+  expect(trustOf(withTrust, sam)).toBe("failed");
+  expect(trustOf(withTrust, kim)).toBe("pending");
+  // lee is not in the list at all: unknown, so neither.
+  expect(trustNames(withTrust)).toEqual({ failed: ["sam"], pending: ["kim"] });
+  expect(trustOf(await aCall({ encryption: undefined }), me)).toBeNull();
 });
