@@ -417,6 +417,15 @@ and honest numbers on screen. English and French from the first release.
 - Transparent reconnection, hot-swapping audio devices.
 - Warning when a Bluetooth device is active.
 - Quality indicator: packet loss, jitter.
+- **Encryption lock**: a discreet lock in the call view, closed only when
+  end-to-end encryption is verified for everyone heard in the room: each
+  speaker's signed announcement verified with the public key the control
+  plane gave, and their frames authenticated. Pending while alone, while
+  nobody spoke yet, or while someone's audio arrives before their
+  announcement; failed for 10 seconds after a forged announcement or a
+  tampered frame, which are dropped, never played. Silent members do not
+  hold it open. The definition, and what a closed lock does not prove,
+  are in ADR 0041.
 - Mute: global keyboard shortcut, tray or menu bar icon, button in the app.
 
 ### Presence

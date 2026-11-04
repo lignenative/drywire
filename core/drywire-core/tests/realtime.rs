@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 
 use drywire_core::call::{Call, CallOptions};
 use drywire_core::config::{ClientConfig, Member};
+use drywire_core::encryption::EncryptionState;
 use drywire_core::lab::{CLICK_EVERY, LevelRecorder, Loopback};
 use drywire_core::link::LinkConfig;
 use drywire_core::opus::{FrameSize, SAMPLE_RATE};
@@ -150,6 +151,7 @@ fn the_audio_callbacks_never_allocate() {
     let started = Instant::now();
     let mut calls = 0u64;
     let mut heard = None;
+    let mut lock = None;
     let mic = alex.controls();
     let mut sent_when_muted = 0;
     // 200 ms of silence, 600 ms of tone, 400 ms of silence. Alex is in
@@ -176,6 +178,7 @@ fn the_audio_callbacks_never_allocate() {
             }
             220 => {
                 heard = sam.stats().tracks.first().copied();
+                lock = Some(sam.stats().encryption);
                 sam.remove_member(alex_seat.session);
             }
             _ => {}
@@ -212,6 +215,11 @@ fn the_audio_callbacks_never_allocate() {
     assert_eq!(track.volume, 1.5, "{track:?}");
     assert!(track.jitter.received > 0, "{track:?}");
     assert!(track.jitter.played > 0, "{track:?}");
+    // Sam verified alex's signed announcement, and every frame decrypted.
+    let lock = lock.expect("read while alex was a member");
+    assert_eq!(lock.state, EncryptionState::Verified, "{lock:?}");
+    assert_eq!(lock.senders.len(), 1, "{lock:?}");
+    assert_eq!(lock.senders[0].bad_tag, 0, "{lock:?}");
     // Once alex left, their track was free again. `remove_member` only
     // queues the change: the network thread applies it and then publishes
     // the stats, so on a loaded machine the very next snapshot can still
