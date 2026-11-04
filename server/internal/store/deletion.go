@@ -112,6 +112,13 @@ func (s *Store) removeMemberRow(ctx context.Context, tx *sql.Tx, space ID, ident
 	if _, err := tx.ExecContext(ctx, `DELETE FROM invitations WHERE space_id = ? AND created_by = ?`, space[:], identityID); err != nil {
 		return false, err
 	}
+	// A former member's devices no longer wait to join the space's group,
+	// nor keep a welcome to it (ADR 0052).
+	for _, table := range []string{"mls_key_packages", "mls_welcomes"} {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE space_id = ? AND identity_id = ?`, space[:], identityID); err != nil {
+			return false, err
+		}
+	}
 	if role != RoleOwner {
 		return false, nil
 	}
@@ -178,7 +185,8 @@ type Purged struct {
 
 // PurgeInactive deletes the identities that have not logged in for
 // InactiveAfter, exactly as if each had deleted itself, the invitations
-// that can no longer be used, and the device vaults past their time. The
+// that can no longer be used, the device vaults past their time and the
+// MLS messages past theirs. The
 // server runs it daily.
 func (s *Store) PurgeInactive(ctx context.Context) (Purged, error) {
 	var p Purged
@@ -222,6 +230,9 @@ func (s *Store) PurgeInactive(ctx context.Context) (Purged, error) {
 		return p, err
 	}
 	if err := s.purgeExpiredCreatorCodes(ctx); err != nil {
+		return p, err
+	}
+	if err := s.purgeExpiredMLS(ctx); err != nil {
 		return p, err
 	}
 	return p, nil

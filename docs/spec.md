@@ -386,6 +386,7 @@ or Ligne Native for the hosted instance.
 | Display name, public key, memberships, roles | Identify members of a space | Server, SQLite | Until the identity is deleted; identities inactive for 12 months are purged |
 | Recovery vault (sealed account key, name and spaces) | Give the account back on a new device | Server, SQLite, sealed with the person's code: unreadable to the operator | Until the identity is deleted, or replaced by a new code |
 | Device vault (the same, for one new device) | Add a device | Server, SQLite, sealed | 10 minutes, or until opened |
+| MLS key packages, welcomes and commits (ADR 0052) | Hand a space's group keys between its members' devices | Server, SQLite, encrypted or public key material the server does not read | Key packages and welcomes 30 days, or until the member leaves; commits 90 days, the last one until the space is deleted |
 | IP address and port | Route audio packets | Relay memory | Duration of the session only |
 | Presence (who is in which room) | Show who is online | Server memory | Duration of the session only, no history |
 | Access logs | Security, incident detection | Server | 1 year, minimised: no query string, headers or `Referer`, sensitive paths masked, full IP kept |

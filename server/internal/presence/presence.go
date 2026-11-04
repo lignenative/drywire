@@ -25,6 +25,9 @@ const (
 	// Disconnect: the relay stopped hearing from someone (protocol
 	// section 10.3, session timeout).
 	Disconnect = "disconnect"
+	// MLS: the space's MLS group moved to a new epoch, or a device waits
+	// to be added to it (ADR 0052); only Epoch is set.
+	MLS = "mls"
 )
 
 const (
@@ -53,6 +56,8 @@ type Event struct {
 	Session   uint32    `json:"session"`
 	PublicKey store.Key `json:"public_key"`
 	Name      string    `json:"name,omitempty"`
+	// Epoch is the group's epoch, for an MLS event.
+	Epoch uint64 `json:"-"`
 }
 
 // Subscription receives the events of one space.
@@ -211,6 +216,15 @@ func (h *Hub) Kick(space *store.ID, key store.Key) {
 			h.end(sub)
 		}
 	}
+}
+
+// PublishMLS tells the space's subscribers that its MLS group changed:
+// a commit started `epoch`, or a device waits to join. They fetch what is
+// new from the delivery service.
+func (h *Hub) PublishMLS(space store.ID, epoch uint64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.publish(space, Event{Type: MLS, Epoch: epoch})
 }
 
 // CloseSpace ends every subscription to a deleted space.

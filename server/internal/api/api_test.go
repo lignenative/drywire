@@ -140,8 +140,10 @@ func (c *client) do(method, path string, body, out any) int {
 		c.h.t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if out != nil && resp.StatusCode < 300 {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	if out != nil {
+		// An error's body is read too, when it fits out (a 409 says which
+		// epoch the group is at).
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil && resp.StatusCode < 300 {
 			c.h.t.Fatalf("%s %s: %v", method, path, err)
 		}
 	}

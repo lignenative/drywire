@@ -181,7 +181,11 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, c caller) {
 	for {
 		select {
 		case e := <-sub.Events():
-			if !send(e.Type, e) {
+			var data any = e
+			if e.Type == presence.MLS {
+				data = map[string]uint64{"epoch": e.Epoch}
+			}
+			if !send(e.Type, data) {
 				return
 			}
 		case <-keepalive.C:

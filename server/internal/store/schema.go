@@ -95,6 +95,35 @@ CREATE TABLE creator_codes (
 	expires_at INTEGER NOT NULL
 );
 `,
+	// 4: the MLS delivery service (ADR 0052): opaque bytes the server
+	// stores and orders, never reads. A device is named by its MLS public
+	// key, since a person's devices share their account key (ADR 0051).
+	`
+CREATE TABLE mls_key_packages (
+	space_id    BLOB    NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
+	device      BLOB    NOT NULL CHECK (length(device) = 32),
+	identity_id INTEGER NOT NULL REFERENCES identities (id) ON DELETE CASCADE,
+	body        BLOB    NOT NULL,
+	created_at  INTEGER NOT NULL,
+	PRIMARY KEY (space_id, device)
+);
+CREATE TABLE mls_commits (
+	space_id   BLOB    NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
+	epoch      INTEGER NOT NULL, -- the epoch this commit starts
+	body       BLOB    NOT NULL,
+	created_at INTEGER NOT NULL,
+	PRIMARY KEY (space_id, epoch)
+);
+CREATE TABLE mls_welcomes (
+	space_id    BLOB    NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
+	device      BLOB    NOT NULL CHECK (length(device) = 32),
+	identity_id INTEGER NOT NULL REFERENCES identities (id) ON DELETE CASCADE,
+	epoch       INTEGER NOT NULL,
+	body        BLOB    NOT NULL,
+	created_at  INTEGER NOT NULL,
+	PRIMARY KEY (space_id, device)
+);
+`,
 }
 
 // migrate applies the migrations the database has not seen yet.

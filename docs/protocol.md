@@ -677,7 +677,8 @@ space the caller is not a member of answers `404`, as if it did not exist.
   carries one event per change: `join` (`{room_id, session, public_key,
   name}`), `leave` (`{room_id, session, public_key}`: left, removed, moved
   to another room) and `disconnect` (same fields: the relay stopped hearing
-  from them). A comment line every 15 seconds keeps idle connections open.
+  from them), and `mls` (`{epoch}`: the space's MLS group changed, section
+  16). A comment line every 15 seconds keeps idle connections open.
 - The stream ends when the subscriber is no longer a member, when the
   space is deleted, or when the subscriber falls 256 events behind; the
   client reconnects and gets a fresh snapshot. An identity holds at most
@@ -812,3 +813,48 @@ aad    = "drywire/vault/v1" ‖ id
 - Like other request bodies, the id and the sealed bytes never appear in
   a URL or a log.
 
+## 16. MLS delivery service
+
+ADR 0052 moves each space's key into an MLS group (RFC 9420) whose
+leaves are its members' devices. The control plane is the group's
+**delivery service**: it keeps and orders the group's messages, as
+opaque bytes it never reads. This section describes that service, built
+first; the group itself, its credentials and the room key it exports
+come with the clients and get their own sections then.
+
+A device is named by its own MLS signature key: 32 bytes, in hex. Every
+request below is for the space's members only, and bodies carry the
+messages as hex.
+
+| Request | Body → answer |
+| --- | --- |
+| `POST /v1/spaces/{space}/mls/key-packages` | `{device, key_package}` → `204`: this member's device waits to join; posting again replaces its key package |
+| `GET /v1/spaces/{space}/mls/key-packages` | → `[{device, public_key, key_package}]`, oldest first; `public_key` is the account the device posted for |
+| `POST /v1/spaces/{space}/mls/commits` | `{epoch, commit, welcomes: [{device, welcome}]}` → `201` `{epoch}`, the epoch the commit started |
+| `GET /v1/spaces/{space}/mls/commits?after=N` | → `[{epoch, commit}]`, the commits that started the epochs after `N`, in order, 64 at most |
+| `GET /v1/spaces/{space}/mls/welcome?device=…` | → `{epoch, welcome}`, for the identity that posted the device's key package only; `404` otherwise |
+
+- **One commit per epoch.** The group is at epoch 0 before any commit. A
+  commit made in `epoch` is accepted only if `epoch` is the group's
+  current one, and starts `epoch + 1`; otherwise the answer is `409`
+  `{error, epoch}` with the current epoch: the device fetches the commits
+  it missed, applies them, and commits again if it still has to.
+- A device belongs to the member who first posted for it: another
+  member's key package for it is refused (`409`), until the first one's
+  key package and welcome are gone.
+- The server cannot tell a key package's content: the members' apps
+  check that its signature key is the `device` it was posted for, and
+  that its credential names the account in `public_key` (ADR 0052),
+  before they add it.
+- A welcome may only name a device that waits: otherwise the whole
+  commit is refused (`400`). A welcomed device stops waiting.
+- Each message is at most 16 KiB (`413` beyond).
+- After a key package or a commit, the space's event stream carries
+  `mls` `{epoch}` (section 13.6), so that the members online add the
+  newcomer, or catch up, at once.
+- The server keeps key packages and welcomes 30 days, commits 90 days
+  (but always each space's last), and deletes a member's key packages and
+  welcomes when they leave the space. A device away longer than that
+  joins again as a new leaf.
+- Nothing here appears in a URL except the device's public key and an
+  epoch number.
