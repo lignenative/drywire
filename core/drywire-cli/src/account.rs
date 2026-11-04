@@ -38,15 +38,31 @@ pub fn create_space(args: Account) -> Result<(), String> {
             args.code.as_deref(),
         )
         .map_err(|e| e.to_string())?;
-    // 256 random bits that only the members will ever hold.
-    let mut space_key = [0u8; 32];
-    getrandom::fill(&mut space_key).map_err(|e| format!("random bytes: {e}"))?;
-    home.remember(KnownSpace::new(
-        client.instance(),
-        view.space.id,
-        &view.space.name,
-        &space_key,
-    ))?;
+    // An account signed in by e-mail gets a space with an MLS group,
+    // made at its first call (ADRs 0052 and 0055); a key-only identity,
+    // a space key in its links.
+    let signed_in = client
+        .me()
+        .map_err(|e| e.to_string())?
+        .and_then(|me| me.username)
+        .is_some_and(|name| !name.is_empty());
+    if signed_in {
+        home.remember(KnownSpace::with_group(
+            client.instance(),
+            view.space.id,
+            &view.space.name,
+        ))?;
+    } else {
+        // 256 random bits that only the members will ever hold.
+        let mut space_key = [0u8; 32];
+        getrandom::fill(&mut space_key).map_err(|e| format!("random bytes: {e}"))?;
+        home.remember(KnownSpace::new(
+            client.instance(),
+            view.space.id,
+            &view.space.name,
+            &space_key,
+        ))?;
+    }
     seal_recovery_again(&home);
     println!(
         "Created {} on {} with the room {}. Invite people with: drywire invite --space {:?}",
@@ -63,6 +79,21 @@ pub fn invite(args: Account) -> Result<(), String> {
     let home = Home::open(args.home.as_deref())?;
     let space = home.find(args.space.as_deref())?;
     let client = client(&home, &space.instance)?;
+    if let Some(user) = &args.user {
+        let found = client
+            .invite_user(&space.space_id, user)
+            .map_err(|e| e.to_string())?;
+        println!(
+            "Invited {} ({}) into {}: the invitation waits in their app for 30 days.",
+            printable(&found.username),
+            printable(&found.name),
+            space.name
+        );
+        return Ok(());
+    }
+    if space.uses_group() {
+        return Err("this space invites by user name: drywire invite --user NAME".into());
+    }
     let expires = args.days.map(|d| (d * 86_400.0) as u64);
     let (invitation, info) = client
         .invite(&space.space_id, &space.space_key()?, expires, args.uses)
@@ -73,6 +104,154 @@ pub fn invite(args: Account) -> Result<(), String> {
         space.name, info.max_uses, info.expires_at
     );
     println!("{}", invitation.to_link());
+    Ok(())
+}
+
+/// The instance a command acts on: `--instance`, else the first one this
+/// device knows.
+fn instance_of(home: &Home, args: &Account) -> Result<String, String> {
+    if let Some(instance) = &args.instance {
+        return Ok(instance.clone());
+    }
+    home.spaces()?
+        .first()
+        .map(|s| s.instance.clone())
+        .ok_or_else(|| "say which instance with --instance https://HOST".into())
+}
+
+/// `signin EMAIL`: a code is mailed to the address; with it, this device
+/// signs in to that account, or makes it (ADR 0055). Its spaces are then
+/// known here.
+pub fn sign_in(args: Account) -> Result<(), String> {
+    let home = Home::open(args.home.as_deref())?;
+    let instance = args
+        .instance
+        .clone()
+        .ok_or("signin needs --instance https://HOST")?;
+    let email = args.value.clone().ok_or("signin needs an e-mail address")?;
+    let client = client(&home, &instance)?;
+    let code = match &args.code {
+        Some(code) => code.clone(),
+        None => {
+            client
+                .request_email_code(&email, "en")
+                .map_err(|e| e.to_string())?;
+            eprint!("A 6-digit code was mailed to {email}. Code: ");
+            let mut line = String::new();
+            std::io::stdin()
+                .read_line(&mut line)
+                .map_err(|e| e.to_string())?;
+            line
+        }
+    };
+    let signed = client
+        .verify_email_code(&email, code.trim())
+        .map_err(|e| e.to_string())?;
+    let spaces = remember_memberships(&home, &client)?;
+    match signed.username {
+        Some(name) => println!(
+            "Signed in as {}; {spaces} space(s) known here.",
+            printable(&name)
+        ),
+        None => println!(
+            "Account made. Choose your user name: drywire username NAME --instance {instance}"
+        ),
+    }
+    Ok(())
+}
+
+/// Remembers the spaces the account is a member of that this device did
+/// not know: their keys come from their groups.
+fn remember_memberships(home: &Home, client: &Client) -> Result<usize, String> {
+    let known = home.spaces()?;
+    let mut count = 0;
+    for m in client.spaces().map_err(|e| e.to_string())? {
+        count += 1;
+        if !known
+            .iter()
+            .any(|k| k.instance == client.instance() && k.space_id == m.space.id)
+        {
+            home.remember(KnownSpace::with_group(
+                client.instance(),
+                m.space.id,
+                &m.space.name,
+            ))?;
+        }
+    }
+    Ok(count)
+}
+
+/// `username NAME`: chooses the account's user name.
+pub fn username(args: Account) -> Result<(), String> {
+    let home = Home::open(args.home.as_deref())?;
+    let client = client(&home, &instance_of(&home, &args)?)?;
+    let name = args.value.clone().ok_or("username needs a NAME")?;
+    let display = if args.display_name == crate::args::default_display_name() {
+        ""
+    } else {
+        &args.display_name
+    };
+    match client.set_username(&name, display) {
+        Ok(me) => {
+            println!(
+                "You are {} now.",
+                printable(me.username.as_deref().unwrap_or(&name))
+            );
+            Ok(())
+        }
+        Err(drywire_control::Error::UsernameTaken { suggestions }) => Err(format!(
+            "this user name is taken; free ones: {}",
+            suggestions.join(", ")
+        )),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// `invitations`: the spaces this account is invited to.
+pub fn invitations(args: Account) -> Result<(), String> {
+    let home = Home::open(args.home.as_deref())?;
+    let client = client(&home, &instance_of(&home, &args)?)?;
+    let list = client.invitations().map_err(|e| e.to_string())?;
+    if list.is_empty() {
+        println!("No invitation waits.");
+    }
+    for i in list {
+        println!(
+            "{}  {}  from {}",
+            i.space_id,
+            printable(&i.space_name),
+            printable(&i.invited_by)
+        );
+    }
+    Ok(())
+}
+
+/// `accept-invitation SPACE`: joins a space one was invited to, by its id
+/// or its name as `invitations` lists them.
+pub fn accept_invitation(args: Account) -> Result<(), String> {
+    let home = Home::open(args.home.as_deref())?;
+    let client = client(&home, &instance_of(&home, &args)?)?;
+    let wanted = args
+        .value
+        .clone()
+        .ok_or("accept-invitation needs a SPACE")?;
+    let list = client.invitations().map_err(|e| e.to_string())?;
+    let found = list
+        .iter()
+        .find(|i| i.space_id.to_string() == wanted || i.space_name.eq_ignore_ascii_case(&wanted))
+        .ok_or("no invitation to that space")?;
+    let view = client
+        .accept_invitation(&found.space_id)
+        .map_err(|e| e.to_string())?;
+    home.remember(KnownSpace::with_group(
+        client.instance(),
+        view.space.id,
+        &view.space.name,
+    ))?;
+    println!(
+        "You are in {}. Its keys come at your first call, once a member's app lets this device in.",
+        printable(&view.space.name)
+    );
     Ok(())
 }
 
@@ -213,8 +392,11 @@ fn vault_contents(home: &Home, client: &Client) -> Result<VaultContents, String>
         .flatten()
         .map(|id| id.name)
         .unwrap_or_else(crate::args::default_display_name);
+    // A space with an MLS group has no key to carry: a new device is let
+    // into its group instead (ADR 0055).
     let spaces = spaces
         .iter()
+        .filter(|s| !s.uses_group())
         .map(|s| {
             Ok(VaultSpace {
                 instance: s.instance.clone(),

@@ -22,6 +22,7 @@ use drywire_proto::crypto::SigningKey;
 use serde::{Deserialize, Serialize};
 
 /// The directory and what is in it.
+#[derive(Clone)]
 pub struct Home {
     dir: PathBuf,
 }
@@ -35,7 +36,9 @@ pub struct KnownSpace {
     pub space_id: Id,
     /// Its name, as last seen.
     pub name: String,
-    /// The secret every member holds, in hex.
+    /// The secret every member holds, in hex; empty for a space whose
+    /// keys come from its MLS group (ADRs 0052 and 0055).
+    #[serde(default)]
     space_key: String,
 }
 
@@ -48,6 +51,21 @@ impl KnownSpace {
             name: printable(name),
             space_key: to_hex(space_key),
         }
+    }
+
+    /// A space whose keys come from its MLS group: no key to keep.
+    pub fn with_group(instance: &str, space_id: Id, name: &str) -> KnownSpace {
+        KnownSpace {
+            instance: instance.to_string(),
+            space_id,
+            name: printable(name),
+            space_key: String::new(),
+        }
+    }
+
+    /// Whether the room keys come from the space's MLS group.
+    pub fn uses_group(&self) -> bool {
+        self.space_key.is_empty()
     }
 
     /// The space key.
@@ -161,8 +179,30 @@ impl Home {
     }
 
     /// Forgets the identity, after it was deleted from its instance.
+    /// This device in the spaces' MLS groups: its saved state, or a
+    /// fresh one signing with its identity key.
+    pub fn group_device(&self) -> Result<drywire_mls::Device, String> {
+        let path = self.dir.join("groups.state");
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                let bytes = from_hex(text.trim()).ok_or("the groups' state is damaged")?;
+                drywire_mls::Device::load(&bytes).map_err(|e| e.to_string())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                drywire_mls::Device::new(&self.identity()?).map_err(|e| e.to_string())
+            }
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
+    }
+
+    /// Saves this device's groups: as secret as its identity.
+    pub fn save_group_device(&self, device: &drywire_mls::Device) -> Result<(), String> {
+        write_private(&self.dir.join("groups.state"), &to_hex(&device.save()))
+    }
+
     pub fn forget_identity(&self) -> Result<(), String> {
         self.set_recovery_secret(None)?;
+        let _ = std::fs::remove_file(self.dir.join("groups.state"));
         let path = self.dir.join("identity.json");
         std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
     }

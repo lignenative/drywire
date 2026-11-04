@@ -595,6 +595,7 @@ version = "0.1.0"
 dependencies = [
  "drywire-control",
  "drywire-core",
+ "drywire-mls",
  "drywire-proto",
  "getrandom 0.4.3",
  "libc",

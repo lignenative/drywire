@@ -6,6 +6,7 @@
 mod account;
 mod args;
 mod devices;
+mod group;
 mod home;
 mod join;
 mod stop;
@@ -16,6 +17,11 @@ const USAGE: &str = "\
 Usage: drywire <command> [options]
 
 Commands:
+  signin EMAIL      Sign this device in by e-mail (--instance): a code is mailed
+  username NAME     Choose your account's user name (--instance)
+  invitations       List the spaces you are invited to (--instance)
+  accept-invitation SPACE
+                    Join a space you were invited to by user name
   identity          Print this device's public key (made on first use)
   create-space      Create a space on an instance (--instance, --name)
   invite            Print an invitation link to a space
@@ -42,8 +48,17 @@ create-space options:
   --code CODE          A creation code from the instance's operator, if
                        your key is not one it lets create spaces
 
+signin options:
+  --instance URL       The instance (required)
+  --code CODE          The code mailed to you (else it is asked for)
+
+username options:
+  --instance URL       The instance (default: your first)
+  --display-name NAME  The name others see (default: the user name)
+
 invite options:
   --space NAME         Which space (by name or id; default: the only one)
+  --user NAME          Invite this person by user name instead of a link
   --uses N             How many people can use it (default 10, at most 100)
   --days D             How long it lasts (default 7, at most 30)
 
@@ -99,6 +114,12 @@ fn main() -> ExitCode {
         Some("join") => args::Join::parse(&rest).and_then(join::run),
         Some("devices") => args::Devices::parse(&rest).and_then(devices::run),
         Some("identity") => args::Account::parse(&rest, None).and_then(account::identity),
+        Some("signin") => args::Account::parse(&rest, Some("EMAIL")).and_then(account::sign_in),
+        Some("username") => args::Account::parse(&rest, Some("NAME")).and_then(account::username),
+        Some("invitations") => args::Account::parse(&rest, None).and_then(account::invitations),
+        Some("accept-invitation") => {
+            args::Account::parse(&rest, Some("SPACE")).and_then(account::accept_invitation)
+        }
         Some("create-space") => args::Account::parse(&rest, None).and_then(account::create_space),
         Some("invite") => args::Account::parse(&rest, None).and_then(account::invite),
         Some("accept") => args::Account::parse(&rest, Some("LINK")).and_then(account::accept),

@@ -182,22 +182,25 @@ impl Relay {
     /// The control plane's origin, as clients reach it.
     /// The last sign-in code this server mailed to `to`.
     pub fn mail_code(&self, to: &str) -> String {
+        self.try_mail_code(to)
+            .unwrap_or_else(|| panic!("no mail to {to}"))
+    }
+
+    /// The last sign-in code mailed to `to`, if one was.
+    pub fn try_mail_code(&self, to: &str) -> Option<String> {
         let mut files: Vec<_> = std::fs::read_dir(self.dir.join("mail"))
-            .expect("no mail sent yet")
-            .map(|e| e.expect("a mail file").path())
+            .ok()?
+            .filter_map(|e| Some(e.ok()?.path()))
             .collect();
         files.sort();
-        for path in files.iter().rev() {
-            let text = std::fs::read_to_string(path).expect("a mail");
-            if text.contains(&format!("To: {to}\r\n")) {
-                let subject = text
-                    .lines()
-                    .find_map(|l| l.strip_prefix("Subject: "))
-                    .expect("a subject");
-                return subject[..6].to_string();
+        files.iter().rev().find_map(|path| {
+            let text = std::fs::read_to_string(path).ok()?;
+            if !text.contains(&format!("To: {to}\r\n")) {
+                return None;
             }
-        }
-        panic!("no mail to {to}");
+            let subject = text.lines().find_map(|l| l.strip_prefix("Subject: "))?;
+            Some(subject[..6].to_string())
+        })
     }
 
     pub fn instance(&self) -> String {
