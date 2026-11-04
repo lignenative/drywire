@@ -50,7 +50,7 @@ export function CallView({ app, call, narrow = false }: { app: AppState; call: C
         collisionPadding={12}
         className={cn(PANEL, "gap-3", narrow ? "w-[calc(100vw-1.5rem)]" : "w-91")}
       >
-        <LockDetails call={call} state={lock} />
+        <LockDetails call={call} state={lock} narrow={narrow} />
       </PopoverContent>
     </Popover>
   );
