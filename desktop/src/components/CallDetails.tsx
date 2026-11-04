@@ -1,7 +1,8 @@
 // What opens over the call: the voice gate, one person, the connection.
 // The contents only; CallView places them in popovers, beside what was
 // clicked in the wide window and across the narrow one.
-import { Check } from "lucide-react";
+import { Check, ChevronLeft, ShieldCheck, TriangleAlert } from "lucide-react";
+import { useEffect, useState } from "react";
 import { cn } from "cn";
 import type { CallView, Participant } from "@/api";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +15,7 @@ import type { Key } from "@/i18n";
 import { meFirst, trustNames, trustOf, type GateStatus, type LockState } from "@/model";
 import { CheckingIcon, KeyIcon, LockIcon } from "./icons";
 import { api } from "@/api";
+import { loadVerified, safetyCode, saveVerified, verificationOf, type Verified } from "@/safety";
 
 /** The panel shared by every popover of the canvas. */
 export const PANEL =
@@ -259,8 +261,13 @@ export function lockLook(state: LockState): { button: string; title: string; pil
 
 /** End-to-end encryption, explained: whether everyone heard is verified,
     who is and who is not, and the limit a member's key sets. */
-export function LockDetails({ call, state }: { call: CallView; state: LockState }) {
+export function LockDetails({ call, state, narrow = false }: { call: CallView; state: LockState; narrow?: boolean }) {
   const { t } = useLanguage();
+  // In the narrow window a person's safety code is a page of this sheet,
+  // in place of the list; in the wide one, their row opens in place.
+  const [page, setPage] = useState<string | null>(null);
+  const paged = narrow ? call.participants.find((p) => p.publicKey === page && !p.me) : undefined;
+  if (paged) return <SafetyCode call={call} person={paged} narrow onBack={() => setPage(null)} />;
   const look = lockLook(state);
   const names = trustNames(call);
   const pill =
@@ -294,32 +301,173 @@ export function LockDetails({ call, state }: { call: CallView; state: LockState 
         {t("lock.server")}
       </div>
       <div className="flex flex-col border-t border-raised pt-1">
-        {meFirst(call.participants).map((p) => {
-          const trust = trustOf(call, p) ?? "pending";
-          return (
-            <div key={p.session} className="flex h-8 items-center gap-2.5 text-[0.8125rem]">
-              <span className="flex size-4 shrink-0 items-center justify-center">
-                {trust === "ok" && <Check className="size-3.5 text-primary" strokeWidth={2.6} />}
-                {trust === "pending" && <CheckingIcon className="text-muted-foreground" />}
-                {trust === "failed" && <LockIcon open strokeWidth={2.4} className="size-3.5 text-warning" />}
-              </span>
-              <span className={cn("min-w-0 flex-1 truncate", trust === "failed" ? "text-muted-foreground" : "text-foreground")}>
-                {p.name}
-              </span>
-              <span className={cn("text-xs", trust === "failed" ? "text-warning-foreground" : "text-muted-foreground")}>
-                {p.me
-                  ? t("lock.you")
-                  : trust === "failed"
-                    ? t("lock.rejected")
-                    : trust === "pending"
-                      ? t("lock.pending")
-                      : t("lock.verified")}
-              </span>
-            </div>
-          );
-        })}
+        {meFirst(call.participants).map((p) => (
+          <PersonTrust key={p.session} call={call} person={p} onPage={narrow ? () => setPage(p.publicKey) : undefined} />
+        ))}
       </div>
       <p className="border-t border-raised pt-2.5 text-xs text-muted-foreground">{t("lock.limit")}</p>
     </>
+  );
+}
+
+/** One person in the lock's panel: what the call checked of them, and,
+    for the others whose voice verified, the safety code to compare with
+    them (ADR 0053): in place, or as a page of the sheet (`onPage`). */
+function PersonTrust({ call, person, onPage }: { call: CallView; person: Participant; onPage?: () => void }) {
+  const { t } = useLanguage();
+  const trust = trustOf(call, person) ?? "pending";
+  const [open, setOpen] = useState(false);
+  const verified = useVerified();
+  const verification = person.me ? "none" : verificationOf(verified.marks, person.publicKey, person.name);
+
+  const icon =
+    trust === "failed" ? (
+      <LockIcon open strokeWidth={2.4} className="size-3.5 text-warning" />
+    ) : trust === "pending" ? (
+      <CheckingIcon className="text-muted-foreground" />
+    ) : verification === "newKey" ? (
+      <TriangleAlert className="size-3.5 text-warning" strokeWidth={2.4} />
+    ) : verification === "verified" ? (
+      <ShieldCheck className="size-3.5 text-primary" strokeWidth={2.4} />
+    ) : (
+      <Check className="size-3.5 text-primary" strokeWidth={2.6} />
+    );
+  const label =
+    verification === "verified" ? t("safety.listVerified") : verification === "newKey" ? t("safety.newKey") : t("safety.button");
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex h-8 items-center gap-2.5 text-[0.8125rem]">
+        <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
+        <span className={cn("min-w-0 flex-1 truncate", trust === "failed" ? "text-muted-foreground" : "text-foreground")}>
+          {person.name}
+        </span>
+        {person.me ? (
+          <span className="text-xs text-muted-foreground">{t("lock.you")}</span>
+        ) : trust === "failed" ? (
+          <span className="text-xs text-warning-foreground">{t("lock.rejected")}</span>
+        ) : trust === "pending" ? (
+          <span className="text-xs text-muted-foreground">{t("lock.pending")}</span>
+        ) : (
+          <Button
+            variant="ghost"
+            aria-expanded={onPage ? undefined : open}
+            aria-label={t("safety.title", { name: person.name })}
+            onClick={() => (onPage ? onPage() : setOpen(!open))}
+            className={cn(
+              "h-7 rounded-lg px-2 text-xs font-medium",
+              verification === "newKey" ? "text-warning" : verification === "verified" ? "text-primary" : "text-subtle",
+            )}
+          >
+            {label}
+          </Button>
+        )}
+      </div>
+      {open && !onPage && trust === "ok" && !person.me && (
+        <div className="mb-2 rounded-xl bg-muted p-3">
+          <SafetyCode call={call} person={person} narrow={false} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The marks this device keeps, and a way to change them that every row
+    sees at once. */
+function useVerified(): { marks: Verified; mark: (person: Participant, on: boolean) => void } {
+  const [marks, setMarks] = useState<Verified>(loadVerified);
+  useEffect(() => {
+    const changed = () => setMarks(loadVerified());
+    window.addEventListener("drywire-verified", changed);
+    return () => window.removeEventListener("drywire-verified", changed);
+  }, []);
+  const mark = (person: Participant, on: boolean) => {
+    const next = { ...loadVerified() };
+    if (on) {
+      // A name is verified with one key: an older one stops counting.
+      for (const [key, name] of Object.entries(next)) if (name === person.name) delete next[key];
+      next[person.publicKey] = person.name;
+    } else {
+      delete next[person.publicKey];
+    }
+    saveVerified(next);
+    setMarks(next);
+    window.dispatchEvent(new Event("drywire-verified"));
+  };
+  return { marks, mark };
+}
+
+/** A person's safety code, what to do with it, and the mark. */
+function SafetyCode({
+  call,
+  person,
+  narrow,
+  onBack,
+}: {
+  call: CallView;
+  person: Participant;
+  narrow: boolean;
+  onBack?: () => void;
+}) {
+  const { t } = useLanguage();
+  const me = call.participants.find((p) => p.me);
+  const [code, setCode] = useState<string | null>(null);
+  const verified = useVerified();
+  const verification = verificationOf(verified.marks, person.publicKey, person.name);
+
+  useEffect(() => {
+    if (!me) return;
+    safetyCode(me.publicKey, person.publicKey).then(setCode, () => setCode(null));
+  }, [me?.publicKey, person.publicKey]);
+
+  const groups = (code ?? "····· ····· ····· ·····").split(" ");
+  return (
+    <div className="flex flex-col gap-2.5">
+      {onBack && (
+        <Button variant="ghost" onClick={onBack} className="h-8 self-start rounded-lg px-1.5 text-[0.8125rem] font-medium text-subtle">
+          <ChevronLeft className="size-4" />
+          {t("lock.title")}
+        </Button>
+      )}
+      <span className="text-[0.8125rem] font-semibold">{t("safety.title", { name: person.name })}</span>
+      <code
+        className={cn(
+          "text-center font-mono font-medium tracking-[0.04em] text-foreground",
+          narrow ? "py-1 text-[1.375rem] leading-[1.4]" : "text-[1.125rem]",
+        )}
+      >
+        {narrow ? (
+          <>
+            {groups.slice(0, 2).join(" ")}
+            <br />
+            {groups.slice(2).join(" ")}
+          </>
+        ) : (
+          groups.join(" ")
+        )}
+      </code>
+      {verification === "newKey" ? (
+        <p className="text-xs text-warning">{t("safety.changed", { name: person.name })}</p>
+      ) : (
+        <p className="text-xs text-subtle">{t("safety.help", { name: person.name })}</p>
+      )}
+      {verification === "verified" ? (
+        <div className="flex items-center gap-2 text-xs text-primary">
+          <ShieldCheck className="size-3.5" strokeWidth={2.4} />
+          <span className="flex-1">{t("safety.verified")}</span>
+          <Button variant="ghost" onClick={() => verified.mark(person, false)} className="h-7 rounded-lg px-2 text-xs text-subtle">
+            {t("safety.remove")}
+          </Button>
+        </div>
+      ) : (
+        <Button
+          disabled={code === null}
+          onClick={() => verified.mark(person, true)}
+          className={cn("rounded-xl text-[0.8125rem] font-semibold", narrow ? "h-13 w-full text-[0.9375rem]" : "h-9")}
+        >
+          {t("safety.mark")}
+        </Button>
+      )}
+    </div>
   );
 }

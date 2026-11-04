@@ -359,9 +359,13 @@ sender_key  = HKDF(room_key,  salt = sender_salt,
   small trusted groups; group key management (MLS) addresses it later.
 - Removing a member: regenerate the invitation, which creates a new space key.
   Automatic rotation comes with MLS.
+- **Safety codes** (ADR 0053): the lock's panel shows, for each other
+  person, 20 digits made from both public keys, the same on both sides.
+  Two people who compare them by voice or in person, and find them equal,
+  know the server listed the right key for each; the person marks the
+  other as verified, on this device.
 - **Next** (ADR 0052, proposed): one MLS group per space, links without the
-  key, removal and forward secrecy by epoch, and safety codes to compare
-  two people's keys.
+  key, removal and forward secrecy by epoch.
 
 ### Transport security and abuse
 
