@@ -186,6 +186,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/leave", s.authed(s.leaveRoom))
 	mux.HandleFunc("GET /v1/spaces/{space}/events", s.authed(s.events))
 
+	mux.HandleFunc("POST /v1/spaces/{space}/mls/key-packages", s.authed(s.putKeyPackage))
+	mux.HandleFunc("GET /v1/spaces/{space}/mls/key-packages", s.authed(s.listKeyPackages))
+	mux.HandleFunc("POST /v1/spaces/{space}/mls/commits", s.authed(s.commitMLS))
+	mux.HandleFunc("GET /v1/spaces/{space}/mls/commits", s.authed(s.listCommits))
+	mux.HandleFunc("GET /v1/spaces/{space}/mls/welcome", s.authed(s.welcome))
+
 	return s.logged(s.limited(mux))
 }
 
@@ -309,6 +315,8 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, store.ErrInvalidCreatorCode):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, store.ErrMLSTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, store.ErrVaultTooLarge):
 		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, store.ErrTooManyVaults):

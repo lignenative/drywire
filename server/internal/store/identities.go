@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"time"
 )
@@ -94,6 +95,7 @@ type Export struct {
 	Memberships []ExportMembership `json:"memberships"`
 	Invitations []ExportInvitation `json:"invitations_created"`
 	Vaults      []ExportVault      `json:"vaults"`
+	MLSDevices  []ExportMLSDevice  `json:"mls_devices"`
 	Note        string             `json:"note"`
 }
 
@@ -112,6 +114,18 @@ type ExportVault struct {
 	Size      int        `json:"size"`
 	CreatedAt time.Time  `json:"created_at"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// ExportMLSDevice is one of the identity's devices that waits to join a
+// space's MLS group, or was given what joins it (ADR 0052). Its key
+// package and welcome are the group's messages, encrypted to the device
+// or meant for the members' apps, so only their size is shown.
+type ExportMLSDevice struct {
+	SpaceID   ID        `json:"space_id"`
+	Device    string    `json:"device"`
+	State     string    `json:"state"` // "waiting" or "welcomed"
+	Size      int       `json:"size"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ExportInvitation is one invitation the identity created.
@@ -203,7 +217,33 @@ func (s *Store) Export(ctx context.Context, identityID int64) (Export, error) {
 			}
 			e.Vaults = append(e.Vaults, v)
 		}
-		return vaults.Err()
+		if err := vaults.Err(); err != nil {
+			return err
+		}
+
+		devices, err := tx.QueryContext(ctx, `
+			SELECT space_id, device, 'waiting', length(body), created_at FROM mls_key_packages WHERE identity_id = ?
+			UNION ALL
+			SELECT space_id, device, 'welcomed', length(body), created_at FROM mls_welcomes WHERE identity_id = ?
+			ORDER BY 5`, identityID, identityID)
+		if err != nil {
+			return err
+		}
+		defer devices.Close()
+		e.MLSDevices = []ExportMLSDevice{}
+		for devices.Next() {
+			var d ExportMLSDevice
+			var space, device []byte
+			var created int64
+			if err := devices.Scan(&space, &device, &d.State, &d.Size, &created); err != nil {
+				return err
+			}
+			copy(d.SpaceID[:], space)
+			d.Device = hex.EncodeToString(device)
+			d.CreatedAt = fromUnix(created)
+			e.MLSDevices = append(e.MLSDevices, d)
+		}
+		return devices.Err()
 	})
 	e.Note = "Everything this Drywire server stores about this identity. " +
 		"Presence (who is in which room) is kept in memory only and never stored; " +
