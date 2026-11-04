@@ -6,7 +6,7 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help dev test fmt vectors bench live desktop deploy status logs backup restore
+.PHONY: help dev test fmt vectors bench live desktop ui deploy status logs backup restore
 
 help: ## List the commands
 	@scripts/help.sh
@@ -31,6 +31,9 @@ live: ## Live call on this Mac: you, an echo bot and a local relay (headphones)
 
 desktop: ## Run the desktop app in development (Vite on 127.0.0.1:10051)
 	@scripts/desktop.sh
+
+ui: ## The interface alone in a browser, with a simulated call (127.0.0.1:10051)
+	@scripts/ui.sh
 
 # Operating an instance on HOST, an SSH alias set in .env (deploy/README.md).
 

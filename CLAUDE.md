@@ -117,6 +117,7 @@ make fmt      # gofmt and cargo fmt
 make dev      # run the relay on 127.0.0.1:10050
 make live     # live call on this Mac: you, an echo bot, a local relay
 make desktop  # the desktop app in development: Vite on 127.0.0.1:10051
+make ui       # the same interface in a browser, with a simulated call
 make vectors  # regenerate core/drywire-proto/vectors/ after a wire format change
 make bench    # replay simulated network traces against the jitter buffer
 make deploy   # build the server, send it to HOST (.env), start it: deploy/README.md

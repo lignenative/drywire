@@ -2,6 +2,7 @@
 // src-tauri/src (serde turns its fields into camelCase).
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { simulated } from "./simulated";
 
 /** Why a command failed: a code to translate, and the detail in English. */
 export interface AppError {
@@ -134,7 +135,8 @@ export function isAppError(value: unknown): value is AppError {
   );
 }
 
-export const api = {
+/** The Rust side, inside the Tauri window. */
+const tauri = {
   publicKey: () => invoke<string>("public_key"),
   acceptInvitation: (link: string, displayName: string) =>
     invoke<SpaceView>("accept_invitation", { link, displayName }),
@@ -159,3 +161,12 @@ export const api = {
   onPresence: (f: (notice: Notice) => void): Promise<UnlistenFn> =>
     listen<Notice>("presence", (event) => f(event.payload)),
 };
+
+/** Every command the interface sends. */
+export type Api = typeof tauri;
+
+/** Whether the page runs in the Tauri window, not in a plain browser. */
+export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/** The Rust side in the app; a simulated call in a browser (`make ui`). */
+export const api: Api = inTauri ? tauri : simulated;

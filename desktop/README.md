@@ -83,6 +83,9 @@ and can be switched in the header.
   plain files readable by their owner only: development only (ADR 0031).
   The app keeps them in `%APPDATA%\com.lignenative.drywire` on Windows;
   `DRYWIRE_DESKTOP_HOME` moves them, to run two copies side by side.
+- **The interface is built from shadcn components on Base UI**
+  (`src/components/ui/`), themed in `src/index.css` from the design
+  canvas (ADR 0037).
 - **The binary is `drywire-desktop`**, never `drywire`, which is the
   command-line client (ADR 0029). The installer and the window say
   "Drywire".
@@ -110,11 +113,23 @@ To join the local server, create a space and an invitation with the
 command-line client (see [`server/README.md`](../server/README.md)) and
 paste the link in the app.
 
+### The interface alone, in a browser
+
+```sh
+make ui        # Vite on 127.0.0.1:10051; open it in any browser
+```
+
+Outside the Tauri window, `src/api.ts` answers every command from
+`src/simulated.ts`: three spaces, people who talk, a voice gate that
+opens, presence sounds. Nothing there is measured; it exists to check
+the interface against the design canvas (CLAUDE.md, "Design first")
+without building the Rust side or starting a server.
+
 From `desktop/`:
 
 ```sh
 bun install              # the interface's dependencies, from bun.lock
-bun run dev              # Vite alone, for the interface (no Rust side)
+bun run dev              # Vite alone: the interface on a simulated call
 bun run typecheck        # TypeScript
 bun test                 # the interface's tests
 bun run tauri build      # the app and its installer (NSIS on Windows)
