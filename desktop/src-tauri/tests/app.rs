@@ -153,6 +153,7 @@ fn members_join_by_link_and_meet_in_a_room() {
     let alex_lock = PersonLock {
         public_key: alex_key.clone(),
         verified: true,
+        rejected: false,
     };
     assert_eq!(view.encryption.people, [alex_lock]);
 

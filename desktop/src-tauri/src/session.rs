@@ -235,6 +235,10 @@ pub struct PersonLock {
     /// nothing in their name failed lately. `false` for someone silent
     /// since this device joined, who does not hold the room back.
     pub verified: bool,
+    /// Whether a packet in their name failed its signature or
+    /// authentication lately: the person behind a `failed` lock, whose
+    /// voice was dropped.
+    pub rejected: bool,
 }
 
 /// One audio stream, as the system opened it.
@@ -558,6 +562,7 @@ impl SessionThread {
         view.encryption.state = LockState::Pending;
         for person in &mut view.encryption.people {
             person.verified = false;
+            person.rejected = false;
         }
         log_reconnection(&why);
         *self.view.lock().expect("not poisoned") = view;
@@ -1031,11 +1036,16 @@ impl Live {
                 .participants
                 .iter()
                 .filter(|p| !p.me)
-                .map(|p| PersonLock {
-                    public_key: p.public_key.clone(),
-                    verified: senders
+                .map(|p| {
+                    let state = senders
                         .iter()
-                        .any(|s| s.session == p.session && s.state == SenderState::Verified),
+                        .find(|s| s.session == p.session)
+                        .map(|s| s.state);
+                    PersonLock {
+                        public_key: p.public_key.clone(),
+                        verified: state == Some(SenderState::Verified),
+                        rejected: state == Some(SenderState::Failed),
+                    }
                 })
                 .collect(),
         }
@@ -1133,11 +1143,12 @@ mod tests {
             people: vec![PersonLock {
                 public_key: "ab".into(),
                 verified: true,
+                rejected: false,
             }],
         };
         assert_eq!(
             serde_json::to_string(&view).unwrap(),
-            r#"{"state":"verified","people":[{"publicKey":"ab","verified":true}]}"#
+            r#"{"state":"verified","people":[{"publicKey":"ab","verified":true,"rejected":false}]}"#
         );
         let json = serde_json::to_value(CallView::default()).unwrap();
         assert_eq!(json["encryption"]["state"], "pending");

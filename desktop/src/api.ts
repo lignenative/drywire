@@ -92,9 +92,10 @@ export interface EncryptionView {
 export interface EncryptionPerson {
   publicKey: string;
   verified: boolean;
-  /** Whose voice was rejected, when known. The Rust side does not say yet
-      (TODO: name the person behind a "failed" state), and the interface
-      then words the failure without a name. */
+  /** Whose voice was rejected: a packet in their name failed its signature
+      or authentication lately, and was dropped. The Rust side always says;
+      a client that cannot leaves it out, and the interface then words the
+      failure without a name. */
   rejected?: boolean;
 }
 

@@ -46,9 +46,8 @@ mobile ones it adds).
 - A lock next to the space's name says whether the call is end-to-end
   verified: closed when everyone heard is verified, open while someone is
   being checked, open and amber when a voice is rejected (its audio is
-  dropped, and its name dimmed). A click lists who is verified. The Rust
-  side on `main` does not report it yet, so the lock is shown only in the
-  simulated call until the branch that adds it is merged.
+  dropped, and its name dimmed). A click lists who is verified, and whose
+  voice was rejected.
 - Narrow (under 640 of the canvas's pixels), the spaces are the first
   screen and a bar at the bottom keeps the call one click away; a click
   on a room joins it.
@@ -103,17 +102,17 @@ and can be switched in the settings (Display).
   times a second. No callback ever reaches JavaScript.
 - **The encryption lock is computed in the core, never in the
   interface.** The call view carries `encryption: { state, people:
-  [{ publicKey, verified }] }`. `state` is `verified` when every person
+  [{ publicKey, verified, rejected }] }`. `state` is `verified` when every person
   heard has had their signed announcement verified with the public key
   the server gave and their frames authenticated, and at least one has;
   `pending` when alone, when nobody spoke yet, or while someone's audio
   arrives before their announcement; `failed` for 10 seconds after a
-  forged announcement or a tampered frame, which are dropped. A person
+  forged announcement or a tampered frame, which are dropped; `rejected`
+  names the person it came in the name of, for those 10 seconds. A person
   silent since this device joined shows `verified: false` without holding
   the room back. A reconnection shows `pending` until the new call
   verifies again. The definition, and what a closed lock does not prove,
-  are in ADR 0041. The window does not draw the lock yet: its design is
-  on its way to the canvas first.
+  are in ADR 0041.
 - **The commands are thin.** Each Tauri command (`commands.rs`) calls one
   method of `Desktop` (`app.rs`), so `tests/app.rs` drives the whole app
   against the real Go server, with in-memory sound cards.
