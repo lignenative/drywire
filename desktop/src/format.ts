@@ -41,3 +41,22 @@ export function linkQuality(rttMs: number | null, lossPct: number | null): "good
   if (rttMs > 60 || loss > 1) return "fair";
   return "good";
 }
+
+/** Decibels as the canvas writes them, with a true minus sign: −58 dB. */
+export function formatDb(dbfs: number): string {
+  const rounded = Math.round(dbfs);
+  return `${rounded < 0 ? "−" : ""}${Math.abs(rounded)} dB`;
+}
+
+/** A count with the language's thousands separator: 12 480 or 12,480. */
+export function formatCount(lang: string, n: number): string {
+  return new Intl.NumberFormat(lang).format(n);
+}
+
+/** The voice gate's threshold until the person chooses one: the core's
+    default (GateConfig::default in drywire-core, ADR 0034). */
+export const DEFAULT_GATE_DBFS = -50;
+
+/** The range the gate's slider covers, as the Rust side clamps it. */
+export const GATE_MIN_DBFS = -80;
+export const GATE_MAX_DBFS = -10;
