@@ -6,7 +6,7 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help dev test fmt vectors bench live web desktop ui deploy status logs backup restore
+.PHONY: help dev test clean fmt vectors bench live web desktop ui deploy status logs backup restore
 
 help: ## List the commands
 	@scripts/help.sh
@@ -16,6 +16,9 @@ dev: ## Run the server locally: 127.0.0.1:10050, and 10058/udp for browsers
 
 test: ## Run every test suite
 	@scripts/test.sh
+
+clean: ## Delete the Rust build caches (they come back at the next build)
+	@scripts/clean.sh
 
 fmt: ## Format all code
 	@scripts/fmt.sh

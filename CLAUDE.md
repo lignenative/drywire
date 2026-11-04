@@ -120,6 +120,7 @@ make help     # list the commands
 make test     # gofmt, go vet, go test -race, go-licenses; cargo fmt, clippy, test; Windows clippy; cargo deny;
               # desktop: typecheck, bun test, JS licenses, then cargo fmt, clippy, test, deny
 make fmt      # gofmt and cargo fmt
+make clean    # delete the Rust build caches (make test also starts one afresh past 6 GB)
 make dev      # run the server on 127.0.0.1:10050, browsers' side on 10058/udp
 make live     # live call on this Mac: you, an echo bot, a local relay
 make web      # the web client, a local server and an echo bot: Vite on 127.0.0.1:10057
