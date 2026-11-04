@@ -25,8 +25,13 @@ each epoch's secret goes only to the group's current devices, encrypted
 to each; adding or removing a device starts a new epoch, so a removed
 device learns nothing after, and a leaked epoch secret opens nothing
 before. OpenMLS 0.9.2 implements it in Rust under the MIT license
-(checked with `cargo info`); whether it builds to WebAssembly for the web
-client is not checked yet.
+(checked with `cargo info`). It compiles to WebAssembly for the web
+client (checked 2026-11-04: a scratch crate that creates a group and
+draws an exporter secret, compiled, not yet run in a browser) only with
+its `js` feature: `wasm-bindgen`, `js-sys` and `web-time`, and
+`getrandom` 0.2 and 0.4 set to take the browser's randomness. The
+module then weighs 2.1 MB, against 187 KB for `drywire-wasm` today,
+which loads with no glue code.
 
 ## Decision
 
@@ -69,5 +74,6 @@ The direction, to build after the accounts of ADR 0051:
   name, since every member holds the room key. Signing each 5 ms frame
   would add 64 bytes per packet, about 100 kb/s per speaker, which a
   group of friends does not need.
-- The web client needs MLS in WebAssembly, or the space waits for it:
-  that check comes first when this is built.
+- The web client needs MLS in WebAssembly: it builds, at the cost of
+  `wasm-bindgen`'s glue code and a module about ten times larger, which
+  the page can load after the interface, before the first join.
