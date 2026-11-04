@@ -22,7 +22,7 @@ async function sender(): Promise<Protocol> {
   p.start({
     session: inputs.session,
     secret: unhex(inputs.session_secret),
-    spaceKey: unhex(inputs.space_key),
+    key: { spaceKey: unhex(inputs.space_key) },
     roomId: unhex(inputs.room_id),
     publicKey: unhex(inputs.sender_public_key),
     salt: unhex(epoch0.sender_salt),
@@ -36,7 +36,7 @@ async function listener(): Promise<Protocol> {
   p.start({
     session: 7,
     secret: new Uint8Array(32),
-    spaceKey: unhex(inputs.space_key),
+    key: { spaceKey: unhex(inputs.space_key) },
     roomId: unhex(inputs.room_id),
     publicKey: unhex(inputs.sender_public_key),
     salt: new Uint8Array(32),

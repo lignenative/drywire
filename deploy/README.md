@@ -45,7 +45,9 @@ On **the host**:
 
 On **your machine**: Go (the version in `server/go.mod`), rsync, curl,
 [Bun](https://bun.sh) and Rust with the `wasm32-unknown-unknown` target
-(`rustup target add wasm32-unknown-unknown`) for the web client, and
+(`rustup target add wasm32-unknown-unknown`) and wasm-bindgen
+(`cargo install wasm-bindgen-cli --version 0.2.130 --locked`) for the
+web client, and
 [age](https://age-encryption.org) for the backups (`brew install age`, or
 `apt install age`). `drywire` to create the first space: see
 [`core/drywire-cli/README.md`](../core/drywire-cli/README.md).

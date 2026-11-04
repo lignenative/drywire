@@ -22,6 +22,7 @@ import { calibrate } from "./audio/gate";
 import { recordLevels, WebCall } from "./call";
 import { type EncoderSettings, SAMPLE_RATE } from "./codec";
 import { ControlError, ControlPlane } from "./control";
+import { Groups } from "./group";
 import { fromSeed, type Identity, saveIdentity } from "./identity";
 import { invitationLink } from "./links";
 import { hex, type Protocol, ProtocolError, unhex } from "./protocol";
@@ -87,6 +88,8 @@ export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec:
   /** The account: another one replaces it when a code is opened. */
   let identity = firstIdentity;
   const controls = new Map<string, ControlPlane>();
+  /** The spaces' MLS groups in this browser (ADR 0052). */
+  const groups = new Groups(identity);
   const listeners = new Set<(notice: Notice) => void>();
   let settings = loadSettings();
   let call: WebCall | null = null;
@@ -167,9 +170,30 @@ export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec:
     const space = loadSpaces().find((s) => s.instance === instance && s.id === spaceId);
     const room = space?.rooms.find((r) => r.id === roomId);
     if (!space || !room) throw appError("not_found", "no such room in this browser");
-    // Its keys come from its MLS group, which the browser does not run yet
-    // (ADR 0052, step 4 for the web client).
-    if (space.spaceKey === "") throw appError("group_browser", "this space's keys come from its group: use the app for now");
+    // A space whose keys come from its MLS group: this browser joins the
+    // group first, which a member's app may have to let it into.
+    const roomKey =
+      space.spaceKey === ""
+        ? async () => {
+            const owner = space.role === "owner";
+            const deadline = Date.now() + 120_000;
+            for (;;) {
+              const state = await groups.sync(control(instance), spaceId, owner).catch((e) => {
+                throw (e as { code?: string }).code === "old_key"
+                  ? appError("group_browser", "this browser's key is from before accounts: sign in again")
+                  : asAppError(e);
+              });
+              if (state.ready) {
+                const key = await groups.roomKey(spaceId, roomId);
+                if (key) return key;
+              }
+              if (Date.now() > deadline) {
+                throw appError("group_waiting", "no member's app let this browser into the space yet");
+              }
+              await new Promise((r) => setTimeout(r, 1000));
+            }
+          }
+        : undefined;
     const started = WebCall.start({
       protocol,
       identity,
@@ -180,6 +204,7 @@ export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec:
       codec,
       settings: () => settings,
       onNotice: (notice) => listeners.forEach((f) => f(notice)),
+      roomKey,
     });
     starting = started;
     try {

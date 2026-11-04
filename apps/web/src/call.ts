@@ -53,6 +53,9 @@ export interface CallSetup {
   codec: EncoderSettings;
   settings: () => WebSettings;
   onNotice: (notice: Notice) => void;
+  /** For a space with an MLS group (ADR 0052): syncs it and gives the
+      room's current key. A space key is used otherwise. */
+  roomKey?: () => Promise<Uint8Array>;
 }
 
 interface Person {
@@ -102,6 +105,8 @@ export class WebCall {
   private muted = false;
   private ended: string | null = null;
   private reconnecting = false;
+  /** The room key the call runs with, when the space has an MLS group. */
+  private key: Uint8Array | null = null;
   /** When to join again, while reconnecting. */
   private retries: Retries | null = null;
   private connecting = false;
@@ -176,10 +181,12 @@ export class WebCall {
       // Left while joining: end the session the server just made.
       if (this.left) return void (await control.leave().catch(() => {}));
       if (!answer.web_relay) throw new ControlError("refused", "this instance serves no browser");
+      this.key = this.setup.roomKey ? await this.setup.roomKey() : null;
+      if (this.left) return void (await control.leave().catch(() => {}));
       protocol.start({
         session: answer.session,
         secret: unhex(answer.session_secret),
-        spaceKey: unhex(space.spaceKey),
+        key: this.key ? { roomKey: this.key } : { spaceKey: unhex(space.spaceKey) },
         roomId: unhex(answer.room.id),
         publicKey: identity.publicKey,
         salt: crypto.getRandomValues(new Uint8Array(32)),
@@ -415,6 +422,10 @@ export class WebCall {
       if (!this.reconnecting) this.setup.onNotice({ kind: "join", name: e.name });
       return;
     }
+    if (e.type === "mls") {
+      void this.rekey();
+      return;
+    }
     // A leave or a disconnect.
     if (e.session === mine) {
       if (this.connecting || this.reconnecting) return;
@@ -427,6 +438,21 @@ export class WebCall {
     const name = this.people.get(e.session)?.name ?? this.names.get(e.session) ?? "";
     this.removePerson(e.session);
     this.setup.onNotice({ kind: e.type, name });
+  }
+
+  /** The space's group moved: with a new room key, the call joins again
+      under it. The browser's module holds one key per call, so it does
+      not switch keys in flight as the apps do; the others keep the old
+      key a while, and the gap is one join. */
+  private async rekey(): Promise<void> {
+    if (!this.setup.roomKey || this.reconnecting || this.connecting || this.left || this.ended) return;
+    try {
+      const key = await this.setup.roomKey();
+      const same = this.key !== null && key.length === this.key.length && key.every((b, i) => b === this.key?.[i]);
+      if (!same) this.lose("the space's group moved to a new room key");
+    } catch {
+      // The next event, or the next join, tries again.
+    }
   }
 
   // --- Losing and ending -----------------------------------------------------

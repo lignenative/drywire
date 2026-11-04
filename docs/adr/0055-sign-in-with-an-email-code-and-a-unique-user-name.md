@@ -1,7 +1,8 @@
 # 0055. Sign in with an e-mail code and a unique user name
 
-Status: Accepted · 2026-11-04 · screens on the canvas's V4 page; the
-server's part built (protocol section 13.8), the apps not yet
+Status: Accepted · 2026-11-04 · built in the server, the CLI, the
+desktop app and the web client (canvas V4); vaults and codes not yet
+removed
 
 ## Context
 

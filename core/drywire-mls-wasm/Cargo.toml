@@ -1,0 +1,28 @@
+[package]
+name = "drywire-mls-wasm"
+description = "drywire-mls for the web client: a space's MLS group in the browser (ADRs 0052 and 0055)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# A cdylib is the .wasm the page loads, through wasm-bindgen's glue; the
+# rlib lets `cargo test` check the same code natively.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+drywire-mls.workspace = true
+ed25519-dalek.workspace = true
+wasm-bindgen = "=0.2.130"
+
+# In the browser, OpenMLS takes its clock and its randomness from the page
+# (its js feature, and getrandom's), which needs wasm-bindgen's glue.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+openmls = { workspace = true, features = ["js"] }
+getrandom02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+
+[lints]
+workspace = true
