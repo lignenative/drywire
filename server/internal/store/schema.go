@@ -70,6 +70,21 @@ CREATE TABLE invitations (
 	uses       INTEGER NOT NULL DEFAULT 0
 );
 `,
+	// 2: vaults, the sealed copies of an account that let another device
+	// become it (ADR 0051). The server cannot open them.
+	`
+CREATE TABLE vaults (
+	id          BLOB    PRIMARY KEY CHECK (length(id) = 32),
+	identity_id INTEGER NOT NULL REFERENCES identities (id) ON DELETE CASCADE,
+	kind        TEXT    NOT NULL CHECK (kind IN ('recovery', 'device')),
+	sealed      BLOB    NOT NULL,
+	created_at  INTEGER NOT NULL,
+	expires_at  INTEGER  -- NULL for a recovery vault, which lasts
+);
+CREATE INDEX vaults_by_identity ON vaults (identity_id);
+-- One recovery vault per identity: a new code replaces the old one.
+CREATE UNIQUE INDEX one_recovery_vault ON vaults (identity_id) WHERE kind = 'recovery';
+`,
 }
 
 // migrate applies the migrations the database has not seen yet.

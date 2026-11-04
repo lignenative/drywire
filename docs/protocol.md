@@ -565,7 +565,8 @@ proves that it holds the private key.
 - The token goes in every other request as `Authorization: Bearer <token>`.
   It is valid for one hour; on a `401` the client logs in again. Tokens are
   kept in the server's memory only, so a restart logs everyone out. An
-  identity holds at most 4 tokens: a fifth login ends the oldest.
+  identity holds at most 8 tokens, for a person's several devices
+  (section 15): a ninth login ends the oldest.
 - Requests are rate-limited per client address (per /64 for IPv6); a
   challenge or a login costs five requests. A server that cannot take more
   logins answers `503` with `Retry-After`.
@@ -692,7 +693,7 @@ The rights of spec section 9, in the API:
 | --- | --- |
 | `GET /v1/me` | → `{public_key, name, created_at, last_seen_at}`, or `404` for a key with no identity yet |
 | `PATCH /v1/me` | `{name}` → the identity, renamed |
-| `GET /v1/me/export` | → everything the server stores about the caller, as a JSON file: identity, memberships, invitations created |
+| `GET /v1/me/export` | → everything the server stores about the caller, as a JSON file: identity, memberships, invitations created, vaults (kind, size, dates: the server cannot open them) |
 | `DELETE /v1/me` | → `204`; the identity, its memberships, session, event streams and tokens end |
 | `DELETE /v1/spaces/{space}/members/{own public key}` | → `204`, leaves the space |
 
@@ -736,3 +737,73 @@ payload = version (1) ‖ code (16) ‖ space_key (32) ‖ instance
   and an instance that is not in canonical form.
 - Codes expire and have a maximum number of uses. The instance stores only
   their SHA-256.
+
+## 15. Account vaults
+
+An identity is an account its person's devices share (ADR 0051). A
+device becomes that account by opening a **vault**: the account's private
+key, display name and spaces, sealed by a device that has them, under a
+key derived from a **code**. The instance stores the sealed bytes under
+an id the same code derives; it never sees the code and cannot open them.
+
+### 15.1 The code
+
+16 random bytes, the **secret**, written as 26 characters of Crockford's
+base32 (`0123456789ABCDEFGHJKMNPQRSTVWXYZ`), most significant bits first,
+the last character carrying 3 bits of the secret and 2 zero bits. Clients
+show it in groups of four, `XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX`. A decoder
+ignores case, hyphens and spaces, reads `O` as `0` and `I` or `L` as `1`,
+and refuses any other character, a length other than 26 and non-zero
+spare bits.
+
+```text
+id  = HKDF-SHA256(ikm = secret, salt = "", info = "drywire/vault/id/v1",  L = 32)
+key = HKDF-SHA256(ikm = secret, salt = "", info = "drywire/vault/key/v1", L = 32)
+```
+
+### 15.2 The sealed bytes
+
+```text
+sealed = version (1) ‖ nonce (12) ‖ AES-256-GCM(key, nonce, plaintext, aad)
+aad    = "drywire/vault/v1" ‖ id
+```
+
+- Version `1`. The nonce is random, drawn for each sealing: a code seals
+  few vaults in its life.
+- The plaintext is UTF-8 JSON, unknown fields ignored:
+
+  ```json
+  {"account": "<32-byte Ed25519 seed>", "name": "<display name>",
+   "spaces": [{"instance": "<canonical origin>", "id": "<16 bytes>",
+               "name": "<space name>", "key": "<32-byte space key>"}]}
+  ```
+
+- A client refuses another version (the user needs an update), and
+  sealed bytes that fail authentication, which is what a wrong code
+  gives.
+
+### 15.3 Requests
+
+| Request | Who | Body → answer |
+| --- | --- | --- |
+| `PUT /v1/me/vault` | an identity | `{id, sealed}` → `204`, its recovery vault, replacing the one it had |
+| `DELETE /v1/me/vault` | an identity | → `204` |
+| `POST /v1/me/device-vaults` | an identity | `{id, sealed}` → `201` `{expires_in, expires_at}` |
+| `POST /v1/vaults/open` | anyone, no token | `{id}` → `{kind, sealed}`, kind `recovery` or `device` |
+
+- A **recovery vault** lasts until its identity is deleted or stores
+  another: a vault under a new id replaces the old, which is written to
+  the deletion ledger so that no restored backup brings it back. Storing
+  the same id again updates the sealed bytes: the device that knows the
+  code seals the vault again whenever its spaces change. A client keeps
+  the same recovery vault on every instance where it has a space.
+- A **device vault** lasts 10 minutes and opens once. An identity has at
+  most 4 waiting (`409` beyond).
+- Sealed bytes are at most 24 KiB (`413` beyond).
+- Opening costs as much as a login against the rate limit, and every
+  failure is the same `404`. The id is 256 bits derived from a 128-bit
+  secret: it cannot be guessed, and it is useless without the code,
+  which derives the key separately.
+- Like other request bodies, the id and the sealed bytes never appear in
+  a URL or a log.
+

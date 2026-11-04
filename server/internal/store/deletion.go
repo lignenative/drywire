@@ -170,13 +170,16 @@ func spaceIDs(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]ID,
 type Purged struct {
 	Identities  int
 	Invitations int
+	// Vaults counts the device vaults past their time.
+	Vaults int
 	// Deleted lists, per purged identity, what went with it.
 	Deleted []Deleted
 }
 
 // PurgeInactive deletes the identities that have not logged in for
-// InactiveAfter, exactly as if each had deleted itself, and the
-// invitations that can no longer be used. The server runs it daily.
+// InactiveAfter, exactly as if each had deleted itself, the invitations
+// that can no longer be used, and the device vaults past their time. The
+// server runs it daily.
 func (s *Store) PurgeInactive(ctx context.Context) (Purged, error) {
 	var p Purged
 	now := s.now()
@@ -215,6 +218,9 @@ func (s *Store) PurgeInactive(ctx context.Context) (Purged, error) {
 	}
 	n, _ := res.RowsAffected()
 	p.Invitations = int(n)
+	if p.Vaults, err = s.purgeExpiredVaults(ctx); err != nil {
+		return p, err
+	}
 	return p, nil
 }
 
@@ -298,6 +304,35 @@ func (s *Store) Replay(ctx context.Context, entries []ledger.Entry) (applied int
 					return err
 				}
 				applied++
+			case ledger.KindVault:
+				// Vaults are recorded by the hash of their id: few enough
+				// to hash every one of them.
+				rows, err := tx.QueryContext(ctx, `SELECT id, created_at FROM vaults`)
+				if err != nil {
+					return err
+				}
+				var gone [][]byte
+				for rows.Next() {
+					var id []byte
+					var created int64
+					if err := rows.Scan(&id, &created); err != nil {
+						rows.Close()
+						return err
+					}
+					if len(id) == len(VaultID{}) && vaultHash(VaultID(id)) == e.Vault && created < e.At {
+						gone = append(gone, id)
+					}
+				}
+				rows.Close()
+				if err := rows.Err(); err != nil {
+					return err
+				}
+				for _, id := range gone {
+					if _, err := tx.ExecContext(ctx, `DELETE FROM vaults WHERE id = ?`, id); err != nil {
+						return err
+					}
+					applied++
+				}
 			case ledger.KindInvitation:
 				id, ok := idFromHex(e.Invitation)
 				if !ok {

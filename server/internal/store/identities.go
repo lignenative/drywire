@@ -93,6 +93,7 @@ type Export struct {
 	Identity    Identity           `json:"identity"`
 	Memberships []ExportMembership `json:"memberships"`
 	Invitations []ExportInvitation `json:"invitations_created"`
+	Vaults      []ExportVault      `json:"vaults"`
 	Note        string             `json:"note"`
 }
 
@@ -102,6 +103,15 @@ type ExportMembership struct {
 	SpaceName string    `json:"space_name"`
 	Role      Role      `json:"role"`
 	JoinedAt  time.Time `json:"joined_at"`
+}
+
+// ExportVault is one vault of the identity, as the server sees it: sealed
+// bytes it cannot open, so only their size and dates.
+type ExportVault struct {
+	Kind      VaultKind  `json:"kind"`
+	Size      int        `json:"size"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 // ExportInvitation is one invitation the identity created.
@@ -167,10 +177,37 @@ func (s *Store) Export(ctx context.Context, identityID int64) (Export, error) {
 			inv.CreatedAt, inv.ExpiresAt = fromUnix(created), fromUnix(expires)
 			e.Invitations = append(e.Invitations, inv)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		vaults, err := tx.QueryContext(ctx, `
+			SELECT kind, length(sealed), created_at, expires_at
+			FROM vaults WHERE identity_id = ? ORDER BY created_at`, identityID)
+		if err != nil {
+			return err
+		}
+		defer vaults.Close()
+		e.Vaults = []ExportVault{}
+		for vaults.Next() {
+			var v ExportVault
+			var created int64
+			var expires sql.NullInt64
+			if err := vaults.Scan(&v.Kind, &v.Size, &created, &expires); err != nil {
+				return err
+			}
+			v.CreatedAt = fromUnix(created)
+			if expires.Valid {
+				t := fromUnix(expires.Int64)
+				v.ExpiresAt = &t
+			}
+			e.Vaults = append(e.Vaults, v)
+		}
+		return vaults.Err()
 	})
 	e.Note = "Everything this Drywire server stores about this identity. " +
 		"Presence (who is in which room) is kept in memory only and never stored; " +
-		"audio is end-to-end encrypted and never stored."
+		"audio is end-to-end encrypted and never stored. " +
+		"Vaults are sealed on your device with a code this server never sees, so only their size is shown."
 	return e, err
 }
