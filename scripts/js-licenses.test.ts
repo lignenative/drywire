@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { allowed, declared } from "./js-licenses";
+import { allowed, declared, FONTS, isFont } from "./js-licenses";
 
 test("SPDX expressions", () => {
   expect(allowed("MIT")).toBe(true);
@@ -22,4 +22,13 @@ test("declared licenses, old forms included", () => {
     "(MIT OR Apache-2.0)",
   );
   expect(declared({})).toBeUndefined();
+});
+
+test("the font license only for fonts", () => {
+  expect(allowed("OFL-1.1")).toBe(false);
+  expect(allowed("OFL-1.1", FONTS)).toBe(true);
+  expect(isFont("@fontsource-variable/geist")).toBe(true);
+  expect(isFont("@fontsource/geist-mono")).toBe(true);
+  expect(isFont("fontsource-lookalike")).toBe(false);
+  expect(allowed("0BSD")).toBe(true);
 });

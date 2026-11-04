@@ -20,7 +20,20 @@ export const ALLOWED = new Set([
   "ISC",
   "Zlib",
   "MPL-2.0",
+  // Zero-clause BSD: MIT and ISC without even the notice to keep.
+  "0BSD",
 ]);
+
+/**
+ * The SIL Open Font License is for fonts only (ADR 0037): it is allowed
+ * for the font packages the interface bundles, nowhere else.
+ */
+export const FONTS = new Set([...ALLOWED, "OFL-1.1"]);
+
+/** Whether a package is one of the bundled fonts. */
+export function isFont(name: string): boolean {
+  return name.startsWith("@fontsource/") || name.startsWith("@fontsource-variable/");
+}
 
 /**
  * Whether an SPDX expression is acceptable: with OR, one choice must be
@@ -137,7 +150,10 @@ function main(dirs: string[]): number {
     console.error(`no package installed in ${dirs.join(", ")}: run bun install first`);
     return 1;
   }
-  const refused = [...seen].filter(([, license]) => !license || !allowed(license));
+  const refused = [...seen].filter(([id, license]) => {
+    const name = id.slice(0, id.lastIndexOf("@"));
+    return !license || !allowed(license, isFont(name) ? FONTS : ALLOWED);
+  });
   for (const [pkg, license] of refused) {
     console.error(`${pkg}: license ${license ?? "(none)"} is not allowed (CLAUDE.md)`);
   }

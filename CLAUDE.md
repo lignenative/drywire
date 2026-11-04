@@ -25,6 +25,8 @@ fixed in the same change.
   for the Unicode tables that `unicode-ident` brings to every proc macro
   (ADR 0008). Apache 2.0 with the LLVM exception, which only adds a
   permission, for `target-lexicon` in the desktop app's build (ADR 0030).
+  0BSD, which asks even less than MIT. The SIL Open Font License, for the
+  fonts the interface bundles and nothing else (ADR 0037).
 - Forbidden: GPL, LGPL, AGPL, and anything without a clear license.
 - Go server: standard library only, except `modernc.org/sqlite` (control
   plane) and `quic-go` (web client), both accepted in the spec. Any other

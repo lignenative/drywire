@@ -1,0 +1,124 @@
+/* The interface's theme: the design canvas's colours, fonts and radii, in
+   one place (ADR 0037). shadcn components read the variables below; our
+   own components use the Tailwind classes they generate (bg-card,
+   text-muted-foreground, text-danger…). The app is dark only, like the
+   mockup: <html class="dark"> turns on the components' dark variants. */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./shadcn.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Geist Variable", "Segoe UI Variable", system-ui, sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Drywire's own shades, beyond shadcn's set. */
+  --color-subtle: var(--subtle);
+  --color-dim: var(--dim);
+  --color-faint: var(--faint);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-track: var(--track);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  color-scheme: dark;
+  --radius: 0.75rem;
+
+  /* Graphite. */
+  --background: #0f1012;
+  --foreground: #ececef;
+  --card: #16171a;
+  --card-foreground: #ececef;
+  --popover: #18191c;
+  --popover-foreground: #ececef;
+  --secondary: #1b1c20;
+  --secondary-foreground: #ececef;
+  --muted: #17181b;
+  --muted-foreground: #8a8b93;
+  --accent: #222327;
+  --accent-foreground: #ffffff;
+  --border: #2a2b30;
+  --input: #2f3036;
+  --track: #26272c;
+
+  /* Text, from loud to quiet. */
+  --subtle: #a3a4ab;
+  --dim: #6f7078;
+  --faint: #5a5b62;
+
+  /* Signal green: sending, speaking, the main action. */
+  --primary: #3ddc97;
+  --primary-foreground: #06140e;
+  --ring: #3ddc97;
+
+  /* Leave and errors; danger is the text and icon shade. */
+  --destructive: #d8434a;
+  --danger: #ff8a8e;
+
+  /* Waiting, estimates, warnings. */
+  --warning: #f5b84b;
+  --warning-foreground: #f7cf85;
+
+  /* The side menu of spaces. */
+  --sidebar: #131416;
+  --sidebar-foreground: #ececef;
+  --sidebar-primary: #3ddc97;
+  --sidebar-primary-foreground: #06140e;
+  --sidebar-accent: #222327;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #1f2023;
+  --sidebar-ring: #3ddc97;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

@@ -1,12 +1,19 @@
 // The interface's build. Tauri loads the dev server in development and
 // the built files (dist/) in the app. The port is fixed, on 127.0.0.1
 // only, and never moves on its own: CLAUDE.md, "Local ports".
+import { fileURLToPath } from "node:url";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
 const port = Number(process.env.DEV_PORT ?? 10051);
 
 export default defineConfig({
   clearScreen: false,
+  plugins: [tailwindcss()],
+  // "@/…" is src/, as in tsconfig.json: the path shadcn components import from.
+  resolve: {
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   server: {
     host: "127.0.0.1",
     port,
