@@ -25,16 +25,13 @@ export function NarrowHome({ app }: { app: AppState }) {
         </Button>
       </header>
 
-      {app.spaces?.length === 0 ? (
-        <NoSpaceNarrow app={app} />
-      ) : (
-        <nav aria-label={t("spaces.label")} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pt-2 pb-4">
-          {app.spaces?.map((space, i) => (
-            <SpaceBlock key={`${space.instance} ${space.id}`} app={app} space={space} last={i === app.spaces!.length - 1} />
-          ))}
-          {app.joinError && <p className="px-3 pt-3 text-[0.8125rem] text-danger">{app.joinError}</p>}
-        </nav>
-      )}
+      {/* No space at all shows the welcome screen instead (App.tsx). */}
+      <nav aria-label={t("spaces.label")} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pt-2 pb-4">
+        {app.spaces?.map((space, i) => (
+          <SpaceBlock key={`${space.instance} ${space.id}`} app={app} space={space} last={i === app.spaces!.length - 1} />
+        ))}
+        {app.joinError && <p className="px-3 pt-3 text-[0.8125rem] text-danger">{app.joinError}</p>}
+      </nav>
 
       {call ? (
         <CallBar app={app} call={call} />
@@ -223,15 +220,3 @@ function CallBar({ app, call }: { app: AppState; call: CallView }) {
   );
 }
 
-function NoSpaceNarrow({ app }: { app: AppState }) {
-  const { t } = useLanguage();
-  return (
-    <div className="flex min-h-0 flex-1 flex-col items-center gap-2.5 px-4 pt-25 text-center">
-      <h1 className="text-[1.375rem] font-semibold tracking-[-0.03em]">{t("empty.title")}</h1>
-      <p className="max-w-80 text-sm text-subtle">{t("empty.help")}</p>
-      <Button onClick={() => app.setInviteOpen(true)} className="mt-2.5 h-11 rounded-xl px-4.5 text-sm font-semibold">
-        {t("empty.paste")}
-      </Button>
-    </div>
-  );
-}

@@ -87,19 +87,6 @@ export function EndedView({ app, space, room }: { app: AppState; space: SpaceVie
   );
 }
 
-export function NoSpaceView({ app }: { app: AppState }) {
-  const { t } = useLanguage();
-  return (
-    <div className="flex min-h-0 flex-1 flex-col justify-center gap-2.5 px-14 pb-15">
-      <h1 className="text-[2.125rem] font-semibold tracking-[-0.03em]">{t("empty.title")}</h1>
-      <p className="max-w-95 text-sm text-subtle">{t("empty.help")}</p>
-      <Button size="xl" onClick={() => app.setInviteOpen(true)} className="mt-3 self-start">
-        {t("empty.paste")}
-      </Button>
-    </div>
-  );
-}
-
 /** Asks for the voice gate's calibration until a threshold was chosen: the
     default cannot suit every microphone (ADR 0034). */
 export function CalibrateCard({ app, className }: { app: AppState; className?: string }) {

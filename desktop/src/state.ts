@@ -15,6 +15,9 @@ const POLL_MS = 100;
 /** The name typed in the last invitation, offered again for the next. */
 export const NAME_KEY = "drywire.displayName";
 
+/** The invitation dialog's three forms. */
+export type InviteMode = "invite" | "restore" | "create";
+
 export type SettingsTab = "voice" | "sounds" | "display" | "account" | "advanced";
 
 export const SETTINGS_TABS: readonly SettingsTab[] = ["voice", "sounds", "display", "account", "advanced"];
@@ -28,6 +31,8 @@ export interface AppState {
   page: "main" | "settings";
   settingsTab: SettingsTab;
   inviteOpen: boolean;
+  /** What the invitation dialog shows first when it opens. */
+  inviteMode: InviteMode;
   /** The space whose invitation dialog is open, if any. */
   sharing: SpaceView | null;
   /** The narrow window shows one screen at a time. */
@@ -51,6 +56,9 @@ export interface AppState {
   closeSettings: () => void;
   setSettingsTab: (tab: SettingsTab) => void;
   setInviteOpen: (open: boolean) => void;
+  /** Opens the invitation dialog on joining, creating a space, or
+      getting an account back: the welcome screen's three ways in. */
+  openInvite: (mode: InviteMode) => void;
   /** Opens the invitation dialog of a space, or closes it with null. */
   setSharing: (space: SpaceView | null) => void;
   accepted: (space: SpaceView, name: string) => void;
@@ -71,6 +79,7 @@ export function useAppState(): AppState {
   // An invitation or a creation code the window was opened with fills the
   // form at once.
   const [inviteOpen, setInviteOpen] = useState(() => offeredInvitation() !== null || offeredCreation() !== null);
+  const [inviteMode, setInviteMode] = useState<InviteMode>("invite");
   const [sharing, setSharing] = useState<SpaceView | null>(null);
   const [narrowScreen, setNarrowScreen] = useState<"spaces" | "call">("spaces");
   const [joining, setJoining] = useState(false);
@@ -244,7 +253,15 @@ export function useAppState(): AppState {
     openSettings,
     closeSettings: () => setPage("main"),
     setSettingsTab,
-    setInviteOpen,
+    inviteMode,
+    setInviteOpen: (open) => {
+      if (open) setInviteMode("invite");
+      setInviteOpen(open);
+    },
+    openInvite: (mode) => {
+      setInviteMode(mode);
+      setInviteOpen(true);
+    },
     sharing,
     setSharing,
     accepted,

@@ -11,17 +11,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { invitationProblem, offerCreation, offeredCreation, offerInvitation, offeredInvitation } from "@/invite";
 import { errorText, useLanguage } from "@/lang";
-import { NAME_KEY, type AppState } from "@/state";
+import { NAME_KEY, type AppState, type InviteMode } from "@/state";
 
-type Mode = "invite" | "restore" | "create";
 
 export function InviteDialog({ app, narrow }: { app: AppState; narrow: boolean }) {
-  const [mode, setMode] = useState<Mode>("invite");
-  // Each opening starts on joining, unless the window was opened with a
-  // creation code.
+  const [mode, setMode] = useState<InviteMode>("invite");
+  // Each opening starts where it was asked to (joining, unless the welcome
+  // screen chose another way in), or on creating when the window was
+  // opened with a creation code.
   useEffect(() => {
-    if (app.inviteOpen) setMode(offeredCreation() !== null ? "create" : "invite");
-  }, [app.inviteOpen]);
+    if (app.inviteOpen) setMode(offeredCreation() !== null ? "create" : app.inviteMode);
+  }, [app.inviteOpen, app.inviteMode]);
   return (
     <Dialog open={app.inviteOpen} onOpenChange={app.setInviteOpen}>
       <DialogContent

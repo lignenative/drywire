@@ -5,9 +5,10 @@ import { CallView } from "@/components/CallView";
 import { InviteDialog } from "@/components/InviteDialog";
 import { ShareDialog } from "@/components/ShareDialog";
 import { NarrowHome } from "@/components/NarrowHome";
-import { EndedView, NoSpaceView, PeekView } from "@/components/RoomViews";
+import { EndedView, PeekView } from "@/components/RoomViews";
 import { NarrowSettings, SettingsPage } from "@/components/Settings";
 import { SideMenu } from "@/components/SideMenu";
+import { Welcome } from "@/components/Welcome";
 import { useNarrow } from "@/hooks";
 import { findRoom } from "@/model";
 import { showsCall, useAppState, type AppState } from "@/state";
@@ -23,6 +24,8 @@ export function App() {
         ) : (
           <SettingsPage app={app} />
         )
+      ) : app.spaces?.length === 0 && !app.call ? (
+        <Welcome app={app} narrow={narrow} />
       ) : narrow ? (
         app.narrowScreen === "call" && app.call ? (
           <div className="flex h-full flex-col">
@@ -57,5 +60,5 @@ function MainArea({ app }: { app: AppState }) {
   }
   const found = findRoom(app.spaces, app.selected);
   if (found) return <PeekView app={app} space={found.space} room={found.room} />;
-  return app.spaces.length === 0 ? <NoSpaceView app={app} /> : null;
+  return null;
 }
