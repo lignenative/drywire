@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { DEFAULT_GATE_DBFS, formatDb } from "@/format";
 import { useLanguage } from "@/lang";
 import { SETTINGS_TABS, type AppState, type SettingsTab } from "@/state";
+import { AccountSection } from "./AccountSection";
 import { AdvancedSection, DisplaySection, SoundsSection, VoiceSection } from "./SettingsSections";
 
 function Section({ tab, app, narrow }: { tab: SettingsTab; app: AppState; narrow: boolean }) {
@@ -17,6 +18,8 @@ function Section({ tab, app, narrow }: { tab: SettingsTab; app: AppState; narrow
       return <SoundsSection app={app} narrow={narrow} />;
     case "display":
       return <DisplaySection app={app} narrow={narrow} />;
+    case "account":
+      return <AccountSection narrow={narrow} />;
     case "advanced":
       return <AdvancedSection narrow={narrow} />;
   }
@@ -76,6 +79,7 @@ export function NarrowSettings({ app }: { app: AppState }) {
       mono: true,
     },
     display: { text: t(`language.${lang}`), mono: false },
+    account: { text: "", mono: false },
     advanced: { text: "", mono: false },
   };
 

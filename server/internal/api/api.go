@@ -161,6 +161,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /v1/me", s.authed(s.rename))
 	mux.HandleFunc("DELETE /v1/me", s.authed(s.deleteMe))
 	mux.HandleFunc("GET /v1/me/export", s.authed(s.export))
+	mux.HandleFunc("PUT /v1/me/vault", s.authed(s.putRecoveryVault))
+	mux.HandleFunc("DELETE /v1/me/vault", s.authed(s.deleteRecoveryVault))
+	mux.HandleFunc("POST /v1/me/device-vaults", s.authed(s.putDeviceVault))
+	mux.HandleFunc("POST /v1/vaults/open", s.openVault)
 
 	mux.HandleFunc("GET /v1/spaces", s.authed(s.listSpaces))
 	mux.HandleFunc("POST /v1/spaces", s.authed(s.createSpace))
@@ -303,6 +307,10 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, store.ErrInvalidCode):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, store.ErrVaultTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
+	case errors.Is(err, store.ErrTooManyVaults):
+		writeError(w, http.StatusConflict, err.Error())
 	default:
 		s.log.Error("request failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
@@ -357,7 +365,9 @@ func rateKey(ip netip.Addr) netip.Addr {
 func (s *Server) limited(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cost := 1.0
-		if strings.HasPrefix(r.URL.Path, "/v1/auth/") {
+		// Opening a vault costs a login: like a login, it is what
+		// someone guessing would repeat.
+		if strings.HasPrefix(r.URL.Path, "/v1/auth/") || r.URL.Path == "/v1/vaults/open" {
 			cost = loginCost
 		}
 		if !s.allow(rateKey(s.clientIP(r)), cost) {

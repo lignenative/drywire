@@ -56,8 +56,11 @@ pub struct Account {
     pub display_name: String,
     pub uses: Option<u32>,
     pub days: Option<f64>,
-    /// The positional argument, if any (an invitation link, a new name).
+    /// The positional argument, if any (an invitation link, a new name, a
+    /// code).
     pub value: Option<String>,
+    /// `--force`: replace this device's account (`restore`).
+    pub force: bool,
 }
 
 /// The display name to use when none is given: the system's user name.
@@ -223,6 +226,7 @@ impl Account {
                 "--name" => account.name = Some(flags.value(flag)?.to_string()),
                 "--room" => account.room = Some(flags.value(flag)?.to_string()),
                 "--display-name" => account.display_name = flags.value(flag)?.to_string(),
+                "--force" => account.force = true,
                 "--uses" => account.uses = Some(flags.parsed(flag)?),
                 "--days" => {
                     let days: f64 = flags.parsed(flag)?;

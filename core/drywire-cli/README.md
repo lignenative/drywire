@@ -79,6 +79,29 @@ for scripts. If the server ends the session (the same identity joined
 elsewhere, the member was removed, or the relay heard nothing for 30
 seconds), `join` stops and says so.
 
+## Your account on several devices
+
+Your identity is your account: the same key on your PC, your phone and
+your laptop, one name and one seat in each space (ADR 0051).
+
+```sh
+drywire recovery-code            # once: a code to keep, like a password
+drywire device-code              # on a device that has your account: a code for 10 minutes
+drywire restore CODE --instance https://voice.example.org   # on the new device
+```
+
+- The **recovery code** brings everything back on a device that has
+  nothing: your key, your name, your spaces and their keys. The instances
+  keep it sealed and cannot open it. A new `recovery-code` replaces the
+  old one, and this device keeps the vault up to date when you join or
+  leave a space.
+- A **device code** works once, for ten minutes, on the instance it
+  names.
+- `restore` will not replace an account this device already uses for
+  some space, unless you add `--force`.
+- Joining a room from one device ends the call on the other: one person,
+  one voice.
+
 ## What stays on this device
 
 Everything lives in one directory: `--home DIR`, else `DRYWIRE_HOME`, else
@@ -90,6 +113,8 @@ Everything lives in one directory: `--home DIR`, else `DRYWIRE_HOME`, else
   Windows, your profile's permissions).
 - `spaces.json`: for each space, the instance, its id and name, and the
   space key from the invitation link. The server never sees that key.
+- `recovery.json`: your recovery code's secret, if this device made it
+  or was restored with it.
 
 Both hold secrets: whoever copies them can speak as you and hear your
 spaces. `delete-identity` removes you from the instances and forgets the

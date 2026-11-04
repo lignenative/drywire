@@ -15,7 +15,7 @@ desktop/
     src/meter.rs     The microphone's level out of a call
     src/shell.rs     The tray icon, the global shortcut and the overlay
     src/latency.rs   The per-person latency estimate
-    src/store.rs     The identity and the space keys on disk
+    src/store.rs     The account, the space keys and the recovery code's secret on disk
     src/vault.rs     DPAPI on Windows (ADR 0031)
     tests/app.rs     The whole app against the real server, headless
   assets/icon.svg  The icon's source, a placeholder until the visual identity
@@ -119,11 +119,16 @@ and can be switched in the settings (Display).
   the room back. A reconnection shows `pending` until the new call
   verifies again. The definition, and what a closed lock does not prove,
   are in ADR 0041.
+- **The account follows its person** (ADR 0051). Settings › Account
+  makes a recovery code or a device code; Join a space › I already have
+  an account opens one. The vault is sealed on this side, so the server
+  never reads it.
 - **The commands are thin.** Each Tauri command (`commands.rs`) calls one
   method of `Desktop` (`app.rs`), so `tests/app.rs` drives the whole app
   against the real Go server, with in-memory sound cards.
-- **Secrets stay sealed.** On Windows the identity and the space keys are
-  encrypted with DPAPI for the current user. On macOS and Linux they are
+- **Secrets stay sealed.** On Windows the account's key, the space keys
+  and the recovery code's secret are encrypted with DPAPI for the current
+  user. On macOS and Linux they are
   plain files readable by their owner only: development only (ADR 0031).
   The app keeps them in `%APPDATA%\com.lignenative.drywire` on Windows;
   `DRYWIRE_DESKTOP_HOME` moves them, to run two copies side by side.

@@ -4,15 +4,46 @@
 // global shortcut, launching at login, the loopback test) is refused here
 // and left out of the settings.
 
-import type { Api, AppError, CalibrationView, LoopbackView, Notice, Preferences, Settings, SpaceView } from "@/api";
+import type {
+  AccountView,
+  Api,
+  AppError,
+  CalibrationView,
+  DeviceCodeView,
+  LoopbackView,
+  Notice,
+  Preferences,
+  Settings,
+  SpaceView,
+} from "@/api";
 import { AudioEngine, MicrophoneDenied, type PlaybackStats } from "./audio/engine";
 import { calibrate } from "./audio/gate";
 import { recordLevels, WebCall } from "./call";
 import { type EncoderSettings, SAMPLE_RATE } from "./codec";
 import { ControlError, ControlPlane } from "./control";
-import type { Identity } from "./identity";
-import { hex, type Protocol, ProtocolError } from "./protocol";
-import { loadSettings, loadSpaces, saveSettings, saveSpaces, type StoredSpace } from "./store";
+import { fromSeed, type Identity, saveIdentity } from "./identity";
+import { hex, type Protocol, ProtocolError, unhex } from "./protocol";
+import {
+  loadRecovery,
+  loadSettings,
+  loadSpaces,
+  saveRecovery,
+  saveSettings,
+  saveSpaces,
+  type StoredSpace,
+} from "./store";
+import {
+  BadCode,
+  formatCode,
+  newSecret,
+  open as openVault,
+  parseCode,
+  seal,
+  type Secret,
+  vaultId,
+  type VaultContents,
+  WrongCode,
+} from "./vault";
 
 const CALIBRATION_SECONDS = 10;
 
@@ -50,7 +81,9 @@ export type WebApi = Api & {
   onSpaces(f: (spaces: SpaceView[]) => void): Promise<() => void>;
 };
 
-export function createWebApi(protocol: Protocol, identity: Identity, codec: EncoderSettings): WebApi {
+export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec: EncoderSettings): WebApi {
+  /** The account: another one replaces it when a code is opened. */
+  let identity = firstIdentity;
   const controls = new Map<string, ControlPlane>();
   const listeners = new Set<(notice: Notice) => void>();
   let settings = loadSettings();
@@ -76,6 +109,37 @@ export function createWebApi(protocol: Protocol, identity: Identity, codec: Enco
     rooms: s.rooms.map((r) => ({ id: r.id, name: r.name })),
     error,
   });
+
+  /** The instances of the spaces, each once. */
+  const instances = () => [...new Set(loadSpaces().map((s) => s.instance))].sort();
+
+  /** What a vault of this account holds. */
+  const contents = async (): Promise<VaultContents> => {
+    if (!identity.seed) throw appError("not_portable", "this browser's key cannot be copied");
+    const first = instances()[0];
+    const me = first ? await control(first).me().catch(() => null) : null;
+    return {
+      account: hex(identity.seed),
+      name: me?.name ?? "",
+      spaces: loadSpaces().map((s) => ({ instance: s.instance, id: s.id, name: s.name, key: s.spaceKey })),
+    };
+  };
+
+  /** Seals the recovery vault with `secret` on every instance of the spaces. */
+  const putRecovery = async (secret: Secret) => {
+    const all = instances();
+    if (all.length === 0) throw appError("no_space", "join a space first");
+    const plain = new TextEncoder().encode(JSON.stringify(await contents()));
+    const id = await vaultId(secret);
+    for (const instance of all) await control(instance).putRecoveryVault(id, await seal(secret, plain));
+  };
+
+  /** After the spaces changed, if this browser knows the code. A failure is
+      left for the next change. */
+  const sealRecoveryAgain = async () => {
+    const known = loadRecovery();
+    if (known) await putRecovery(unhex(known)).catch(() => {});
+  };
 
   const fullSettings = (): Settings => ({
     gateOpenDbfs: settings.gateOpenDbfs,
@@ -122,8 +186,79 @@ export function createWebApi(protocol: Protocol, identity: Identity, codec: Enco
     return call.view();
   };
 
-  return {
+  const api: WebApi = {
     publicKey: async () => hex(identity.publicKey),
+
+    account: async (): Promise<AccountView> => ({
+      recoveryCode: loadRecovery() !== null,
+      spaces: loadSpaces().length,
+      portable: identity.seed !== null,
+    }),
+
+    newRecoveryCode: async () => {
+      const secret = newSecret();
+      try {
+        await putRecovery(secret);
+      } catch (e) {
+        throw "code" in (e as object) && !(e instanceof Error) ? e : asAppError(e);
+      }
+      saveRecovery(hex(secret));
+      return formatCode(secret);
+    },
+
+    newDeviceCode: async (): Promise<DeviceCodeView> => {
+      const instance = instances()[0];
+      if (!instance) throw appError("no_space", "join a space first");
+      const secret = newSecret();
+      try {
+        const plain = new TextEncoder().encode(JSON.stringify(await contents()));
+        const waiting = await control(instance).putDeviceVault(await vaultId(secret), await seal(secret, plain));
+        return { code: formatCode(secret), instance, expiresInS: waiting.expires_in };
+      } catch (e) {
+        throw "code" in (e as object) && !(e instanceof Error) ? e : asAppError(e);
+      }
+    },
+
+    restoreAccount: async (instance: string, code: string, replace: boolean) => {
+      let secret: Secret;
+      try {
+        secret = parseCode(code);
+      } catch {
+        throw appError("bad_code", "this is not a Drywire code");
+      }
+      let found: { kind: "recovery" | "device"; contents: VaultContents };
+      try {
+        const opened = await control(instance).openVault(await vaultId(secret));
+        const plain = await openVault(secret, opened.sealed);
+        found = { kind: opened.kind, contents: JSON.parse(new TextDecoder().decode(plain)) };
+      } catch (e) {
+        if (e instanceof ControlError && e.code === "not_found") throw appError("code_unknown", e.message);
+        if (e instanceof WrongCode || e instanceof BadCode) throw appError("code_unknown", e.message);
+        throw asAppError(e);
+      }
+      const account = await fromSeed(unhex(found.contents.account));
+      const current = loadSpaces();
+      const same = hex(account.publicKey) === hex(identity.publicKey);
+      if (!same && current.length > 0 && !replace) {
+        throw appError("account_exists", `this browser already has an account, with ${current.length} space(s)`);
+      }
+      await stopCall();
+      const brought: StoredSpace[] = found.contents.spaces.map((s) => ({
+        instance: s.instance,
+        id: s.id,
+        name: s.name,
+        role: "",
+        spaceKey: s.key,
+        rooms: [],
+      }));
+      const kept = same ? current.filter((c) => !brought.some((b) => b.instance === c.instance && b.id === c.id)) : [];
+      await saveIdentity(account);
+      identity = account;
+      controls.clear();
+      saveSpaces([...brought, ...kept]);
+      saveRecovery(found.kind === "recovery" ? hex(secret) : null);
+      return { name: found.contents.name, spaces: await api.listSpaces() };
+    },
 
     acceptInvitation: async (link: string, displayName: string) => {
       let invitation;
@@ -144,6 +279,7 @@ export function createWebApi(protocol: Protocol, identity: Identity, codec: Enco
         };
         const others = loadSpaces().filter((s) => !(s.instance === stored.instance && s.id === stored.id));
         saveSpaces([...others, stored]);
+        void sealRecoveryAgain();
         // The link served its purpose: it leaves the address bar.
         if (location.hash) history.replaceState(null, "", location.pathname + location.search);
         return view(stored, null);
@@ -249,4 +385,5 @@ export function createWebApi(protocol: Protocol, identity: Identity, codec: Enco
       };
     },
   };
+  return api;
 }

@@ -41,7 +41,7 @@ const (
 	// identity: logging in again drops its oldest token. Anyone can log in
 	// with a fresh key, so neither may grow without limit.
 	maxTokens     = 100_000
-	tokensPerKey  = 4
+	tokensPerKey  = 8
 	sweepInterval = 10 * time.Second
 )
 

@@ -8,7 +8,11 @@
 //!   and name, and the space key from the invitation link, which the
 //!   server never sees. Same permissions.
 //!
-//! Both hold secrets: whoever reads them can speak as this device, and
+//! - `recovery.json`: the secret of the account's recovery code, if this
+//!   device made it or was restored with it, so that it can seal the
+//!   recovery vault again when its spaces change (ADR 0051).
+//!
+//! They hold secrets: whoever reads them can speak as this account, and
 //! hear its spaces.
 
 use std::path::{Path, PathBuf};
@@ -57,6 +61,11 @@ impl KnownSpace {
 #[derive(Serialize, Deserialize)]
 struct IdentityFile {
     seed: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RecoveryFile {
+    secret: String,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -112,8 +121,48 @@ impl Home {
         }
     }
 
+    /// Becomes the account with this seed (from a vault): the identity is
+    /// replaced, and the spaces with it.
+    pub fn become_account(&self, seed: &[u8; 32], spaces: Vec<KnownSpace>) -> Result<(), String> {
+        let file = IdentityFile { seed: to_hex(seed) };
+        write_private(&self.dir.join("identity.json"), &json(&file))?;
+        self.set_recovery_secret(None)?;
+        self.save(spaces)
+    }
+
+    /// The recovery code's secret, if this device knows it.
+    pub fn recovery_secret(&self) -> Result<Option<[u8; 16]>, String> {
+        let path = self.dir.join("recovery.json");
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                let file: RecoveryFile =
+                    serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+                Hex::<16>::parse(&file.secret)
+                    .map(|h| Some(h.0))
+                    .ok_or_else(|| format!("{}: the secret is damaged", path.display()))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
+    }
+
+    /// Keeps the recovery code's secret, or forgets it.
+    pub fn set_recovery_secret(&self, secret: Option<&[u8; 16]>) -> Result<(), String> {
+        let path = self.dir.join("recovery.json");
+        match secret {
+            Some(s) => write_private(&path, &json(&RecoveryFile { secret: to_hex(s) })),
+            None => match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    Err(format!("{}: {e}", path.display()))
+                }
+                _ => Ok(()),
+            },
+        }
+    }
+
     /// Forgets the identity, after it was deleted from its instance.
     pub fn forget_identity(&self) -> Result<(), String> {
+        self.set_recovery_secret(None)?;
         let path = self.dir.join("identity.json");
         std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
     }

@@ -33,6 +33,9 @@ const (
 	KindMembership = "membership"
 	// KindInvitation: a revoked invitation, which must not work again.
 	KindInvitation = "invitation"
+	// KindVault: a recovery vault replaced or deleted by its account
+	// (ADR 0051), whose old code must not open anything again.
+	KindVault = "vault"
 )
 
 // Retention is how long entries are kept. A backup is kept six months at
@@ -54,6 +57,9 @@ type Entry struct {
 	Space string `json:"space,omitempty"`
 	// Invitation is the invitation's hex id (KindInvitation).
 	Invitation string `json:"invitation,omitempty"`
+	// Vault is the hex SHA-256 of the vault's id (KindVault): the id itself
+	// would let anyone fetch a restored copy.
+	Vault string `json:"vault,omitempty"`
 }
 
 // KeyHash is how an entry refers to an identity: the hex SHA-256 of its

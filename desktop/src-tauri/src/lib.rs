@@ -104,6 +104,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::public_key,
+            commands::account,
+            commands::new_recovery_code,
+            commands::new_device_code,
+            commands::restore_account,
             commands::accept_invitation,
             commands::list_spaces,
             commands::join_room,

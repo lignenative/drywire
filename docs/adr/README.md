@@ -66,3 +66,5 @@ Status: Accepted · YYYY-MM-DD
 | [0047](0047-end-the-oldest-event-stream-rather-than-refuse-a-new-one.md) | End the oldest event stream rather than refuse a new one |
 | [0048](0048-share-the-desktop-interface-with-the-web-client.md) | Share the desktop interface with the web client |
 | [0049](0049-serve-the-web-client-from-each-instance-beside-its-api.md) | Serve the web client from each instance, beside its API |
+| [0051](0051-make-the-identity-an-account-that-follows-its-person.md) | Make the identity an account that follows its person |
+| [0052](0052-take-space-keys-out-of-invitation-links-with-mls.md) | Take space keys out of invitation links with MLS (proposed) |

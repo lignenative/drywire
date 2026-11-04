@@ -11,6 +11,7 @@ import { createWebApi } from "./api";
 import { MicDialog } from "./components/MicDialog";
 import { Unsupported } from "./components/Unsupported";
 import { loadIdentity } from "./identity";
+import { loadSpaces } from "./store";
 import { Protocol } from "./protocol";
 import { checkSupport } from "./support";
 import "./web.css";
@@ -32,7 +33,7 @@ if (!support.codec || support.missing.length > 0) {
 } else {
   const wasm = await fetch(new URL("/drywire.wasm", location.href)).then((r) => r.arrayBuffer());
   const protocol = await Protocol.load(wasm);
-  const identity = await loadIdentity();
+  const identity = await loadIdentity(loadSpaces().length > 0);
   const api = createWebApi(protocol, identity, support.codec);
   provideApi(api, "web");
   // In development, the call's numbers from the console:

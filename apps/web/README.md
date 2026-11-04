@@ -62,7 +62,8 @@ link and put the instance's address before it:
 | `src/audio/gate.ts`, `src/audio/jitter.ts` | The gate, its calibration, the jitter buffer and the soft clip, after `drywire-core` |
 | `src/codec.ts` | Opus through WebCodecs, on the main thread (ADR 0040) |
 | `src/protocol.ts` | `drywire-wasm` ([`core/drywire-wasm/`](../../core/drywire-wasm/)): the protocol and the encryption (ADR 0040) |
-| `src/identity.ts` | The device's Ed25519 key, non-extractable, in WebCrypto and IndexedDB |
+| `src/identity.ts` | The account's Ed25519 key: its seed in IndexedDB, imported non-extractable for signing (ADR 0051) |
+| `src/vault.ts` | Account vaults and their codes, in WebCrypto, checked against `drywire-proto`'s vectors (protocol section 15) |
 | `src/control.ts` | Login, invitations, spaces, join, the presence stream (protocol section 13) |
 | `src/relay.ts` | The WebTransport session, pinned by the certificate hashes the join answer gives (ADR 0038, 0039) |
 | `src/store.ts` | The spaces joined, with their keys, and the preferences, in this site's storage |

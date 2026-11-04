@@ -7,8 +7,12 @@
 //!   name, and the space key from the invitation link, which the server
 //!   never sees.
 //!
-//! Both hold secrets, sealed by the [`vault`](crate::vault): whoever opens
-//! them can speak as this device and hear its spaces. The desktop app has
+//! - `recovery.json`: the secret of the account's recovery code, when this
+//!   device made it or was restored with it, so that it seals the recovery
+//!   vault again when its spaces change (ADR 0051).
+//!
+//! They hold secrets, sealed by the [`vault`](crate::vault): whoever opens
+//! them can speak as this account and hear its spaces. The desktop app has
 //! an identity of its own, apart from the command-line client's, whose
 //! files are not protected.
 //!
@@ -174,6 +178,39 @@ impl Store {
     pub fn save_settings(&self, settings: &Settings) -> Result<(), String> {
         let text = serde_json::to_string_pretty(settings).expect("serializable") + "\n";
         write_private(&self.dir.join("settings.json"), &text)
+    }
+
+    /// Becomes the account with this seed, opened from a vault: the
+    /// identity and the spaces are replaced, the recovery secret forgotten.
+    pub fn become_account(&self, seed: &[u8; 32], spaces: &[KnownSpace]) -> Result<(), String> {
+        write_sealed(&self.dir.join("identity.json"), &to_hex(seed))?;
+        self.set_recovery_secret(None)?;
+        write_sealed(&self.dir.join("spaces.json"), &spaces)
+    }
+
+    /// The recovery code's secret, if this device knows it.
+    pub fn recovery_secret(&self) -> Result<Option<[u8; 16]>, String> {
+        let path = self.dir.join("recovery.json");
+        match read_sealed::<String>(&path)? {
+            None => Ok(None),
+            Some(hex) => Hex::<16>::parse(&hex)
+                .map(|h| Some(h.0))
+                .ok_or_else(|| format!("{}: the secret is damaged", path.display())),
+        }
+    }
+
+    /// Keeps the recovery code's secret, or forgets it.
+    pub fn set_recovery_secret(&self, secret: Option<&[u8; 16]>) -> Result<(), String> {
+        let path = self.dir.join("recovery.json");
+        match secret {
+            Some(s) => write_sealed(&path, &to_hex(s)),
+            None => match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    Err(format!("{}: {e}", path.display()))
+                }
+                _ => Ok(()),
+            },
+        }
     }
 
     /// Remembers a space, replacing what was known of it.
