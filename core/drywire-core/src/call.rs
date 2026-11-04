@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use drywire_proto::crypto::VerifyingKey;
+use drywire_proto::crypto::{KEY_SIZE, VerifyingKey};
 use drywire_proto::header::MAX_PACKET_SIZE;
 use rtrb::{Consumer, Producer, RingBuffer};
 
@@ -173,6 +173,14 @@ impl CallMembers {
     pub fn set_volume(&self, session: u32, volume: f32) {
         let _ = self.0.send(Change::Volume(session, volume));
     }
+
+    /// The room's key changed: the space's MLS group moved to a new epoch
+    /// (ADR 0052). The network thread opens what comes under it, keeping
+    /// the previous key for senders that have not caught up; the capture
+    /// callback starts a key epoch under it at its next packet.
+    pub fn set_room_key(&self, room_key: [u8; KEY_SIZE]) {
+        let _ = self.0.send(Change::RoomKey(room_key));
+    }
 }
 
 /// A change of the room's members, from the control plane.
@@ -180,6 +188,7 @@ enum Change {
     Add(u32, VerifyingKey),
     Remove(u32),
     Volume(u32, f32),
+    RoomKey([u8; KEY_SIZE]),
 }
 
 /// This client's own microphone in a running call: mute, the voice gate's
@@ -260,6 +269,10 @@ struct Shared {
     /// for numbers that are not negative, the bits sort like the numbers,
     /// so `fetch_max` on them keeps the loudest.
     input_peak: AtomicU32,
+    /// A new room key for the capture callback, set with `rekey`
+    /// ([`CallMembers::set_room_key`]).
+    room_key: Mutex<Option<[u8; KEY_SIZE]>>,
+    rekey: AtomicBool,
     stats: Mutex<CallStats>,
 }
 
@@ -311,6 +324,8 @@ impl Call {
                 options.sender.gate.close_dbfs,
             )),
             input_peak: AtomicU32::new(0),
+            room_key: Mutex::new(None),
+            rekey: AtomicBool::new(false),
             stats: Mutex::new(CallStats {
                 // Room for every track, so playback never grows it.
                 tracks: Vec::with_capacity(MAX_TRACKS),
@@ -328,7 +343,7 @@ impl Call {
             config.identity.clone(),
             config.session,
             config.room_id,
-            &config.space_key,
+            &config.room_key,
             options.sender,
         )
         .map_err(CallError::Opus)?;
@@ -349,7 +364,7 @@ impl Call {
             changes: None,
             pending: VecDeque::new(),
         };
-        let inbound = Inbound::new(config.room_id, &config.space_key, others);
+        let inbound = Inbound::new(config.room_id, &config.room_key, others);
         let (events, playback_events) = RingBuffer::new(PLAYBACK_QUEUE);
         let (changes, changes_rx) = mpsc::channel();
 
@@ -466,7 +481,13 @@ struct Members {
 
 impl Members {
     /// Applies the changes the control plane sent since the last call.
-    fn apply(&mut self, now: u64, inbound: &mut Inbound, events: &mut Producer<ToPlayback>) {
+    fn apply(
+        &mut self,
+        now: u64,
+        shared: &Shared,
+        inbound: &mut Inbound,
+        events: &mut Producer<ToPlayback>,
+    ) {
         while let Some(message) = self.pending.pop_front() {
             if let Err(rtrb::PushError::Full(message)) = events.push(message) {
                 self.pending.push_front(message);
@@ -494,6 +515,13 @@ impl Members {
                 Change::Add(..) => {}
                 Change::Volume(session, volume) => {
                     self.pending.push_back(ToPlayback::Volume(session, volume));
+                }
+                Change::RoomKey(key) => {
+                    inbound.set_room_key(&key);
+                    // The capture callback takes it at its next frame,
+                    // without waiting: it only ever tries this lock.
+                    *shared.room_key.lock().unwrap_or_else(|e| e.into_inner()) = Some(key);
+                    shared.rekey.store(true, Ordering::Release);
                 }
                 Change::Remove(session) => {
                     if inbound.remove_peer(session) {
@@ -529,7 +557,7 @@ fn network_loop(
     let mut encryption = Encryption::default();
     while !shared.stop.load(Ordering::Relaxed) {
         let now = shared.now_us();
-        members.apply(now, &mut inbound, &mut events);
+        members.apply(now, shared, &mut inbound, &mut events);
         let other_sent = shared.last_sent_us.load(Ordering::Relaxed);
         while let Some(packet) = link.poll(now, unix_ms(), other_sent) {
             let _ = socket.send(&packet);
@@ -619,6 +647,16 @@ impl Capture {
                 close_dbfs,
                 ..self.sender.config().gate
             });
+        }
+        if self.shared.rekey.load(Ordering::Acquire) {
+            // Never waits: if the network thread holds the lock, the next
+            // frame tries again.
+            if let Ok(mut key) = self.shared.room_key.try_lock() {
+                if let Some(key) = key.take() {
+                    self.sender.set_room_key(&key);
+                }
+                self.shared.rekey.store(false, Ordering::Release);
+            }
         }
         let muted = self.shared.muted.load(Ordering::Relaxed);
         let frame = self.sender.config().frame.samples();
@@ -804,6 +842,8 @@ mod tests {
                 muted: AtomicBool::new(false),
                 gate: AtomicU64::new(gate),
                 input_peak: AtomicU32::new(0),
+                room_key: Mutex::new(None),
+                rekey: AtomicBool::new(false),
                 stats: Mutex::new(CallStats::default()),
             }),
             sender,
@@ -850,6 +890,22 @@ mod tests {
             c.process(&quiet);
         }
         assert_eq!(c.sender.stats().spurts, 1, "the retuned gate opens");
+    }
+
+    #[test]
+    fn a_new_room_key_starts_a_key_epoch_at_the_next_frame() {
+        let tone: Vec<f32> = (0..240).map(|i| 0.5 * (i as f32 * 0.3).sin()).collect();
+        let mut c = capture();
+        c.process(&tone);
+        let before = c.sender.stats().epochs;
+        // As the network thread hands it over.
+        *c.shared.room_key.lock().unwrap() = Some([9; 32]);
+        c.shared.rekey.store(true, Ordering::Release);
+        c.process(&tone);
+        assert_eq!(c.sender.stats().epochs, before + 1, "a new key epoch");
+        assert!(!c.shared.rekey.load(Ordering::Acquire), "taken once");
+        c.process(&tone);
+        assert_eq!(c.sender.stats().epochs, before + 1, "and only one");
     }
 
     #[test]

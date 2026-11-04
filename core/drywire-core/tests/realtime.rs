@@ -99,7 +99,7 @@ fn config(team: &Team, me: usize, known: &[usize]) -> ClientConfig {
     let seat = &team.seats[me];
     ClientConfig {
         room_id: team.room_id,
-        space_key: team.space_key,
+        room_key: drywire_proto::crypto::room_key(&team.space_key, &team.room_id),
         session: seat.session,
         session_secret: seat.secret,
         identity: seat.identity.clone(),

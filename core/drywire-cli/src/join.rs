@@ -201,7 +201,9 @@ fn call_on(
     }
     let config = ClientConfig {
         room_id: room.id.0,
-        space_key: space.space_key()?,
+        // Until the space has an MLS group (ADR 0052, step 4), the room
+        // key comes from the space key.
+        room_key: drywire_proto::crypto::room_key(&space.space_key()?, &room.id.0),
         session: me,
         session_secret: joined.session_secret.0,
         identity: identity.clone(),

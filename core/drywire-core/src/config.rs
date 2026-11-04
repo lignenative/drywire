@@ -18,8 +18,11 @@ use drywire_proto::crypto::{KEY_SIZE, ROOM_ID_SIZE, SigningKey, VerifyingKey};
 pub struct ClientConfig {
     /// The room's identifier, part of the key derivation.
     pub room_id: [u8; ROOM_ID_SIZE],
-    /// The secret shared by the members of the space.
-    pub space_key: [u8; KEY_SIZE],
+    /// The room's key: exported by the space's MLS group for its current
+    /// epoch (ADR 0052), or derived from the space key of a space that
+    /// has none yet (`drywire_proto::crypto::room_key`). A running call
+    /// takes the next one with `CallMembers::set_room_key`.
+    pub room_key: [u8; KEY_SIZE],
     /// This client's session.
     pub session: u32,
     /// The secret that signs this client's `hello` packets.
@@ -34,7 +37,7 @@ impl fmt::Debug for ClientConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ClientConfig")
             .field("room_id", &to_hex(&self.room_id))
-            .field("space_key", &"<secret>")
+            .field("room_key", &"<secret>")
             .field("session", &self.session)
             .field("session_secret", &"<secret>")
             .field("identity", &"<secret>")
@@ -80,7 +83,7 @@ mod tests {
         let identity = SigningKey::from_bytes(&[0xa1; 32]);
         let config = ClientConfig {
             room_id: [0x0f; 16],
-            space_key: [0x5a; 32],
+            room_key: [0x5a; 32],
             session: 1,
             session_secret: [0x11; 32],
             members: vec![Member {

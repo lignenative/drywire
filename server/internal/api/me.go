@@ -17,7 +17,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, c caller) {
 		writeError(w, http.StatusNotFound, "this key has no identity on this instance yet")
 		return
 	}
-	writeJSON(w, http.StatusOK, c.identity)
+	writeJSON(w, http.StatusOK, meView(*c.identity))
 }
 
 // rename: PATCH /v1/me {name}. Rooms the caller is in see the new name

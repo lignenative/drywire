@@ -18,7 +18,7 @@
 use drywire_proto::Header;
 use drywire_proto::PacketType;
 use drywire_proto::crypto::{
-    AudioKey, KEY_SIZE, ROOM_ID_SIZE, SigningKey, new_announce, room_key, sender_key,
+    AudioKey, KEY_SIZE, ROOM_ID_SIZE, SigningKey, new_announce, sender_key,
 };
 use drywire_proto::header::{ANNOUNCE_SIZE, FLAG_END_OF_SPURT, MAX_PACKET_SIZE, SALT_SIZE};
 use drywire_proto::payload::AudioPayload;
@@ -139,6 +139,8 @@ pub struct Sender {
     key: AudioKey,
     /// Sequence of the next audio packet in this epoch.
     sequence: u32,
+    /// The room key changed: the next packet starts an epoch under it.
+    rekeyed: bool,
     /// Timestamp of the next frame, sent or not.
     timestamp: u32,
     /// Timestamp of the last announcement, while the gate is open.
@@ -161,10 +163,10 @@ impl Sender {
         identity: SigningKey,
         session: u32,
         room_id: [u8; ROOM_ID_SIZE],
-        space_key: &[u8; KEY_SIZE],
+        room_key: &[u8; KEY_SIZE],
         config: SenderConfig,
     ) -> Result<Sender, OpusError> {
-        let room_key = room_key(space_key, &room_id);
+        let room_key = *room_key;
         let salt = random_salt();
         let key = AudioKey::new(&sender_key(&room_key, &salt, &identity.verifying_key()));
         Ok(Sender {
@@ -179,6 +181,7 @@ impl Sender {
             salt,
             key,
             sequence: 0,
+            rekeyed: false,
             // Any start value is valid; a random one keeps restarts apart.
             timestamp: u32::from_be_bytes(random_salt()[..4].try_into().expect("4 bytes")),
             announced_at: None,
@@ -259,7 +262,8 @@ impl Sender {
             || self
                 .announced_at
                 .is_none_or(|at| timestamp.wrapping_sub(at) >= SAMPLE_RATE);
-        if self.sequence >= EPOCH_SEQUENCE_LIMIT {
+        if self.sequence >= EPOCH_SEQUENCE_LIMIT || self.rekeyed {
+            self.rekeyed = false;
             self.start_epoch();
             announce = true;
         }
@@ -300,6 +304,17 @@ impl Sender {
             self.has_previous = true;
         }
         Ok(())
+    }
+
+    /// The room's key changed (a new epoch of the space's MLS group, ADR
+    /// 0052): the next packet starts a key epoch under it, announced first,
+    /// as when the sequence runs out. The others keep the previous room key
+    /// for a while, so packets in flight still open.
+    pub fn set_room_key(&mut self, room_key: &[u8; KEY_SIZE]) {
+        if *room_key != self.room_key {
+            self.room_key = *room_key;
+            self.rekeyed = true;
+        }
     }
 
     /// Draws a new salt and moves to the next epoch, whose sequence starts

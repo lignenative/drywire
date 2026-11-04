@@ -155,13 +155,21 @@ func Open(path string, l *ledger.Ledger, now func() time.Time) (*Store, error) {
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
-// tx runs f in a transaction, committed if f returns nil.
+// tx runs f in a transaction, committed if f returns nil, or an error
+// that says its changes stand (a wrong code's spent try, accounts.go).
 func (s *Store) tx(ctx context.Context, f func(*sql.Tx) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	if err := f(tx); err != nil {
+		var kept interface{ committed() bool }
+		if errors.As(err, &kept) && kept.committed() {
+			if cerr := tx.Commit(); cerr != nil {
+				return cerr
+			}
+			return err
+		}
 		tx.Rollback()
 		return err
 	}

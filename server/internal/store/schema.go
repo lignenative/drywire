@@ -124,6 +124,46 @@ CREATE TABLE mls_welcomes (
 	PRIMARY KEY (space_id, device)
 );
 `,
+	// 5: accounts by e-mail and user name (ADR 0055). An identity becomes
+	// an account; each device logs in with a key of its own, listed in
+	// devices. identities.public_key stays the first device's, as the
+	// deletion ledger knows identities by it.
+	`
+ALTER TABLE identities ADD COLUMN email TEXT;    -- lower case; NULL before ADR 0055
+ALTER TABLE identities ADD COLUMN username TEXT; -- lower case; NULL until chosen
+CREATE UNIQUE INDEX identities_by_email ON identities (email) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX identities_by_username ON identities (username) WHERE username IS NOT NULL;
+
+CREATE TABLE devices (
+	public_key   BLOB    PRIMARY KEY CHECK (length(public_key) = 32),
+	identity_id  INTEGER NOT NULL REFERENCES identities (id) ON DELETE CASCADE,
+	created_at   INTEGER NOT NULL,
+	last_seen_at INTEGER NOT NULL
+);
+CREATE INDEX devices_by_identity ON devices (identity_id);
+INSERT INTO devices (public_key, identity_id, created_at, last_seen_at)
+	SELECT public_key, id, created_at, last_seen_at FROM identities;
+
+-- A sign-in code: only its hash, for 10 minutes and 5 tries.
+CREATE TABLE email_codes (
+	email      TEXT    PRIMARY KEY,
+	code_hash  BLOB    NOT NULL CHECK (length(code_hash) = 32),
+	tries      INTEGER NOT NULL DEFAULT 0,
+	created_at INTEGER NOT NULL,
+	expires_at INTEGER NOT NULL
+);
+
+-- An invitation to a person by user name, waiting in their app.
+CREATE TABLE user_invitations (
+	space_id    BLOB    NOT NULL REFERENCES spaces (id) ON DELETE CASCADE,
+	identity_id INTEGER NOT NULL REFERENCES identities (id) ON DELETE CASCADE,
+	invited_by  INTEGER REFERENCES identities (id) ON DELETE SET NULL,
+	created_at  INTEGER NOT NULL,
+	expires_at  INTEGER NOT NULL,
+	PRIMARY KEY (space_id, identity_id)
+);
+CREATE INDEX user_invitations_by_identity ON user_invitations (identity_id);
+`,
 }
 
 // migrate applies the migrations the database has not seen yet.

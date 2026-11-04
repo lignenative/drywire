@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 
 use drywire_proto::crypto::{
-    AudioKey, KEY_SIZE, ROOM_ID_SIZE, VerifyingKey, room_key, sender_key, verify_announce,
+    AudioKey, KEY_SIZE, ROOM_ID_SIZE, VerifyingKey, sender_key, verify_announce,
 };
 use drywire_proto::header::SALT_SIZE;
 use drywire_proto::payload::AudioPayload;
@@ -122,6 +122,11 @@ struct EpochKey {
     epoch: u8,
     salt: [u8; SALT_SIZE],
     key: AudioKey,
+    /// Until a packet of this epoch opens: the same sender key under the
+    /// previous room key. A sender that has not caught up with the room's
+    /// new key yet announces under the old one (ADR 0052), and only the
+    /// first packet tells which; the key that opens it stays.
+    candidate: Option<AudioKey>,
     window: ReplayWindow,
 }
 
@@ -146,6 +151,8 @@ impl Peer {
 pub struct Inbound {
     room_id: [u8; ROOM_ID_SIZE],
     room_key: [u8; KEY_SIZE],
+    /// The room key before the last change, while senders catch up.
+    previous_room_key: Option<[u8; KEY_SIZE]>,
     peers: HashMap<u32, Peer>,
     stats: InboundStats,
 }
@@ -155,12 +162,13 @@ impl Inbound {
     /// and public keys; packets from anyone else are dropped.
     pub fn new(
         room_id: [u8; ROOM_ID_SIZE],
-        space_key: &[u8; KEY_SIZE],
+        room_key: &[u8; KEY_SIZE],
         members: impl IntoIterator<Item = (u32, VerifyingKey)>,
     ) -> Inbound {
         Inbound {
             room_id,
-            room_key: room_key(space_key, &room_id),
+            room_key: *room_key,
+            previous_room_key: None,
             peers: members
                 .into_iter()
                 .map(|(session, public_key)| (session, Peer::new(session, public_key)))
@@ -183,6 +191,30 @@ impl Inbound {
     /// keys. Returns false if the session was not known.
     pub fn remove_peer(&mut self, session: u32) -> bool {
         self.peers.remove(&session).is_some()
+    }
+
+    /// The room's key changed (ADR 0052). The previous one stays a
+    /// candidate for the epochs senders announce until they catch up, and
+    /// the epochs announced but not heard yet are tried under both.
+    pub fn set_room_key(&mut self, room_key: &[u8; KEY_SIZE]) {
+        if *room_key == self.room_key {
+            return;
+        }
+        self.previous_room_key = Some(self.room_key);
+        self.room_key = *room_key;
+        for peer in self.peers.values_mut() {
+            let public_key = peer.check.public_key;
+            for e in peer
+                .epochs
+                .iter_mut()
+                .filter(|e| e.candidate.is_some() || e.window.highest().is_none())
+            {
+                e.key = AudioKey::new(&sender_key(&self.room_key, &e.salt, &public_key));
+                e.candidate = self
+                    .previous_room_key
+                    .map(|previous| AudioKey::new(&sender_key(&previous, &e.salt, &public_key)));
+            }
+        }
     }
 
     /// The counters so far.
@@ -230,6 +262,9 @@ impl Inbound {
             epoch,
             salt,
             key: AudioKey::new(&sender_key(&self.room_key, &salt, &public_key)),
+            candidate: self
+                .previous_room_key
+                .map(|previous| AudioKey::new(&sender_key(&previous, &salt, &public_key))),
             window: ReplayWindow::new(),
         };
         match peer.epochs.iter().position(|e| e.epoch == epoch) {
@@ -264,8 +299,22 @@ impl Inbound {
             self.stats.no_key += 1;
             return None;
         };
-        let plaintext = match epoch_key.key.open(packet) {
-            Ok(plaintext) => plaintext,
+        let opened = match epoch_key.key.open(packet) {
+            Ok(plaintext) => Ok(plaintext),
+            // The first packet under the previous room key settles it.
+            Err(e) => match epoch_key.candidate.as_ref().map(|c| c.open(packet)) {
+                Some(Ok(plaintext)) => {
+                    epoch_key.key = epoch_key.candidate.take().expect("just used");
+                    Ok(plaintext)
+                }
+                _ => Err(e),
+            },
+        };
+        let plaintext = match opened {
+            Ok(plaintext) => {
+                epoch_key.candidate = None;
+                plaintext
+            }
             Err(_) => {
                 self.stats.bad_tag += 1;
                 peer.check.bad_tag += 1;
@@ -346,6 +395,52 @@ mod tests {
 
     fn is_audio(e: &Option<Event>) -> bool {
         matches!(e, Some(Event::Audio { session: 7, .. }))
+    }
+
+    /// Feeds every packet of one frame, and says whether its audio opened.
+    fn heard(r: &mut Inbound, packets: &[Vec<u8>]) -> bool {
+        let mut audio = false;
+        for p in packets {
+            audio |= is_audio(&r.handle(p));
+        }
+        audio
+    }
+
+    #[test]
+    fn a_new_room_key_reaches_senders_and_receivers_in_any_order() {
+        const NEXT: [u8; 32] = [9; 32];
+        // The receiver moves first: the sender's epoch under the old key
+        // still opens, with the previous room key.
+        let (mut s, mut r) = (sender(), inbound());
+        assert!(heard(&mut r, &loud_packets(&mut s)));
+        r.set_room_key(&NEXT);
+        assert!(
+            heard(&mut r, &loud_packets(&mut s)),
+            "old epoch after the receiver moved"
+        );
+        // The sender moves: a new epoch, announced first, under the new key.
+        s.set_room_key(&NEXT);
+        let packets = loud_packets(&mut s);
+        assert_eq!(packets.len(), 2, "an announcement, then the audio");
+        assert!(heard(&mut r, &packets));
+        assert_eq!(r.stats().bad_tag, 0);
+
+        // The sender moves first: its announcement reaches a receiver still
+        // on the old key, whose packets do not open until it moves too.
+        let (mut s, mut r) = (sender(), inbound());
+        assert!(heard(&mut r, &loud_packets(&mut s)));
+        s.set_room_key(&NEXT);
+        assert!(!heard(&mut r, &loud_packets(&mut s)), "too early");
+        r.set_room_key(&NEXT);
+        assert!(
+            heard(&mut r, &loud_packets(&mut s)),
+            "once the receiver caught up"
+        );
+
+        // A key nobody gave the receiver never opens.
+        let (mut s, mut r) = (sender(), inbound());
+        s.set_room_key(&[7; 32]);
+        assert!(!heard(&mut r, &loud_packets(&mut s)));
     }
 
     #[test]
