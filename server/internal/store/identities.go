@@ -224,7 +224,8 @@ func (s *Store) Export(ctx context.Context, identityID int64) (Export, error) {
 		devices, err := tx.QueryContext(ctx, `
 			SELECT space_id, device, 'waiting', length(body), created_at FROM mls_key_packages WHERE identity_id = ?
 			UNION ALL
-			SELECT space_id, device, 'welcomed', length(body), created_at FROM mls_welcomes WHERE identity_id = ?
+			SELECT w.space_id, w.device, 'welcomed', coalesce(length(c.welcome), 0), w.created_at FROM mls_welcomes w
+			LEFT JOIN mls_commits c ON c.space_id = w.space_id AND c.epoch = w.epoch WHERE w.identity_id = ?
 			ORDER BY 5`, identityID, identityID)
 		if err != nil {
 			return err

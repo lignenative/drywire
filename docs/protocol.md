@@ -830,7 +830,7 @@ messages as hex.
 | --- | --- |
 | `POST /v1/spaces/{space}/mls/key-packages` | `{device, key_package}` → `204`: this member's device waits to join; posting again replaces its key package |
 | `GET /v1/spaces/{space}/mls/key-packages` | → `[{device, public_key, key_package}]`, oldest first; `public_key` is the account the device posted for |
-| `POST /v1/spaces/{space}/mls/commits` | `{epoch, commit, welcomes: [{device, welcome}]}` → `201` `{epoch}`, the epoch the commit started |
+| `POST /v1/spaces/{space}/mls/commits` | `{epoch, commit, welcome, welcomed: [device]}` → `201` `{epoch}`, the epoch the commit started; `welcome` and `welcomed` only for a commit that adds devices |
 | `GET /v1/spaces/{space}/mls/commits?after=N` | → `[{epoch, commit}]`, the commits that started the epochs after `N`, in order, 64 at most |
 | `GET /v1/spaces/{space}/mls/welcome?device=…` | → `{epoch, welcome}`, for the identity that posted the device's key package only; `404` otherwise |
 
@@ -846,9 +846,11 @@ messages as hex.
   check that its signature key is the `device` it was posted for, and
   that its credential names the account in `public_key` (ADR 0052),
   before they add it.
-- A welcome may only name a device that waits: otherwise the whole
-  commit is refused (`400`). A welcomed device stops waiting.
-- Each message is at most 16 KiB (`413` beyond).
+- One welcome serves every device a commit adds, and is kept once. It
+  may only name devices that wait: otherwise the whole commit is refused
+  (`400`). A welcomed device stops waiting.
+- Each message is at most 64 KiB (`413` beyond): a welcome carries the
+  group's whole tree, about 28 KB for 100 devices.
 - After a key package or a commit, the space's event stream carries
   `mls` `{epoch}` (section 13.6), so that the members online add the
   newcomer, or catch up, at once.

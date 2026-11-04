@@ -46,7 +46,7 @@ func TestTheGroupTakesOneCommitPerEpoch(t *testing.T) {
 	}
 
 	// Alex's commit creates epoch 1 and welcomes the phone.
-	next, err := s.Commit(ctx, sp.ID, 0, []byte("c1"), []Welcome{{Device: device(2), Body: []byte("w")}})
+	next, err := s.Commit(ctx, sp.ID, 0, []byte("c1"), []byte("w"), []Device{device(2)})
 	if err != nil || next != 1 {
 		t.Fatalf("commit: %d %v", next, err)
 	}
@@ -55,18 +55,18 @@ func TestTheGroupTakesOneCommitPerEpoch(t *testing.T) {
 	}
 	// A second commit from epoch 0 lost the race.
 	var stale StaleEpochError
-	if _, err := s.Commit(ctx, sp.ID, 0, []byte("late"), nil); !errors.As(err, &stale) || stale.Current != 1 {
+	if _, err := s.Commit(ctx, sp.ID, 0, []byte("late"), nil, nil); !errors.As(err, &stale) || stale.Current != 1 {
 		t.Fatalf("stale commit: %v", err)
 	}
 	// A welcome for a device that never asked is refused, and the commit
 	// with it.
-	if _, err := s.Commit(ctx, sp.ID, 1, []byte("c2"), []Welcome{{Device: device(9), Body: []byte("w")}}); !errors.Is(err, ErrNotFound) {
+	if _, err := s.Commit(ctx, sp.ID, 1, []byte("c2"), []byte("w"), []Device{device(9)}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("welcome for no one: %v", err)
 	}
 	if epoch := must[uint64](t)(s.MLSEpoch(ctx, sp.ID)); epoch != 1 {
 		t.Fatalf("epoch after a refused commit: %d", epoch)
 	}
-	if _, err := s.Commit(ctx, sp.ID, 1, []byte("c2"), nil); err != nil {
+	if _, err := s.Commit(ctx, sp.ID, 1, []byte("c2"), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	commits := must[[]CommitRow](t)(s.Commits(ctx, sp.ID, 0))
@@ -98,7 +98,7 @@ func TestALeavingMemberTakesTheirMLSRowsAlong(t *testing.T) {
 	sam := join(t, s, sp, key(2), "sam")
 	_ = s.PutKeyPackage(ctx, sp.ID, sam.ID, device(2), []byte("kp"))
 	_ = s.PutKeyPackage(ctx, sp.ID, sam.ID, device(3), []byte("kp"))
-	if _, err := s.Commit(ctx, sp.ID, 0, []byte("c1"), []Welcome{{Device: device(2), Body: []byte("w")}}); err != nil {
+	if _, err := s.Commit(ctx, sp.ID, 0, []byte("c1"), []byte("w"), []Device{device(2)}); err != nil {
 		t.Fatal(err)
 	}
 	export := must[Export](t)(s.Export(ctx, sam.ID))
@@ -129,11 +129,12 @@ func TestTheDeliveryServiceForgetsWhatNobodyTook(t *testing.T) {
 	_ = s.PutKeyPackage(ctx, sp.ID, sam.ID, device(2), []byte("kp"))
 	_ = s.PutKeyPackage(ctx, sp.ID, sam.ID, device(3), []byte("kp"))
 	for epoch := uint64(0); epoch < 3; epoch++ {
-		var welcomes []Welcome
+		var welcome []byte
+		var welcomed []Device
 		if epoch == 0 {
-			welcomes = []Welcome{{Device: device(2), Body: []byte("w")}}
+			welcome, welcomed = []byte("w"), []Device{device(2)}
 		}
-		if _, err := s.Commit(ctx, sp.ID, epoch, []byte("c"), welcomes); err != nil {
+		if _, err := s.Commit(ctx, sp.ID, epoch, []byte("c"), welcome, welcomed); err != nil {
 			t.Fatal(err)
 		}
 	}

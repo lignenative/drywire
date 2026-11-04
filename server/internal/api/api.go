@@ -280,7 +280,12 @@ func pathKey(w http.ResponseWriter, r *http.Request, name string) (store.Key, bo
 // readJSON decodes a request body of at most maxBody bytes. Unknown fields
 // are ignored, so a newer client can talk to an older server.
 func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody)).Decode(v)
+	return readJSONUpTo(w, r, v, maxBody)
+}
+
+// readJSONUpTo is readJSON for the few routes whose bodies are larger.
+func readJSONUpTo(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(v)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "the request body is not the expected JSON")
 		return false
