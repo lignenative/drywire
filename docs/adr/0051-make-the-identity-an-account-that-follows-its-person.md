@@ -1,6 +1,6 @@
 # 0051. Make the identity an account that follows its person
 
-Status: Accepted · 2026-11-04
+Status: Accepted · 2026-11-04 · to be replaced by ADR 0055 (e-mail accounts)
 
 ## Context
 
