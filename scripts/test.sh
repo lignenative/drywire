@@ -14,6 +14,32 @@ has_bun() {
 	command -v bun >/dev/null 2>&1 || [ -x "$HOME/.bun/bin/bun" ]
 }
 
+# A disk that fills during a build fails it halfway, with an error that
+# looks like a broken test: stop before, and say what frees space.
+free_kb=$(df -Pk "$root" | awk 'NR == 2 { print $4 }')
+if [ "$free_kb" -lt $((5 * 1024 * 1024)) ]; then
+	echo "drywire: $((free_kb / 1024)) MB free on this disk, and make test needs about 5 GB." >&2
+	echo "Free some space first: make clean empties the build caches." >&2
+	exit 1
+fi
+
+# Cargo keeps every version of every crate it ever built, and never deletes
+# one: a workspace's target directory grows with each update, to many times
+# what one build needs (0.7 GB for core, 1.7 GB for the desktop app,
+# measured from scratch on 2026-11-04).
+# Past 6 GB it holds mostly the past, and starting it afresh costs a few
+# minutes of building.
+bound_target() {
+	[ -d "$1/target" ] || return 0
+	kb=$(du -sk "$1/target" | cut -f1)
+	if [ "$kb" -gt $((6 * 1024 * 1024)) ]; then
+		echo "note: $1/target holds $((kb / 1024 / 1024)) GB of past builds; starting it afresh"
+		(cd "$1" && cargo clean -q)
+	fi
+}
+bound_target "$root/core"
+bound_target "$root/desktop/src-tauri"
+
 if [ -f server/go.mod ]; then
 	echo "==> server (Go)"
 	cd "$root/server"
