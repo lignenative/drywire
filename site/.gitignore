@@ -1,0 +1,3 @@
+# The built site, and the types Astro generates.
+dist/
+.astro/

@@ -6,10 +6,10 @@
 // holds the invitation code and the space key, never leaves this page.
 
 /** Decodes base64url without padding; null if it is not exactly that. */
-export function base64url(text) {
+export function base64url(text: string): Uint8Array | null {
   if (!/^[A-Za-z0-9_-]*$/.test(text) || text.length % 4 === 1) return null;
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-  const bytes = [];
+  const bytes: number[] = [];
   for (let i = 0; i < text.length; i += 4) {
     const chunk = text.slice(i, i + 4);
     let n = 0;
@@ -25,6 +25,9 @@ export function base64url(text) {
   return new Uint8Array(bytes);
 }
 
+/** What the page learns from a link: where it leads, or what is wrong. */
+export type Invitation = { instance: string; error?: undefined } | { error: "damaged" | "newer" };
+
 const CODE_SIZE = 16;
 const KEY_SIZE = 32;
 
@@ -34,12 +37,12 @@ const KEY_SIZE = 32;
  * "damaged" or "newer". The code and the key are not returned: the page
  * has no use for them.
  */
-export function readInvitation(fragment) {
+export function readInvitation(fragment: string): Invitation {
   const payload = base64url(fragment);
   if (payload === null || payload.length === 0) return { error: "damaged" };
   if (payload[0] !== 1) return { error: "newer" };
   if (payload.length <= 1 + CODE_SIZE + KEY_SIZE) return { error: "damaged" };
-  let instance;
+  let instance: string;
   try {
     instance = new TextDecoder("utf-8", { fatal: true }).decode(
       payload.slice(1 + CODE_SIZE + KEY_SIZE),

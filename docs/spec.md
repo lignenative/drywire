@@ -519,8 +519,11 @@ logo belong to Ligne Native and are not covered by the license.
 ### Licenses
 
 - Allowed dependency licenses: MIT, BSD, Apache 2.0, ISC, Zlib, MPL 2.0, and
-  Unicode-3.0 for the Unicode tables of `unicode-ident` (ADR 0008).
-  No GPL, LGPL or AGPL.
+  Unicode-3.0 for the Unicode tables of `unicode-ident` (ADR 0008). A few
+  narrow additions, each with its ADR, are listed in `CLAUDE.md`: the LLVM
+  exception (ADR 0030), 0BSD and the SIL Open Font License for bundled
+  fonts (ADR 0037), BlueOak-1.0.0 and CC0-1.0 for JavaScript packages
+  (ADR 0042). No GPL, LGPL or AGPL.
 - Checked in CI: `cargo-deny` for Rust, `go-licenses` for Go, an equivalent
   check for JavaScript dependencies installed with Bun.
 - Root files: `LICENSE`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`,
@@ -546,7 +549,8 @@ drywire/
     apple/            SwiftUI (iOS, macOS)
     android/          Kotlin + Compose
     web/              Web client
-  site/               Project site: landing page, invitation page, privacy policy
+  site/               Project site, static, built with Astro (ADR 0042):
+                      landing page, invitation page, privacy policy
   docs/               spec.md, protocol.md, baseline.md, measurements.md,
                       privacy.md, adr/ (architecture decision records)
   deploy/             Dockerfile, compose file, systemd unit
@@ -590,7 +594,8 @@ variable.
 | 10050/tcp | Control plane | `DRYWIRE_HTTP_ADDR` |
 | 10050/udp | Relay | `DRYWIRE_UDP_ADDR` |
 | 10051 | Vite dev server, desktop UI | `DEV_PORT` |
-| 10052 | Project site preview | `SITE_PORT` |
+| 10052 | Project site, built pages | `SITE_PORT` |
+| 10053 | Project site, dev server | `SITE_DEV_PORT` |
 | 10057 | Vite dev server, web client (later) | `WEB_PORT` |
 
 ### Commands
@@ -604,6 +609,7 @@ help` lists them.
 | `make dev` | Run the server locally. |
 | `make test` | Run every test suite. |
 | `make fmt` | Format all code. |
+| `make site` | Run the project site's dev server; `make site-build`, `make site-preview`, `make site-check` and `make site-stop` do the rest. |
 | `make deploy` | Build the server for Linux, send it to the host, start it. Idempotent. |
 | `make status` | Server version, uptime, active rooms. |
 | `make logs` | Follow the server logs. |

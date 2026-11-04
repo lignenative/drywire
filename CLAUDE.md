@@ -26,7 +26,9 @@ fixed in the same change.
   (ADR 0008). Apache 2.0 with the LLVM exception, which only adds a
   permission, for `target-lexicon` in the desktop app's build (ADR 0030).
   0BSD, which asks even less than MIT. The SIL Open Font License, for the
-  fonts the interface bundles and nothing else (ADR 0037).
+  fonts the interface bundles and nothing else (ADR 0037). For JavaScript
+  packages, BlueOak-1.0.0 (MIT's permissions plus a patent grant) and
+  CC0-1.0 (public domain), which Astro's dependencies use (ADR 0042).
 - Forbidden: GPL, LGPL, AGPL, and anything without a clear license.
 - Go server: standard library only, except `modernc.org/sqlite` (control
   plane) and `quic-go` (web client), both accepted in the spec. Any other
@@ -37,7 +39,9 @@ fixed in the same change.
   (`core/deny.toml`) enforces it in CI, and in `make test` when installed.
 - JavaScript: Bun is the package manager, script runner and test runner.
   Node.js is not used. `scripts/js-licenses.ts` checks the license of
-  every installed package, in CI and in `make test`.
+  every installed package, in CI and in `make test`. The desktop
+  interface and the site (`site/`, Astro, ADR 0042) each have their own
+  `package.json` and lockfile.
 - The desktop app's Rust crate (`desktop/src-tauri/`) is a workspace of
   its own with its own `deny.toml` (ADR 0030).
 
@@ -102,7 +106,8 @@ silently to another port. Each one can be moved with an environment variable.
 | 10050/tcp | Server HTTP API | `DRYWIRE_HTTP_ADDR` |
 | 10050/udp | Relay | `DRYWIRE_UDP_ADDR` |
 | 10051 | Vite dev server, desktop UI | `DEV_PORT` |
-| 10052 | Project site preview (later) | `SITE_PORT` |
+| 10052 | Project site, built pages (`make site-preview`) | `SITE_PORT` |
+| 10053 | Project site, dev server (`make site`) | `SITE_DEV_PORT` |
 | 10057 | Vite dev server, web client (later) | `WEB_PORT` |
 
 ## Commands and tests
@@ -112,12 +117,16 @@ The Makefile is thin: each target calls a script in `scripts/`.
 ```sh
 make help     # list the commands
 make test     # gofmt, go vet, go test -race, go-licenses; cargo fmt, clippy, test; Windows clippy; cargo deny;
+              # site: astro check, Biome, build, bun test on the built pages, JS licenses;
               # desktop: typecheck, bun test, JS licenses, then cargo fmt, clippy, test, deny
-make fmt      # gofmt and cargo fmt
+make fmt      # gofmt, cargo fmt, and Biome for the site
 make dev      # run the relay on 127.0.0.1:10050
 make live     # live call on this Mac: you, an echo bot, a local relay
 make desktop  # the desktop app in development: Vite on 127.0.0.1:10051
 make ui       # the same interface in a browser, with a simulated call
+make site     # the project site in development: Astro on 127.0.0.1:10053
+make site-preview  # the built site, security policy included, on 127.0.0.1:10052
+make site-check    # make site-build, make site-stop: the site's other commands
 make vectors  # regenerate core/drywire-proto/vectors/ after a wire format change
 make bench    # replay simulated network traces against the jitter buffer
 make deploy   # build the server, send it to HOST (.env), start it: deploy/README.md
