@@ -132,6 +132,19 @@ if [ -f "$root/apps/web/package.json" ]; then
 		(cd "$root/core" && cargo build -q --release -p drywire-wasm --target wasm32-unknown-unknown)
 		mkdir -p public
 		cp "$root/core/target/wasm32-unknown-unknown/release/drywire_wasm.wasm" public/drywire.wasm
+		# OpenMLS for the groups (ADR 0052) needs wasm-bindgen's tool; where
+		# it is missing, a stub that refuses to load lets the rest of the
+		# client build, and its test is skipped. make web and make deploy
+		# always build the real module.
+		if command -v wasm-bindgen >/dev/null 2>&1; then
+			"$root/scripts/mls-wasm.sh"
+		else
+			echo "note: OpenMLS module stubbed; run: cargo install wasm-bindgen-cli --version 0.2.130 --locked"
+			rm -rf src/mls-wasm && mkdir -p src/mls-wasm
+			printf '%s\n' '// A stub from scripts/test.sh: the real module needs wasm-bindgen.' \
+				'export default function init() { throw new Error("built without OpenMLS (wasm-bindgen missing)"); }' \
+				> src/mls-wasm/drywire_mls_wasm.js
+		fi
 		bun install --frozen-lockfile
 		# The desktop interface it imports, from its own node_modules (ADR 0048).
 		bun run typecheck
