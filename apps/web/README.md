@@ -147,6 +147,24 @@ encryption lock (verified with sam) were checked on the same call. These
 are not mouth-to-ear figures: nothing here went through a microphone or
 a speaker, and a synthetic stream has no capture latency.
 
+2026-11-04, the same browser on the same Mac (Wi-Fi), against an
+instance deployed with `make deploy` on a small rented server in another
+country, the page served by the instance itself (ADR 0049), the echo bot
+on the Mac, synthetic microphone again and the page's output silenced.
+About three minutes in the room:
+
+| | |
+| --- | --- |
+| Round trip to the relay, WebTransport (chip) | 28 ms |
+| Round trip to the relay, the bot's UDP | 27 to 29 ms (min 26.6) |
+| Frames the bot received from the page, played | 7,344, 7,313 |
+| Concealed, late, dropped at the bot | 145, 12, 19 |
+| The page's uplink lost (relay's count) | 0 |
+| Frames the page decoded from the bot, 5 s, mic on / muted | 717 / 0 |
+
+Muting stopped the page's frames at once, and they came back on
+unmute; leaving stopped them for good.
+
 ### Mouth to ear, the reference method
 
 The only latency figure Drywire quotes comes from the physical method of
