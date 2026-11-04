@@ -13,6 +13,8 @@
 use std::cell::RefCell;
 
 use drywire_proto::header::{SALT_SIZE, SIGNATURE_SIZE};
+use drywire_proto::invite::Invitation;
+use drywire_proto::login::{CHALLENGE_SIZE, login_message};
 
 use crate::{Client, Received, Setup};
 
@@ -25,6 +27,10 @@ const NO_CLIENT: i32 = -1;
 const TOO_LONG: i32 = -2;
 /// Error: not the `hello_ack` the page waits for.
 const NOT_THE_ACK: i32 = -3;
+/// Error: not a valid invitation link.
+const NOT_AN_INVITATION: i32 = -4;
+/// A control packet from [`dw_receive`]: `CONTROL - packet type`.
+const CONTROL: i32 = -10;
 /// Errors from [`dw_receive`] start here: `-100 - index in REASONS`.
 const DROPPED: i32 = -100;
 
@@ -75,6 +81,44 @@ fn array<const N: usize>(b: &[u8], at: usize) -> [u8; N] {
 #[unsafe(no_mangle)]
 pub extern "C" fn dw_buffer() -> *mut u8 {
     BUFFER.with(|b| b.as_ptr().cast::<u8>())
+}
+
+/// Input: an invitation link of `length` bytes (protocol section 14).
+/// Writes `code (16) ‖ space key (32) ‖ instance`, the instance's
+/// canonical origin in ASCII. Returns their length, or [`NOT_AN_INVITATION`].
+/// Needs no [`dw_start`]: the page reads the link before it joins.
+#[unsafe(no_mangle)]
+pub extern "C" fn dw_invitation(length: u32) -> i32 {
+    with_buffer(|b| {
+        let Some(Ok(link)) = b.get(..length as usize).map(std::str::from_utf8) else {
+            return NOT_AN_INVITATION;
+        };
+        let Ok(invitation) = Invitation::parse(link) else {
+            return NOT_AN_INVITATION;
+        };
+        let n = put(b, &invitation.code) as usize;
+        let n = n + put(&mut b[n..], &invitation.space_key) as usize;
+        n as i32 + put(&mut b[n..], invitation.instance.as_bytes())
+    })
+}
+
+/// Input: `challenge (32) ‖ audience`, the audience being the instance's
+/// canonical origin, `audience_length` bytes. Writes the message the
+/// identity key signs to log in (protocol section 13.2). Returns its
+/// length. Needs no [`dw_start`].
+#[unsafe(no_mangle)]
+pub extern "C" fn dw_login_message(audience_length: u32) -> i32 {
+    with_buffer(|b| {
+        let end = CHALLENGE_SIZE + audience_length as usize;
+        let Some(Ok(audience)) = b.get(CHALLENGE_SIZE..end).map(std::str::from_utf8) else {
+            return TOO_LONG;
+        };
+        let message = login_message(&array(b, 0), audience);
+        if message.len() > BUFFER_SIZE {
+            return TOO_LONG;
+        }
+        put(b, &message)
+    })
 }
 
 /// Starts the client of a session. Input: `secret (32) ‖ space key (32) ‖
@@ -176,8 +220,8 @@ pub extern "C" fn dw_remove_peer(session: u32) -> i32 {
 
 /// Input: one packet of `length` bytes from the relay. For audio, writes
 /// its 16-byte header then its Opus frame and returns their total length.
-/// Returns 0 for an accepted announcement, the negated packet type for a
-/// control packet the page reads itself (`-3` for `hello_ack`, `-6` for
+/// Returns 0 for an accepted announcement, `-10 - packet type` for a
+/// control packet the page reads itself (`-13` for `hello_ack`, `-16` for
 /// `pong`), and `-100 - reason` for a dropped packet.
 #[unsafe(no_mangle)]
 pub extern "C" fn dw_receive(length: u32) -> i32 {
@@ -192,7 +236,7 @@ pub extern "C" fn dw_receive(length: u32) -> i32 {
                 n + put(&mut b[n as usize..], frame)
             }
             Received::Announced { .. } => 0,
-            Received::Control(t) => -(t as i32),
+            Received::Control(t) => CONTROL - t as i32,
             Received::Dropped(reason) => {
                 DROPPED - REASONS.iter().position(|r| *r == reason).unwrap_or(0) as i32
             }
@@ -208,6 +252,7 @@ pub extern "C" fn dw_reason(code: i32) -> i32 {
         NO_CLIENT => "no_client",
         TOO_LONG => "too_long",
         NOT_THE_ACK => "not_the_ack",
+        NOT_AN_INVITATION => "not_an_invitation",
         c if c <= DROPPED => REASONS
             .get((DROPPED - c) as usize)
             .copied()
@@ -228,6 +273,34 @@ mod tests {
             let n = dw_reason(DROPPED - i as i32) as usize;
             assert_eq!(with_buffer(|b| b[..n].to_vec()), reason.as_bytes());
         }
+    }
+
+    #[test]
+    fn invitations_and_login_messages_need_no_client() {
+        let invitation = Invitation {
+            instance: "https://voice.example.org".into(),
+            code: [1; 16],
+            space_key: [2; 32],
+        };
+        let link = invitation.to_link();
+        with_buffer(|b| put(b, link.as_bytes()));
+        let n = dw_invitation(link.len() as u32) as usize;
+        let out = with_buffer(|b| b[..n].to_vec());
+        assert_eq!(&out[..16], &[1; 16]);
+        assert_eq!(&out[16..48], &[2; 32]);
+        assert_eq!(&out[48..], b"https://voice.example.org");
+
+        with_buffer(|b| put(b, b"not a link"));
+        assert_eq!(dw_invitation(10), NOT_AN_INVITATION);
+
+        let audience = b"https://voice.example.org";
+        with_buffer(|b| {
+            b[..32].fill(7);
+            b[32..32 + audience.len()].copy_from_slice(audience)
+        });
+        let n = dw_login_message(audience.len() as u32) as usize;
+        let want = login_message(&[7; 32], "https://voice.example.org");
+        assert_eq!(with_buffer(|b| b[..n].to_vec()), want);
     }
 
     #[test]

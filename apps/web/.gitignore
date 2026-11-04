@@ -1,0 +1,3 @@
+# Built from core/drywire-wasm by scripts/web.sh and the tests.
+public/drywire.wasm
+dist/

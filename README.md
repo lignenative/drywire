@@ -43,6 +43,7 @@ The full design, its reasons and the roadmap are in
 | `server/` | The Go relay and control plane ([`server/README.md`](server/README.md)) |
 | `core/` | The Rust core shared by every client, the control plane client, and `drywire` ([`core/README.md`](core/README.md)) |
 | `desktop/` | The desktop app for Windows: Tauri v2 and React ([`desktop/README.md`](desktop/README.md)) |
+| `apps/` | The other clients: for now, the first steps of the web client ([`apps/README.md`](apps/README.md)) |
 | `site/` | The static site: for now, the invitation page ([`site/README.md`](site/README.md)) |
 | `docs/` | The specification, the protocol, and decision records (`docs/adr/`) |
 | `deploy/` | Running a real instance: image, Compose, systemd unit, deployment guide ([`deploy/README.md`](deploy/README.md)) |

@@ -93,6 +93,27 @@ if [ -f "$root/scripts/js-licenses.test.ts" ]; then
 	fi
 fi
 
+if [ -f "$root/apps/web/package.json" ]; then
+	echo "==> web client (Bun)"
+	cd "$root/apps/web"
+	if ! has_bun; then
+		echo "note: web client skipped; install Bun (https://bun.sh)"
+	elif ! rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
+		echo "note: web client skipped; run: rustup target add wasm32-unknown-unknown"
+	else
+		PATH="$PATH:$HOME/.bun/bin"
+		# The tests run the module the browser loads, against the vectors.
+		(cd "$root/core" && cargo build -q --release -p drywire-wasm --target wasm32-unknown-unknown)
+		mkdir -p public
+		cp "$root/core/target/wasm32-unknown-unknown/release/drywire_wasm.wasm" public/drywire.wasm
+		bun install --frozen-lockfile
+		bun run typecheck
+		bun test
+		cd "$root"
+		bun scripts/js-licenses.ts apps/web
+	fi
+fi
+
 if [ -f "$root/desktop/package.json" ]; then
 	echo "==> desktop (Bun)"
 	cd "$root/desktop"

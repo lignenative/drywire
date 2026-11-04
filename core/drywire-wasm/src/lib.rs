@@ -2,7 +2,8 @@
 //! (ADR 0040).
 //!
 //! The browser has no UDP and no libopus, but it can run this: the packets,
-//! the end-to-end encryption and the replay window of `drywire-proto`, the
+//! the end-to-end encryption, the replay window, the invitation links and
+//! the login message of `drywire-proto`, the
 //! very code the native clients run and the shared test vectors check. The
 //! page does the rest itself: WebTransport for the datagrams, WebCodecs for
 //! Opus, WebCrypto for the identity key, which never enters this module.

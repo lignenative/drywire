@@ -117,6 +117,7 @@ make test     # gofmt, go vet, go test -race, go-licenses; cargo fmt, clippy, te
 make fmt      # gofmt and cargo fmt
 make dev      # run the server on 127.0.0.1:10050, browsers' side on 10058/udp
 make live     # live call on this Mac: you, an echo bot, a local relay
+make web      # the web client, a local server and an echo bot: Vite on 127.0.0.1:10057
 make desktop  # the desktop app in development: Vite on 127.0.0.1:10051
 make ui       # the same interface in a browser, with a simulated call
 make vectors  # regenerate core/drywire-proto/vectors/ after a wire format change
