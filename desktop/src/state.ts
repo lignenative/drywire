@@ -4,6 +4,7 @@
 // (a popover being open, a slider being dragged).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type CallView, type Settings, type SpaceView } from "./api";
+import { offeredInvitation } from "./invite";
 import { errorText, useLanguage } from "./lang";
 import { callRoom, findRoom, firstRoom, inCall, sameRoom, type RoomRef } from "./model";
 import { playPresence } from "./sounds";
@@ -59,7 +60,8 @@ export function useAppState(): AppState {
   const [selected, setSelected] = useState<RoomRef | null>(null);
   const [page, setPage] = useState<"main" | "settings">("main");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("voice");
-  const [inviteOpen, setInviteOpen] = useState(false);
+  // An invitation the window was opened with fills the form at once.
+  const [inviteOpen, setInviteOpen] = useState(() => offeredInvitation() !== null);
   const [narrowScreen, setNarrowScreen] = useState<"spaces" | "call">("spaces");
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);

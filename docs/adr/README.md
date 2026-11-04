@@ -64,3 +64,4 @@ Status: Accepted · YYYY-MM-DD
 | [0045](0045-follow-every-known-space-for-who-sits-in-its-rooms.md) | Follow every known space's event stream for who sits in its rooms |
 | [0046](0046-follow-the-system-default-device-during-a-call.md) | Follow the system's default device during a call (proposed) |
 | [0047](0047-end-the-oldest-event-stream-rather-than-refuse-a-new-one.md) | End the oldest event stream rather than refuse a new one |
+| [0048](0048-share-the-desktop-interface-with-the-web-client.md) | Share the desktop interface with the web client |

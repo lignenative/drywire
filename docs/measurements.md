@@ -106,3 +106,35 @@ devices of a MacBook Pro (Apple silicon), 48 kHz.
 callbacks (3202 per second). The built-in microphone's stream latency
 alone is 30 ms, which suggests a wired headset or USB microphone for
 low-latency use on a Mac. To be checked with the physical method.
+
+## 2026-11-04 — the web client on a live call, loopback, synthetic microphone
+
+What it covers: the web client's whole software path in a browser, with
+its output buffer, on a call with the command-line echo bot. Not
+covered: a microphone (the browser refused it, see below), a speaker, a
+real network, and any mouth-to-ear figure.
+
+- Setup: MacBook Pro (Apple silicon), macOS, one machine. `make web`:
+  `drywire-server` dev build on `127.0.0.1:10050` with its WebTransport
+  side on `127.0.0.1:10058/udp`, the echo bot sam (`drywire` release
+  build), the web client served by Vite. Browser: the Claude app's
+  built-in browser, Chromium 152. It refuses the microphone, so the
+  page's `getUserMedia` was replaced from the console with a 440 Hz tone,
+  0.4 s on and 0.6 s off. 5 ms Opus frames at 64 kb/s. Software at the
+  commit "Run the web client on the desktop interface".
+- Measured: 60 seconds of call per output buffer setting, read from the
+  call view and Chrome's `AudioContext.playbackStats`.
+
+| | `latencyHint: "interactive"` | `latencyHint: 0` |
+| --- | --- | --- |
+| Output buffer (`baseLatency`) | 5.3 ms | 2.7 ms |
+| Output latency the browser reports | 24 ms | 24 ms |
+| Underruns | 0 | 0 |
+| Frames sent / received and played | 6,695 / 8,558 | 6,692 / 8,540 |
+| Concealed, late, dropped | 23, 0, 0 | 4, 0, 0 |
+| Jitter buffer target | 5.8 ms | 5.0 ms |
+| Round trip to the relay over WebTransport | 0.3 ms | 0.3 ms |
+
+The web client keeps `latencyHint: 0`. Sam sends more frames than it
+receives: its own gate closes 150 ms after the echoed tone, so each
+spurt it sends back is longer by its hold.

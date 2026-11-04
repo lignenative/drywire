@@ -107,8 +107,11 @@ if [ -f "$root/apps/web/package.json" ]; then
 		mkdir -p public
 		cp "$root/core/target/wasm32-unknown-unknown/release/drywire_wasm.wasm" public/drywire.wasm
 		bun install --frozen-lockfile
+		# The desktop interface it imports, from its own node_modules (ADR 0048).
 		bun run typecheck
 		bun test
+		# Errors only: the UI libraries' "use client" directives warn by the hundred.
+		bun run build --logLevel error >/dev/null
 		cd "$root"
 		bun scripts/js-licenses.ts apps/web
 	fi

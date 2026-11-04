@@ -187,6 +187,9 @@ const en = {
   "settings.noClick": "No click was heard. Hold the earphone closer to the microphone, and turn the volume up.",
   "settings.key": "Device key",
   "settings.keyHelp": "Only a server operator needs it, to let you create spaces.",
+  "settings.browser": "In a browser",
+  "settings.browserHelp":
+    "The browser adds delay the app does not. It has no overlay, no shortcut that works in a game and no device test: the Drywire app does.",
   "settings.copy": "Copy",
   "settings.copied": "Copied",
 
@@ -208,6 +211,7 @@ const en = {
   "error.audio": "The sound card could not start.",
   "error.not_found": "Not found.",
   "error.autostart": "Starting with the session could not be changed.",
+  "error.microphone": "The browser blocks the microphone: allow it for this site, then join again.",
   "error.unknown": "Something went wrong.",
 } as const;
 
@@ -396,6 +400,9 @@ const fr: Record<Key, string> = {
   "settings.noClick": "Aucun clic entendu. Rapprochez l’écouteur du micro et montez le volume.",
   "settings.key": "Clé de l’appareil",
   "settings.keyHelp": "Seul un opérateur de serveur en a besoin, pour vous laisser créer des espaces.",
+  "settings.browser": "Dans un navigateur",
+  "settings.browserHelp":
+    "Le navigateur ajoute du délai que l’application n’a pas. Il n’a ni overlay, ni raccourci qui marche en jeu, ni test des périphériques : l’application Drywire, si.",
   "settings.copy": "Copier",
   "settings.copied": "Copiée",
 
@@ -417,6 +424,7 @@ const fr: Record<Key, string> = {
   "error.audio": "La carte son n’a pas pu démarrer.",
   "error.not_found": "Introuvable.",
   "error.autostart": "Le lancement à l’ouverture de session n’a pas pu être modifié.",
+  "error.microphone": "Le navigateur bloque le micro : autorisez-le pour ce site, puis rejoignez de nouveau.",
   "error.unknown": "Une erreur est survenue.",
 };
 

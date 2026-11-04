@@ -213,5 +213,21 @@ export type Api = typeof tauri;
 /** Whether the page runs in the Tauri window, not in a plain browser. */
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-/** The Rust side in the app; a simulated call in a browser (`make ui`). */
-export const api: Api = inTauri ? tauri : simulated;
+/** Where the interface runs. "app" is the desktop app, or its simulated
+    call in a browser (`make ui`); "web" is the web client (apps/web),
+    which has no overlay, global shortcut, launch at login or loopback
+    test, so the settings leave them out. */
+export type Platform = "app" | "web";
+
+/** The Rust side in the app; a simulated call in a browser (`make ui`).
+    A binding, not a constant: the web client hands in its own. */
+export let api: Api = inTauri ? tauri : simulated;
+export let platform: Platform = "app";
+
+/** Gives the interface another implementation of its commands, before
+    its first render: the web client's, built on WebTransport, WebCodecs
+    and the protocol in WebAssembly (ADR 0047). */
+export function provideApi(next: Api, where: Platform): void {
+  api = next;
+  platform = where;
+}

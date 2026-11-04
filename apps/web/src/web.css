@@ -1,0 +1,5 @@
+/* The desktop app's theme and components (ADR 0048), with the web
+   client's own files among the sources Tailwind reads for classes. */
+@import "../../../desktop/src/index.css";
+@source "../../../desktop/src";
+@source "./";
