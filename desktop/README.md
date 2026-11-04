@@ -11,6 +11,8 @@ desktop/
   src-tauri/       The Rust side: a Cargo workspace of its own (ADR 0030)
     src/app.rs       What each command does, without the window
     src/session.rs   A call in progress, on a thread of its own
+    src/rooms.rs     Who sits in each room of the known spaces
+    src/meter.rs     The microphone's level out of a call
     src/shell.rs     The tray icon, the global shortcut and the overlay
     src/latency.rs   The per-person latency estimate
     src/store.rs     The identity and the space keys on disk
@@ -29,7 +31,7 @@ mobile ones it adds).
   first"). Wide, a permanent menu on the left lists the spaces this device
   knows: a space with one room is a single row named after the space, a
   space with several lists its rooms under its name, and each room shows
-  who sits in it. Under the spaces, the call this device is in (one click
+  who sits in it, kept current from each space's event stream (ADR 0045). Under the spaces, the call this device is in (one click
   back to it, one to leave), then its own bar: name, mute, settings.
 - Beside the menu, the room picked in it. Out of a call: who is there and
   a button to join (joining another room leaves the current one). In a
@@ -127,9 +129,14 @@ and can be switched in the settings (Display).
   canvas (ADR 0037). Drywire's screens (`src/components/`) are made of
   them; `src/state.ts` holds the window's state and `src/model.ts` what
   the screens derive from the Rust side's views, tested without a
-  browser. Where the Rust side does not report something the canvas shows
-  yet (who sits in a room you are not in), `src/api.ts` marks the field
-  optional with a TODO and the interface leaves it out.
+  browser. A few fields are optional in `src/api.ts` (who sits in a room,
+  the reconnection countdown, whose voice was rejected): the Rust side
+  always sends them, and the interface leaves out what a client does not.
+- **Who sits in each room is pushed, never polled.** Each space listed
+  is followed on a thread of its own (`rooms.rs`), at most 6 per
+  instance, under the server's limit of 8 event streams per identity;
+  every change sends the spaces to the window as a `spaces` event, built
+  from the last listing without asking a server (ADR 0045).
 - **The microphone opens out of a call only for the settings' meter**, and
   only while the Voice page asks for its level and the window is on
   screen: the sound card closes a second after the last request, and
@@ -207,6 +214,9 @@ run. What only a person on a Windows PC can check:
 - [ ] **A real call.** Paste an invitation link, join a room on the
       default sound card, hear a teammate and be heard; leave, and the
       teammate sees you go at once.
+- [ ] **Who sits where.** Out of a call, a teammate who joins or leaves a
+      room shows under it in the side menu within a second or two, and
+      the names disappear while the server is unreachable.
 - [ ] **Devices.** The connection (the signal chip) shows WASAPI and small buffers; a
       Bluetooth headset is flagged.
 - [ ] **Meter out of a call.** Settings, Voice: the meter moves with your

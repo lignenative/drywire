@@ -4,6 +4,7 @@
 //! - [`app`]: what each command does, without the window.
 //! - [`session`]: a call in progress, on a thread of its own.
 //! - `meter.rs`: the microphone's level out of a call, for the settings.
+//! - [`rooms`]: who sits in each room of the known spaces.
 //! - [`store`] and [`vault`]: the identity and the space keys on disk,
 //!   protected by DPAPI on Windows.
 //! - `shell.rs`: the tray icon, the global mute shortcut and the overlay.
@@ -16,6 +17,7 @@ mod commands;
 pub mod error;
 pub mod latency;
 mod meter;
+pub mod rooms;
 pub mod session;
 mod shell;
 pub mod store;
@@ -32,6 +34,7 @@ use crate::app::Desktop;
 /// The argument the session's login starts the app with: it then stays in
 /// the tray instead of opening its window.
 pub const HIDDEN_ARG: &str = "--hidden";
+use crate::rooms::Changed;
 use crate::session::{DeviceFactory, Notice, Notices};
 use crate::store::Store;
 
@@ -66,7 +69,15 @@ pub fn run() {
             let notices: Notices = Arc::new(move |notice: Notice| {
                 let _ = handle.emit("presence", notice);
             });
-            let desktop = Desktop::new(store, Arc::new(default_sound_card), notices);
+            // Who sits in each room goes to the main window with the
+            // spaces, at every change.
+            let handle = app.handle().clone();
+            let rooms_changed: Changed = Arc::new(move || {
+                if let Some(desktop) = handle.try_state::<Desktop>() {
+                    let _ = handle.emit("spaces", desktop.spaces_now());
+                }
+            });
+            let desktop = Desktop::new(store, Arc::new(default_sound_card), notices, rooms_changed);
             let shortcut = desktop.settings().mute_shortcut;
             app.manage(desktop);
             shell::setup(app)?;

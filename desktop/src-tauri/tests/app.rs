@@ -10,6 +10,7 @@ mod relay;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -57,7 +58,12 @@ fn desktop(name: &str, devices: Devices) -> (Desktop, Heard) {
         let heard = Arc::clone(&heard);
         Arc::new(move |n: Notice| heard.lock().unwrap().push(format!("{} {}", n.kind, n.name)))
     };
-    let app = Desktop::new(Store::open(&temp_dir(name)).unwrap(), devices, notices);
+    let app = Desktop::new(
+        Store::open(&temp_dir(name)).unwrap(),
+        devices,
+        notices,
+        Arc::new(|| {}),
+    );
     (app, heard)
 }
 
@@ -411,4 +417,88 @@ fn the_meter_hears_the_microphone_out_of_a_call() {
         0,
         "closed after a second unasked"
     );
+}
+
+/// Polls `check` until it holds, or fails after five seconds.
+fn eventually(what: &str, check: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !check() {
+        assert!(Instant::now() < deadline, "{what}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn the_side_menu_sees_who_sits_in_every_room() {
+    let relay = Relay::start();
+    let space_key = [0x5a; 32];
+    let owner = Client::new(&relay.instance(), SigningKey::from_bytes(&[0xa1; 32])).unwrap();
+    let space = owner.create_space("Team", "general", "owner").unwrap();
+    owner.create_room(&space.space.id, "games").unwrap();
+    let link = || {
+        let (invitation, _) = owner
+            .invite(&space.space.id, &space_key, None, Some(1))
+            .unwrap();
+        invitation.to_link()
+    };
+
+    // Sam's app is told of every change, and asks no server to show it.
+    let changes = Arc::new(AtomicUsize::new(0));
+    let sam = {
+        let changes = Arc::clone(&changes);
+        Desktop::new(
+            Store::open(&temp_dir("sam-rooms")).unwrap(),
+            devices(Vec::new()),
+            Arc::new(|_| {}),
+            Arc::new(move || {
+                changes.fetch_add(1, Ordering::Relaxed);
+            }),
+        )
+    };
+    sam.accept(&link(), "sam").unwrap();
+    let spaces = sam.spaces().unwrap();
+    let (instance, space_id) = (spaces[0].instance.clone(), spaces[0].id.clone());
+    let room = |name: &str| {
+        spaces[0]
+            .rooms
+            .iter()
+            .find(|r| r.name == name)
+            .unwrap()
+            .id
+            .clone()
+    };
+    let (general, games) = (room("general"), room("games"));
+    let occupants = |id: &str| {
+        let now = sam.spaces_now();
+        let room = now[0].rooms.iter().find(|r| r.id == id).unwrap().clone();
+        room.occupants
+    };
+    eventually("the first snapshot", || {
+        occupants(&general) == Some(vec![]) && occupants(&games) == Some(vec![])
+    });
+
+    // Alex sits down in one room, then moves: Sam sees both without joining.
+    let (alex, _) = desktop("alex-rooms", devices(Vec::new()));
+    alex.accept(&link(), "alex").unwrap();
+    alex.join(&instance, &space_id, &games).unwrap();
+    eventually("alex in games", || {
+        occupants(&games) == Some(vec!["alex".into()]) && occupants(&general) == Some(vec![])
+    });
+    alex.join(&instance, &space_id, &general).unwrap();
+    eventually("alex moved to general", || {
+        occupants(&general) == Some(vec!["alex".into()]) && occupants(&games) == Some(vec![])
+    });
+    // In a call, the names stay: the call's stream is its own.
+    sam.join(&instance, &space_id, &games).unwrap();
+    eventually("sam in games", || {
+        occupants(&games) == Some(vec!["sam".into()])
+    });
+    assert_eq!(occupants(&general), Some(vec!["alex".into()]));
+    alex.leave();
+    eventually("alex left", || occupants(&general) == Some(vec![]));
+    assert!(changes.load(Ordering::Relaxed) >= 4, "each change was told");
+    // Serialized for the window: unknown occupants are left out.
+    let json = serde_json::to_value(sam.spaces_now()).unwrap();
+    assert!(json[0]["rooms"][0]["occupants"].is_array());
+    sam.leave();
 }

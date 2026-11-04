@@ -321,6 +321,8 @@ export const simulated: Api = {
     state.launchAtLogin = enabled;
     return resolve(enabled);
   },
+  // The simulated rooms keep their people: nothing to push.
+  onSpaces: (_f: (spaces: SpaceView[]) => void): Promise<UnlistenFn> => resolve(() => {}),
   onPresence: (f: (notice: Notice) => void): Promise<UnlistenFn> => {
     state.listeners.add(f);
     return resolve(() => {

@@ -13,10 +13,11 @@ export interface AppError {
 export interface RoomView {
   id: string;
   name: string;
-  /** Who sits in the room, for a room this device is not in. Absent when
-      unknown: the Rust side does not report it yet (TODO: a command that
-      reads the room's presence from the server), and the interface then
-      shows the room without names. */
+  /** Who sits in the room, sorted by name, from the space's event stream
+      (the Rust side's `rooms.rs`). Absent when unknown: the stream is not
+      open yet, or the instance has too many spaces to follow them all;
+      the interface then shows the room without names. For the call's own
+      room the interface shows the call's participants instead. */
   occupants?: string[];
 }
 
@@ -196,6 +197,11 @@ const tauri = {
   inputLevel: () => invoke<number>("input_level"),
   launchAtLogin: () => invoke<boolean>("launch_at_login"),
   setLaunchAtLogin: (enabled: boolean) => invoke<boolean>("set_launch_at_login", { enabled }),
+  /** Calls `f` with the spaces whenever someone sits down in or leaves a
+      room of any of them: what `listSpaces` would answer, without asking
+      the servers again. */
+  onSpaces: (f: (spaces: SpaceView[]) => void): Promise<UnlistenFn> =>
+    listen<SpaceView[]>("spaces", (event) => f(event.payload)),
   /** Calls `f` for every arrival and departure in the room. */
   onPresence: (f: (notice: Notice) => void): Promise<UnlistenFn> =>
     listen<Notice>("presence", (event) => f(event.payload)),
