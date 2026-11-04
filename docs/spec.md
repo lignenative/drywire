@@ -478,6 +478,9 @@ and honest numbers on screen. English and French from the first release.
   always adds latency compared to a native client, and the app says so.
 - Transport: WebTransport datagrams, in every engine since Safari 26.4
   (ADR 0038).
+- The protocol and the encryption are `drywire-proto` compiled to
+  WebAssembly; Opus is the browser's WebCodecs for now; the identity is a
+  non-extractable WebCrypto Ed25519 key (ADR 0040).
 - Audio: capture and playback in an AudioWorklet, with
   `echoCancellation`, `noiseSuppression` and `autoGainControl` off, which
   Chrome also needs to stop forcing 10 ms capture buffers.
@@ -545,7 +548,7 @@ drywire/
     drywire-proto/    Packet format, end-to-end crypto, binary test vectors
     drywire-core/     Audio I/O, Opus, gate, jitter buffer, stats
     drywire-ffi/      UniFFI bindings (Swift, Kotlin)
-    drywire-wasm/     Web build
+    drywire-wasm/     drywire-proto for the web client, as WebAssembly
     drywire-bench/    Network simulation, latency measurement
     drywire-control/  Control plane client: login, spaces, invitations, presence
     drywire-cli/      Command-line client
