@@ -6,6 +6,11 @@
 // datagrams to send. It does no I/O, so tests can drive it with a fake clock.
 // Serve is the thin loop that connects Handle to a UDP socket.
 //
+// Browsers cannot send UDP: they reach the relay through WebTransport
+// (ADR 0038), whose datagrams carry the same packets. A session is bound
+// either to a UDP address or to such a Link, and the relay copies packets
+// between both kinds of members alike.
+//
 // Sessions come from the control plane, which adds one when a member joins
 // a room (AddSession), removes it when they leave (RemoveSession), and
 // calls Expire every second to learn which sessions went silent.
@@ -61,9 +66,44 @@ const (
 
 // Datagram is a packet to send. Data may point into the buffer that was
 // passed to Handle, so it must be sent before that buffer is reused.
+//
+// It goes through Link when Link is set, and to the UDP address To
+// otherwise; with a Link, To is the address its connection comes from.
 type Datagram struct {
 	To   netip.AddrPort
+	Link Link
 	Data []byte
+}
+
+// A Link carries datagrams to one client by another way than the relay's
+// UDP socket: a browser's WebTransport session (ADR 0038). Two links are
+// the same client only if they are equal, so a Link is a pointer.
+type Link interface {
+	// SendDatagram sends one packet, unreliably, without waiting. It must
+	// not keep data after it returns.
+	SendDatagram(data []byte) error
+}
+
+// endpoint is where a session's packets come from and go to: a UDP
+// address, or a link and the address its connection comes from.
+type endpoint struct {
+	addr netip.AddrPort
+	link Link
+}
+
+// is tells whether a packet from o comes from the client bound at e. A
+// link is the same client whatever address it comes from now: QUIC keeps
+// a connection across a change of address, and it is the connection that
+// proved it holds the secret.
+func (e endpoint) is(o endpoint) bool {
+	if e.link != nil || o.link != nil {
+		return e.link == o.link
+	}
+	return e.addr == o.addr
+}
+
+func (e endpoint) datagram(data []byte) Datagram {
+	return Datagram{To: e.addr, Link: e.link, Data: data}
 }
 
 // Stats is a snapshot of the relay's counters. It contains no address and
@@ -108,9 +148,9 @@ type session struct {
 	secret []byte
 	room   *room
 
-	// Binding: the address that last proved it holds the secret.
+	// Binding: the endpoint that last proved it holds the secret.
 	bound       bool
-	addr        netip.AddrPort
+	addr        endpoint
 	lastSeen    time.Time
 	lastCounter uint64 // highest hello counter accepted, kept after expiry
 
@@ -222,18 +262,56 @@ func (r *Relay) Serve(conn *net.UDPConn) error {
 			r.log.Warn("udp read failed", "error", err)
 			continue
 		}
-		for _, d := range r.Handle(buf[:n], from) {
-			if _, err := conn.WriteToUDPAddrPort(d.Data, d.To); err != nil {
-				r.log.Debug("udp write failed", "error", err)
-			}
+		r.Deliver(conn, r.Handle(buf[:n], from))
+	}
+}
+
+// Deliver sends what Handle returned: through its link when a datagram
+// has one, else on conn, the relay's UDP socket. Both kinds of client
+// receive from both kinds, so whoever reads packets, the UDP loop or a
+// WebTransport session, delivers with the same function.
+func (r *Relay) Deliver(conn *net.UDPConn, out []Datagram) {
+	for _, d := range out {
+		var err error
+		if d.Link != nil {
+			err = d.Link.SendDatagram(d.Data)
+		} else {
+			_, err = conn.WriteToUDPAddrPort(d.Data, d.To)
+		}
+		if err != nil {
+			r.log.Debug("send failed", "error", err, "web", d.Link != nil)
 		}
 	}
 }
 
-// Handle processes one datagram received from the given address and returns
-// the datagrams to send in response. It follows protocol section 10.1 step
-// by step.
+// Handle processes one UDP datagram received from the given address and
+// returns the datagrams to send in response.
 func (r *Relay) Handle(packet []byte, from netip.AddrPort) []Datagram {
+	return r.handle(packet, endpoint{addr: from})
+}
+
+// HandleLink processes one datagram that link received from a connection
+// coming from the address from. A session bound by a hello on a link only
+// accepts packets from that same link.
+func (r *Relay) HandleLink(packet []byte, from netip.AddrPort, link Link) []Datagram {
+	return r.handle(packet, endpoint{addr: from, link: link})
+}
+
+// Unlink unbinds every session bound to link, whose connection closed, so
+// that the relay stops sending to it at once rather than at the session
+// timeout. The sessions stay: their client may say hello again elsewhere.
+func (r *Relay) Unlink(link Link) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range r.sessions {
+		if s.bound && s.addr.link == link {
+			s.bound, s.addr = false, endpoint{}
+		}
+	}
+}
+
+// handle follows protocol section 10.1 step by step.
+func (r *Relay) handle(packet []byte, from endpoint) []Datagram {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -242,7 +320,7 @@ func (r *Relay) Handle(packet []byte, from netip.AddrPort) []Datagram {
 	r.stats.Received++
 
 	// 1. Per-IP rate limit, before spending any work on the packet.
-	if !r.allowIP(from.Addr().Unmap(), now) {
+	if !r.allowIP(from.addr.Addr().Unmap(), now) {
 		return r.drop(DropIPRateLimited)
 	}
 
@@ -262,7 +340,7 @@ func (r *Relay) Handle(packet []byte, from netip.AddrPort) []Datagram {
 	}
 
 	// 4. Everything else must come from the bound address.
-	if !s.bound || s.addr != from {
+	if !s.bound || !s.addr.is(from) {
 		return r.drop(DropNotBound)
 	}
 
@@ -283,7 +361,7 @@ func (r *Relay) Handle(packet []byte, from netip.AddrPort) []Datagram {
 			AudioReceived: s.uplink.receivedCount(),
 			AudioLost:     s.uplink.lostCount(),
 		})
-		return r.send(Datagram{To: s.addr, Data: pong})
+		return r.send(s.addr.datagram(pong))
 	case wire.TypeAudio:
 		if s.uplink.record(h.KeyEpoch, h.Sequence) {
 			return r.drop(DropDuplicate)
@@ -304,7 +382,7 @@ func (r *Relay) toRoom(s *session, packet []byte) []Datagram {
 	var out []Datagram
 	for _, m := range s.room.members {
 		if m != s && m.bound {
-			out = append(out, Datagram{To: m.addr, Data: packet})
+			out = append(out, m.addr.datagram(packet))
 		}
 	}
 	return out
@@ -312,7 +390,7 @@ func (r *Relay) toRoom(s *session, packet []byte) []Datagram {
 
 // hello verifies a hello and, if it is valid and newer than the last one,
 // binds the session to the sender's address (protocol section 6.1).
-func (r *Relay) hello(s *session, packet []byte, from netip.AddrPort, now time.Time) []Datagram {
+func (r *Relay) hello(s *session, packet []byte, from endpoint, now time.Time) []Datagram {
 	counter, err := wire.VerifyHandshake(packet, s.secret)
 	if err != nil {
 		return r.drop(err.Error())
@@ -320,13 +398,13 @@ func (r *Relay) hello(s *session, packet []byte, from netip.AddrPort, now time.T
 	if counter <= s.lastCounter {
 		return r.drop(DropStaleCounter)
 	}
-	if !s.bound || s.addr != from {
-		r.log.Info("session bound", "session", s.id, "room", s.room.name, "moved", s.bound)
+	if !s.bound || !s.addr.is(from) {
+		r.log.Info("session bound", "session", s.id, "room", s.room.name, "moved", s.bound, "web", from.link != nil)
 	}
 	s.lastCounter = counter
 	s.bound, s.addr, s.lastSeen = true, from, now
 	s.uplink = uplink{} // counters restart at every accepted hello (section 10.4)
-	return r.send(Datagram{To: from, Data: wire.NewHelloAck(s.id, counter, s.secret)})
+	return r.send(from.datagram(wire.NewHelloAck(s.id, counter, s.secret)))
 }
 
 func (r *Relay) allowIP(ip netip.Addr, now time.Time) bool {
@@ -357,7 +435,7 @@ func (r *Relay) sweep(now time.Time) {
 	}
 	for _, s := range r.sessions {
 		if s.bound && now.Sub(s.lastSeen) > SessionTimeout {
-			s.bound, s.addr = false, netip.AddrPort{}
+			s.bound, s.addr = false, endpoint{}
 			r.log.Info("session timed out", "session", s.id, "room", s.room.name)
 		}
 	}

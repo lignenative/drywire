@@ -26,8 +26,17 @@ type JoinAnswer struct {
 	Session       uint32             `json:"session"`
 	SessionSecret string             `json:"session_secret"`
 	Relay         string             `json:"relay"`
+	WebRelay      *WebRelay          `json:"web_relay,omitempty"`
 	Room          store.Room         `json:"room"`
 	Sessions      []presence.Session `json:"sessions"`
+}
+
+// WebRelay is how a browser reaches the relay (protocol section 13.6):
+// a WebTransport URL, and the SHA-256 hashes, in hex, of the
+// certificates it may present (ADR 0039).
+type WebRelay struct {
+	URL               string   `json:"url"`
+	CertificateHashes []string `json:"certificate_hashes"`
 }
 
 // joinRoom: POST /v1/rooms/{room}/join. The relay gets a new session with
@@ -83,10 +92,15 @@ func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request, c caller) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	var web *WebRelay
+	if s.cfg.WebRelayURL != "" {
+		web = &WebRelay{URL: s.cfg.WebRelayURL, CertificateHashes: s.cfg.WebRelayHashes()}
+	}
 	writeJSON(w, http.StatusOK, JoinAnswer{
 		Session:       session,
 		SessionSecret: hex.EncodeToString(secret),
 		Relay:         s.cfg.RelayAddr,
+		WebRelay:      web,
 		Room:          room,
 		Sessions:      s.presence.Find(func(p presence.Session) bool { return p.Room == room.ID }),
 	})

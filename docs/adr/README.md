@@ -55,3 +55,5 @@ Status: Accepted · YYYY-MM-DD
 | [0035](0035-join-again-when-the-server-forgets-the-session.md) | Join again when the server forgets the session |
 | [0036](0036-keep-the-access-log-in-daily-files-the-server-prunes.md) | Keep the access log in daily files the server prunes |
 | [0037](0037-build-the-interface-from-shadcn-components-on-base-ui.md) | Build the interface from shadcn components on Base UI |
+| [0038](0038-reach-the-relay-from-browsers-over-webtransport.md) | Reach the relay from browsers over WebTransport, on a port of its own |
+| [0039](0039-pin-the-web-relay-certificate-by-its-hash.md) | Pin the web relay's certificate by its hash |

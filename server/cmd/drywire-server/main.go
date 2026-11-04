@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/lignenative/drywire/server/internal/ledger"
 	"github.com/lignenative/drywire/server/internal/relay"
 	"github.com/lignenative/drywire/server/internal/store"
+	"github.com/lignenative/drywire/server/internal/web"
 )
 
 // version is replaced at build time with -ldflags "-X main.version=…".
@@ -90,9 +92,34 @@ func run(log *slog.Logger) error {
 	if cfg.proxyOnly {
 		httpListener = proxyOnly{Listener: httpListener, allowed: cfg.api.TrustedProxies}
 	}
+	// Browsers reach the relay over WebTransport, on a UDP port of its
+	// own, so the native clients' socket stays as it is (ADR 0038).
+	var webConn *net.UDPConn
+	var webServer *web.Server
+	webAddr := ""
+	if cfg.webAddr != "" {
+		waddr, err := net.ResolveUDPAddr("udp", cfg.webAddr)
+		if err != nil {
+			return fmt.Errorf("DRYWIRE_WEB_ADDR: %w", err)
+		}
+		if webConn, err = net.ListenUDP("udp", waddr); err != nil {
+			return err
+		}
+		defer webConn.Close()
+		webAddr = webConn.LocalAddr().String()
+	}
+
 	// Defaults that depend on the ports really bound (":0" in tests).
-	if err := cfg.setPublicAddresses(httpListener.Addr().String(), udpConn.LocalAddr().String()); err != nil {
+	if err := cfg.setPublicAddresses(httpListener.Addr().String(), udpConn.LocalAddr().String(), webAddr); err != nil {
 		return err
+	}
+	if webConn != nil {
+		host, _, _ := net.SplitHostPort(strings.TrimPrefix(cfg.api.WebRelayURL, "https://"))
+		if webServer, err = web.New(r, udpConn, []string{host}, time.Now, log); err != nil {
+			return err
+		}
+		defer webServer.Close()
+		cfg.api.WebRelayHashes = webServer.CertificateHashes
 	}
 
 	a := auth.New(cfg.publicURL, time.Now)
@@ -106,8 +133,11 @@ func run(log *slog.Logger) error {
 	}
 	httpServer.RegisterOnShutdown(server.CloseEvents)
 
-	errs := make(chan error, 2)
+	errs := make(chan error, 3)
 	go func() { errs <- r.Serve(udpConn) }()
+	if webServer != nil {
+		go func() { errs <- webServer.Serve(webConn) }()
+	}
 	go func() {
 		if cfg.tlsCert != "" {
 			errs <- httpServer.ServeTLS(httpListener, cfg.tlsCert, cfg.tlsKey)
@@ -116,7 +146,7 @@ func run(log *slog.Logger) error {
 		}
 	}()
 	log.Info("drywire-server started", "version", version, "udp", udpConn.LocalAddr().String(),
-		"http", httpListener.Addr().String(), "public_url", cfg.publicURL, "tls", cfg.tlsCert != "")
+		"http", httpListener.Addr().String(), "web", webAddr, "public_url", cfg.publicURL, "tls", cfg.tlsCert != "")
 
 	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

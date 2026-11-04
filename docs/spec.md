@@ -161,8 +161,13 @@ reading them, and manages identities, spaces and rooms over HTTPS.
   handled by the server itself from certificate files.
 - **Storage**: SQLite through `modernc.org/sqlite` (pure Go, no cgo) for
   identities, spaces, rooms, members and public keys.
-- **Accepted dependencies**: `modernc.org/sqlite` now, `quic-go` for the web
-  client later. Anything else needs an explicit decision recorded in an ADR.
+- **Browsers** reach the relay over WebTransport, on a UDP port of its own,
+  with the same packets as datagrams (ADR 0038). Its certificate is made by
+  the server and pinned by its hash, which the control plane hands out
+  (ADR 0039).
+- **Accepted dependencies**: `modernc.org/sqlite`, and `quic-go` with
+  `webtransport-go` for browsers (ADR 0038). Anything else needs an
+  explicit decision recorded in an ADR.
 
 ### Core: `drywire-core` (Rust)
 
@@ -469,10 +474,13 @@ and honest numbers on screen. English and French from the first release.
 
 ### Web — React + WASM core
 
-- The core runs in an AudioWorklet; transport uses WebTransport datagrams.
-- A fallback for people who cannot install an app: a browser always adds
-  latency compared to a native client.
-- Browser support for WebTransport must be checked on MDN before phase 7.
+- A fallback for people who cannot or will not install an app: a browser
+  always adds latency compared to a native client, and the app says so.
+- Transport: WebTransport datagrams, in every engine since Safari 26.4
+  (ADR 0038).
+- Audio: capture and playback in an AudioWorklet, with
+  `echoCancellation`, `noiseSuppression` and `autoGainControl` off, which
+  Chrome also needs to stop forcing 10 ms capture buffers.
 
 The visual identity (colours, typography, logo) is defined once the name is
 final.
@@ -591,7 +599,8 @@ variable.
 | 10050/udp | Relay | `DRYWIRE_UDP_ADDR` |
 | 10051 | Vite dev server, desktop UI | `DEV_PORT` |
 | 10052 | Project site preview | `SITE_PORT` |
-| 10057 | Vite dev server, web client (later) | `WEB_PORT` |
+| 10057 | Vite dev server, web client | `WEB_PORT` |
+| 10058/udp | Relay, WebTransport side for browsers | `DRYWIRE_WEB_ADDR` |
 
 ### Commands
 
@@ -661,7 +670,11 @@ phase ends on a measurable criterion.
    measured latency below the phase 0 Android baseline.
 6. **Linux.** The desktop app on PipeWire. **Exit**: a full session on a
    mainstream distribution.
-7. **Web client and landing page** on the final domain.
+7. **Web client and landing page** on the final domain. Brought forward
+   to right after phase 3: it is the easy door for new users before the
+   public opening. **Exit**: a browser and a native client hold a call
+   through the relay, and the web client's latency is measured with the
+   reference method.
 8. **Public opening.** Hosted instance, quotas per space, several relay
    regions, MLS, linking several devices to one identity (QR code), handling
    of minors and impact assessment, features for esport teams (coach channel,
@@ -692,6 +705,9 @@ None blocks phase 1.
 - [ ] TLS termination on the relay host: existing reverse proxy or
       certificates handled by the server.
 - [ ] Production UDP port, and the firewall rules that open it.
+- [ ] Production port of the relay's WebTransport side (ADR 0038), and
+      whether the web client is served by each instance or from the
+      project's domain (which needs CORS on the control plane).
 - [ ] Apple Developer and Google Play accounts.
 - [ ] Windows code signing: manual installation within the team at first,
       certificate later.

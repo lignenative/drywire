@@ -11,7 +11,7 @@ export
 help: ## List the commands
 	@scripts/help.sh
 
-dev: ## Run the server locally: relay and control plane on 127.0.0.1:10050
+dev: ## Run the server locally: 127.0.0.1:10050, and 10058/udp for browsers
 	@scripts/dev.sh
 
 test: ## Run every test suite
