@@ -45,6 +45,7 @@ use drywire_proto::crypto::{SigningKey, VerifyingKey};
 use serde::Serialize;
 
 use crate::error::AppError;
+use crate::groups::Groups;
 use crate::latency::estimate_ms;
 use crate::store::Settings;
 
@@ -126,14 +127,23 @@ pub struct JoinRequest {
     pub space_id: Id,
     /// Its name, for display.
     pub space_name: String,
-    /// The secret its members share.
-    pub space_key: [u8; 32],
+    /// Where its room keys come from.
+    pub keys: RoomKeys,
     /// The room to join.
     pub room_id: Id,
     /// The gate threshold and the volumes to start with.
     pub settings: Settings,
     /// Told of every arrival and departure.
     pub notices: Notices,
+}
+
+/// Where a space's room keys come from.
+#[derive(Clone)]
+pub enum RoomKeys {
+    /// Its MLS group (ADRs 0052 and 0055).
+    Group(Arc<Groups>),
+    /// The secret its members share, from before groups.
+    Space([u8; 32]),
 }
 
 /// What the interface asks of the session thread.
@@ -744,7 +754,23 @@ struct Live {
     room_id: Id,
     people: HashMap<u32, Known>,
     view: CallView,
+    /// The space's group, when its room keys come from one: the call
+    /// takes each new key as the group moves.
+    group: Option<LiveGroup>,
 }
+
+/// The group side of a call: what a sync needs, and the key the call has.
+struct LiveGroup {
+    groups: Arc<Groups>,
+    space_id: Id,
+    owner: bool,
+    key: [u8; 32],
+    synced: Instant,
+}
+
+/// How often a call syncs its group without being told to: a member who
+/// left the space says so by no event.
+const GROUP_RESYNC: Duration = Duration::from_secs(30);
 
 impl Live {
     /// Joins the room and starts the sound card. `muted` applies before
@@ -782,6 +808,18 @@ impl Live {
             check()?;
             *events = Some(follow(&client, &request.space_id)?);
         }
+        // The room key before the session: a device not in the space's
+        // group yet may wait for a member's app to let it in.
+        let room_key = match &request.keys {
+            RoomKeys::Group(groups) => groups.ready(
+                &client,
+                &request.space_id,
+                &room.id,
+                space.role == "owner",
+                &|| stop.load(Ordering::Relaxed),
+            )?,
+            RoomKeys::Space(key) => drywire_proto::crypto::room_key(key, &room.id.0),
+        };
         check()?;
         let joined = client.join(&room.id)?;
         let relay = resolve(&joined.relay)?;
@@ -799,9 +837,7 @@ impl Live {
         }
         let config = ClientConfig {
             room_id: room.id.0,
-            // Until the space has an MLS group (ADR 0052, step 4), the
-            // room key comes from the space key.
-            room_key: drywire_proto::crypto::room_key(&request.space_key, &room.id.0),
+            room_key,
             session: me,
             session_secret: joined.session_secret.0,
             identity: request.identity,
@@ -865,6 +901,16 @@ impl Live {
             me,
             room_id: room.id,
             people,
+            group: match request.keys {
+                RoomKeys::Group(groups) => Some(LiveGroup {
+                    groups,
+                    space_id: request.space_id,
+                    owner: space.role == "owner",
+                    key: room_key,
+                    synced: Instant::now(),
+                }),
+                RoomKeys::Space(_) => None,
+            },
             view: CallView {
                 instance,
                 space_id: request.space_id.to_hex(),
@@ -900,6 +946,13 @@ impl Live {
                 Command::RetryNow => {}
             }
         }
+        if self
+            .group
+            .as_ref()
+            .is_some_and(|g| g.synced.elapsed() > GROUP_RESYNC)
+        {
+            self.sync_group();
+        }
         while let Ok(event) = self.events.try_recv() {
             // The first snapshot was taken before this device joined; the
             // join answer is newer. Later ones follow a reconnection.
@@ -920,6 +973,32 @@ impl Live {
                 Some(End::Lost(why)) => self.lost = Some(why),
                 None => {}
             }
+        }
+    }
+
+    /// Syncs the space's group and hands the call the room's new key if
+    /// the group moved (ADR 0052). A failure waits for the next event or
+    /// the next resync.
+    fn sync_group(&mut self) {
+        let Some(group) = self.group.as_mut() else {
+            return;
+        };
+        group.synced = Instant::now();
+        if group
+            .groups
+            .sync(&self.client, &group.space_id, group.owner)
+            .is_err()
+        {
+            return;
+        }
+        if let Some(key) =
+            group
+                .groups
+                .room_key(self.client.instance(), &group.space_id, &self.room_id)
+            && key != group.key
+        {
+            group.key = key;
+            self.members.set_room_key(key);
         }
     }
 
@@ -971,7 +1050,8 @@ impl Live {
             }
             Event::Leave(p) => self.remove(p.session, "leave"),
             Event::Disconnect(p) => self.remove(p.session, "disconnect"),
-            Event::Mls(_) | Event::Other(_) => {}
+            Event::Mls(_) => self.sync_group(),
+            Event::Other(_) => {}
         }
         None
     }

@@ -32,6 +32,7 @@ tauri-build = { version = "2.7", features = [] }
 # With libopus built from source, as the CLI does (ADR 0009).
 drywire-core = { path = "../../core/drywire-core" }
 drywire-control = { path = "../../core/drywire-control" }
+drywire-mls = { path = "../../core/drywire-mls" }
 drywire-proto = { path = "../../core/drywire-proto" }
 getrandom = "0.4"
 serde = { version = "1.0", features = ["derive"] }

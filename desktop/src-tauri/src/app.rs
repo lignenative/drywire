@@ -12,10 +12,12 @@ use drywire_proto::vault::VaultCode;
 use serde::Serialize;
 
 use crate::error::AppError;
+use crate::groups::Groups;
 use crate::meter::Meter;
 use crate::rooms::{Changed, Rooms};
 use crate::session::{
-    CallView, DeviceView, JoinRequest, METER_FLOOR_DBFS, Notices, Session, clamp_gate, printable,
+    CallView, DeviceView, JoinRequest, METER_FLOOR_DBFS, Notices, RoomKeys, Session, clamp_gate,
+    printable,
 };
 use crate::store::{KnownSpace, Settings, Store};
 
@@ -126,6 +128,30 @@ pub struct RestoredView {
     pub spaces: Vec<SpaceView>,
 }
 
+/// What signing in by e-mail gave.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignedInView {
+    /// The address had no account: it chooses its user name next.
+    pub new_account: bool,
+    /// The account's user name, if it has one.
+    pub username: Option<String>,
+}
+
+/// An invitation by user name, waiting.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingInvitationView {
+    /// The space's instance.
+    pub instance: String,
+    /// The space.
+    pub space_id: String,
+    /// Its name.
+    pub space_name: String,
+    /// Who invited, by user name.
+    pub invited_by: String,
+}
+
 /// An invitation link made for a space.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -153,7 +179,9 @@ pub struct DeviceCodeView {
 
 /// The app's state, shared by every command.
 pub struct Desktop {
-    store: Store,
+    store: Arc<Store>,
+    /// The spaces' MLS groups on this device (ADRs 0052 and 0055).
+    groups: Arc<Groups>,
     devices: Devices,
     notices: Notices,
     /// Held while joining or leaving, so two of them never overlap; the
@@ -185,7 +213,9 @@ impl Desktop {
         notices: Notices,
         rooms_changed: Changed,
     ) -> Desktop {
+        let store = Arc::new(store);
         Desktop {
+            groups: Arc::new(Groups::new(Arc::clone(&store))),
             store,
             devices,
             notices,
@@ -391,18 +421,149 @@ impl Desktop {
                 Some(403) => AppError::new("creator_code_needed", e.to_string()),
                 _ => AppError::from(e),
             })?;
-        let mut space_key = [0u8; 32];
-        getrandom::fill(&mut space_key).map_err(|e| AppError::storage(e.to_string()))?;
-        self.store
-            .remember(KnownSpace::new(
+        // An account with a user name gets a space with an MLS group, made
+        // at its first call; a key-only one, a space key in its links.
+        let signed_in = client
+            .me()?
+            .and_then(|me| me.username)
+            .is_some_and(|name| !name.is_empty());
+        let known = if signed_in {
+            KnownSpace::with_group(client.instance(), view.space.id, &view.space.name)
+        } else {
+            let mut space_key = [0u8; 32];
+            getrandom::fill(&mut space_key).map_err(|e| AppError::storage(e.to_string()))?;
+            KnownSpace::new(
                 client.instance(),
                 view.space.id,
                 &view.space.name,
                 &space_key,
-            ))
-            .map_err(AppError::storage)?;
+            )
+        };
+        self.store.remember(known).map_err(AppError::storage)?;
         self.seal_recovery_again();
         Ok(space_view(client.instance(), &view))
+    }
+
+    /// The instance the apps sign in to without asking (ADR 0055): set
+    /// when the app is built, empty when it was not.
+    pub fn default_instance(&self) -> String {
+        option_env!("DRYWIRE_INSTANCE")
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    /// Asks `instance` to mail a sign-in code to `email`.
+    pub fn email_code(&self, instance: &str, email: &str, lang: &str) -> Result<(), AppError> {
+        Ok(self
+            .client(instance)?
+            .request_email_code(email.trim(), lang)?)
+    }
+
+    /// Signs this device in with the mailed code, and remembers the
+    /// account's spaces.
+    pub fn email_sign_in(
+        &self,
+        instance: &str,
+        email: &str,
+        code: &str,
+    ) -> Result<SignedInView, AppError> {
+        let client = self.client(instance)?;
+        let signed = client.verify_email_code(email.trim(), code)?;
+        self.remember_memberships(&client)?;
+        Ok(SignedInView {
+            new_account: signed.new_account,
+            username: signed.username,
+        })
+    }
+
+    /// Remembers the account's spaces this device did not know: their keys
+    /// come from their groups.
+    fn remember_memberships(&self, client: &Client) -> Result<(), AppError> {
+        let known = self.store.spaces().map_err(AppError::storage)?;
+        for m in client.spaces()? {
+            if !known
+                .iter()
+                .any(|k| k.instance == client.instance() && k.space_id == m.space.id)
+            {
+                self.store
+                    .remember(KnownSpace::with_group(
+                        client.instance(),
+                        m.space.id,
+                        &m.space.name,
+                    ))
+                    .map_err(AppError::storage)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Chooses the account's user name, and its display name.
+    pub fn set_username(
+        &self,
+        instance: &str,
+        username: &str,
+        display_name: &str,
+    ) -> Result<String, AppError> {
+        let me = self
+            .client(instance)?
+            .set_username(username.trim(), display_name.trim())?;
+        Ok(me.username.unwrap_or_default())
+    }
+
+    /// The invitations waiting for this account on `instance`.
+    pub fn pending_invitations(
+        &self,
+        instance: &str,
+    ) -> Result<Vec<PendingInvitationView>, AppError> {
+        let client = self.client(instance)?;
+        Ok(client
+            .invitations()?
+            .into_iter()
+            .map(|i| PendingInvitationView {
+                instance: client.instance().to_string(),
+                space_id: i.space_id.to_string(),
+                space_name: i.space_name,
+                invited_by: i.invited_by,
+            })
+            .collect())
+    }
+
+    /// Accepts or declines an invitation by user name.
+    pub fn answer_invitation(
+        &self,
+        instance: &str,
+        space_id: &str,
+        accept: bool,
+    ) -> Result<Option<SpaceView>, AppError> {
+        let client = self.client(instance)?;
+        let id = parse_id(space_id)?;
+        if !accept {
+            client.decline_invitation(&id)?;
+            return Ok(None);
+        }
+        let view = client.accept_invitation(&id)?;
+        self.store
+            .remember(KnownSpace::with_group(
+                client.instance(),
+                view.space.id,
+                &view.space.name,
+            ))
+            .map_err(AppError::storage)?;
+        Ok(Some(space_view(client.instance(), &view)))
+    }
+
+    /// Invites someone into a space by user name; their name as the
+    /// instance knows it.
+    pub fn invite_user(
+        &self,
+        instance: &str,
+        space_id: &str,
+        username: &str,
+    ) -> Result<String, AppError> {
+        let user = self
+            .client(instance)?
+            .invite_user(&parse_id(space_id)?, username.trim())?;
+        Ok(user.name)
     }
 
     /// Makes an invitation link to a space, for 10 people and 7 days.
@@ -524,7 +685,11 @@ impl Desktop {
             identity: self.store.identity().map_err(AppError::storage)?,
             space_id,
             space_name: known.name.clone(),
-            space_key: known.space_key().map_err(AppError::storage)?,
+            keys: if known.uses_group() {
+                RoomKeys::Group(Arc::clone(&self.groups))
+            } else {
+                RoomKeys::Space(known.space_key().map_err(AppError::storage)?)
+            },
             room_id,
             settings: self.store.settings(),
             notices: Arc::clone(&self.notices),

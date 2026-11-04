@@ -728,3 +728,53 @@ fn an_app_creates_a_space_and_invites_into_it() {
         .unwrap_err();
     assert_eq!(err.code, "refused");
 }
+
+/// Signs an app in by e-mail, as the onboarding does, with the code the
+/// test server mailed.
+fn sign_in(relay: &Relay, app: &Desktop, email: &str, username: &str) {
+    std::thread::sleep(Duration::from_millis(1200));
+    app.email_code(&relay.instance(), email, "en").unwrap();
+    let code = relay.mail_code(email);
+    let signed = app.email_sign_in(&relay.instance(), email, &code).unwrap();
+    assert!(signed.new_account);
+    assert_eq!(
+        app.set_username(&relay.instance(), username, "").unwrap(),
+        username
+    );
+}
+
+#[test]
+fn friends_signed_up_by_mail_talk_with_keys_from_their_group() {
+    let relay = Relay::start();
+    let instance = relay.instance();
+    let (alex, _) = desktop("mail-alex", devices(Vec::new()));
+    let (sam, _) = desktop("mail-sam", devices(voice()));
+    sign_in(&relay, &alex, "alex@example.com", "alex");
+    sign_in(&relay, &sam, "sam@example.com", "sam");
+
+    // Alex creates a space: no creation code, no key in a link.
+    let team = alex.create_space(&instance, None, "Team", "alex").unwrap();
+    assert_eq!(alex.invite_user(&instance, &team.id, "sam").unwrap(), "sam");
+    let waiting = sam.pending_invitations(&instance).unwrap();
+    assert_eq!(waiting[0].space_name, "Team");
+    assert_eq!(waiting[0].invited_by, "alex");
+    let joined = sam
+        .answer_invitation(&instance, &team.id, true)
+        .unwrap()
+        .unwrap();
+    let room = joined.rooms[0].id.clone();
+
+    // Alex's app is in the call first: it makes the group, and lets Sam's
+    // device in while the call runs.
+    alex.join(&instance, &team.id, &room).unwrap();
+    wait_long(&alex, "alex is in", 10, |v| v.bound);
+    sam.join(&instance, &team.id, &room).unwrap();
+    wait_long(&alex, "sam arrives", 30, |v| v.participants.len() == 2);
+    wait_long(&alex, "alex hears sam, verified", 20, |v| {
+        v.participants[1].speaking && v.encryption.state == LockState::Verified
+    });
+    let view = alex.call().unwrap();
+    assert!(view.participants[1].counters.played > 0, "{view:#?}");
+    alex.leave();
+    sam.leave();
+}

@@ -38,7 +38,9 @@ pub struct KnownSpace {
     pub space_id: Id,
     /// Its name, as last seen.
     pub name: String,
-    /// The secret every member holds, in hex.
+    /// The secret every member holds, in hex; empty for a space whose
+    /// keys come from its MLS group (ADRs 0052 and 0055).
+    #[serde(default)]
     space_key: String,
 }
 
@@ -51,6 +53,21 @@ impl KnownSpace {
             name: name.to_string(),
             space_key: to_hex(space_key),
         }
+    }
+
+    /// A space whose keys come from its MLS group.
+    pub fn with_group(instance: &str, space_id: Id, name: &str) -> KnownSpace {
+        KnownSpace {
+            instance: instance.to_string(),
+            space_id,
+            name: name.to_string(),
+            space_key: String::new(),
+        }
+    }
+
+    /// Whether the room keys come from the space's MLS group.
+    pub fn uses_group(&self) -> bool {
+        self.space_key.is_empty()
     }
 
     /// The space key.
@@ -136,6 +153,23 @@ impl Store {
         Ok(Store {
             dir: dir.to_path_buf(),
         })
+    }
+
+    /// This device in the spaces' MLS groups: its saved state, sealed
+    /// like the identity, or a fresh one signing with the identity key.
+    pub fn group_device(&self) -> Result<drywire_mls::Device, String> {
+        match read_sealed::<String>(&self.dir.join("groups.json"))? {
+            Some(state) => {
+                let bytes = from_hex(&state).ok_or("the groups' state is damaged")?;
+                drywire_mls::Device::load(&bytes).map_err(|e| e.to_string())
+            }
+            None => drywire_mls::Device::new(&self.identity()?).map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Saves this device's groups.
+    pub fn save_group_device(&self, device: &drywire_mls::Device) -> Result<(), String> {
+        write_sealed(&self.dir.join("groups.json"), &to_hex(&device.save()))
     }
 
     /// The device's identity, made and saved on first use.

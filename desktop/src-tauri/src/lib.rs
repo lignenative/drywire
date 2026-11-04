@@ -15,6 +15,7 @@
 pub mod app;
 mod commands;
 pub mod error;
+pub mod groups;
 pub mod latency;
 mod meter;
 pub mod rooms;
@@ -127,6 +128,13 @@ pub fn run() {
             commands::input_level,
             commands::launch_at_login,
             commands::set_launch_at_login,
+            commands::default_instance,
+            commands::email_code,
+            commands::email_sign_in,
+            commands::set_username,
+            commands::pending_invitations,
+            commands::answer_invitation,
+            commands::invite_user,
         ])
         .build(tauri::generate_context!())
         .expect("Drywire could not start");
