@@ -26,13 +26,16 @@ export type SpaceAnswer = {
   space: { id: string; name: string };
   role: string;
   rooms: { id: string; name: string }[];
+  /** With each member's device keys (ADR 0055), when the space is read. */
+  members?: { devices?: string[] }[];
 };
 
 /** A presence event (protocol section 13.6). */
 export type PresenceEvent =
   | { type: "snapshot"; sessions: Session[] }
   | { type: "join"; room_id: string; session: number; public_key: string; name: string }
-  | { type: "leave" | "disconnect"; room_id: string; session: number; public_key: string };
+  | { type: "leave" | "disconnect"; room_id: string; session: number; public_key: string }
+  | { type: "mls"; epoch: number };
 
 /** A failure the interface can word: the codes of the desktop app's
     errors (desktop/src/i18n.ts, "error.…"). */
@@ -50,6 +53,9 @@ export class ControlError extends Error implements AppError {
     return this.code === "network" || this.code === "unavailable" || this.code === "relay";
   }
 }
+
+/** A commit refused because the group moved on: catch up and retry. */
+export class StaleEpoch extends Error {}
 
 function codeOf(status: number): string {
   if (status === 404) return "not_found";
@@ -217,6 +223,52 @@ export class ControlPlane {
 
   inviteUser(space: string, username: string): Promise<{ username: string; name: string }> {
     return this.call("POST", `/v1/spaces/${space}/invitations/users`, { username });
+  }
+
+  // --- The MLS delivery service (protocol section 16) -----------------------
+
+  postKeyPackage(space: string, device: string, keyPackage: Bytes): Promise<void> {
+    return this.call("POST", `/v1/spaces/${space}/mls/key-packages`, { device, key_package: hex(keyPackage) });
+  }
+
+  async keyPackages(space: string): Promise<{ device: Bytes; keyPackage: Bytes }[]> {
+    const list: { device: string; key_package: string }[] = await this.call("GET", `/v1/spaces/${space}/mls/key-packages`);
+    return list.map((p) => ({ device: unhex(p.device), keyPackage: unhex(p.key_package) }));
+  }
+
+  /** Posts a commit made in `epoch`; the epoch it started, or a
+      StaleEpoch when another member's came first. */
+  async postCommit(space: string, epoch: number, commit: Bytes, welcome: Bytes, welcomed: Bytes): Promise<number> {
+    const devices: string[] = [];
+    for (let i = 0; i + 32 <= welcomed.length; i += 32) devices.push(hex(welcomed.subarray(i, i + 32)));
+    try {
+      const answer: { epoch: number } = await this.call("POST", `/v1/spaces/${space}/mls/commits`, {
+        epoch,
+        commit: hex(commit),
+        welcome: welcome.length > 0 ? hex(welcome) : "",
+        welcomed: devices,
+      });
+      return answer.epoch;
+    } catch (e) {
+      if (e instanceof ControlError && / 409 /.test(e.message)) throw new StaleEpoch();
+      throw e;
+    }
+  }
+
+  async commits(space: string, after: number): Promise<{ epoch: number; commit: Bytes }[]> {
+    const list: { epoch: number; commit: string }[] = await this.call("GET", `/v1/spaces/${space}/mls/commits?after=${after}`);
+    return list.map((c) => ({ epoch: c.epoch, commit: unhex(c.commit) }));
+  }
+
+  /** The welcome kept for this device, if any. */
+  async welcome(space: string, device: string): Promise<Bytes | null> {
+    try {
+      const answer: { welcome: string } = await this.call("GET", `/v1/spaces/${space}/mls/welcome?device=${device}`);
+      return unhex(answer.welcome);
+    } catch (e) {
+      if (e instanceof ControlError && e.code === "not_found") return null;
+      throw e;
+    }
   }
 
   /** The spaces this account is a member of. */

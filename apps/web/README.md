@@ -17,9 +17,18 @@ web", and built in `src/components/`.
 ## Try it
 
 ```sh
-rustup target add wasm32-unknown-unknown   # once
+rustup target add wasm32-unknown-unknown                   # once
+cargo install wasm-bindgen-cli --version 0.2.130 --locked  # once
 make web
 ```
+
+The second module, `drywire-mls-wasm`, is OpenMLS for the spaces' groups
+(ADRs 0052 and 0055): `scripts/mls-wasm.sh` builds it and its
+wasm-bindgen glue into `src/mls-wasm/` (git ignores it), and the page
+loads it the first time it joins a space with a group, about 870 KB
+compressed. When the group moves to a new epoch during a call, the
+browser joins the room again under the new key: its protocol module
+holds one key per call, where the apps switch in flight.
 
 `make web` builds the server, the command-line client and the
 WebAssembly module, starts a server with its WebTransport side

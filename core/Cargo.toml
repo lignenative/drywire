@@ -6,6 +6,7 @@ members = [
     "drywire-core",
     "drywire-control",
     "drywire-mls",
+    "drywire-mls-wasm",
     "drywire-bench",
     "drywire-cli",
     "drywire-wasm",

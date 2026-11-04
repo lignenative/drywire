@@ -96,6 +96,8 @@ rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$' 
 (cd core && cargo build -q --release -p drywire-wasm --target wasm32-unknown-unknown)
 mkdir -p apps/web/public
 cp core/target/wasm32-unknown-unknown/release/drywire_wasm.wasm apps/web/public/drywire.wasm
+# OpenMLS for the spaces' groups, loaded when one is needed (ADR 0052).
+scripts/mls-wasm.sh
 # Errors only: the UI libraries' "use client" directives warn by the hundred.
 (cd apps/web && bun install --frozen-lockfile >/dev/null &&
 	bun run build --logLevel error --outDir "../../$stage/web" --emptyOutDir >/dev/null)

@@ -14,6 +14,7 @@ const port = Number(process.env.WEB_PORT ?? 10057);
 const api = `http://${process.env.DRYWIRE_HTTP_ADDR ?? "127.0.0.1:10050"}`;
 const repository = fileURLToPath(new URL("../..", import.meta.url));
 const desktop = fileURLToPath(new URL("../../desktop/src", import.meta.url));
+const mlsWasm = fileURLToPath(new URL("./src/mls-wasm/drywire_mls_wasm.js", import.meta.url));
 
 export default defineConfig({
   clearScreen: false,
@@ -22,7 +23,8 @@ export default defineConfig({
   // its own origin (src/api.ts).
   define: { __DRYWIRE_PROXIED__: JSON.stringify(api) },
   resolve: {
-    alias: { "@": desktop },
+    // The browser's OpenMLS module, which scripts/mls-wasm.sh builds.
+    alias: { "@": desktop, "drywire-mls-wasm": mlsWasm },
     dedupe: Object.keys(pkg.dependencies),
   },
   server: {

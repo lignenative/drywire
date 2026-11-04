@@ -17,6 +17,7 @@ use drywire_proto::invite::Invitation;
 use drywire_proto::login::{CHALLENGE_SIZE, login_message};
 
 use crate::{Client, Received, Setup};
+use drywire_proto::crypto::room_key;
 
 /// Size of the shared buffer: the largest datagram, 1200 bytes, fits.
 pub const BUFFER_SIZE: usize = 2048;
@@ -121,18 +122,37 @@ pub extern "C" fn dw_login_message(audience_length: u32) -> i32 {
     })
 }
 
-/// Starts the client of a session. Input: `secret (32) ‖ space key (32) ‖
-/// room id (16) ‖ public key (32) ‖ salt (32)`. Returns 0, or
-/// [`NO_CLIENT`] if the public key is invalid.
+/// Starts the client of a session in a space with a space key. Input:
+/// `secret (32) ‖ space key (32) ‖ room id (16) ‖ public key (32) ‖ salt
+/// (32)`. Returns 0, or [`NO_CLIENT`] if the public key is invalid.
 #[unsafe(no_mangle)]
 pub extern "C" fn dw_start(session: u32) -> i32 {
-    let setup = with_buffer(|b| Setup {
-        session,
-        secret: array(b, 0),
-        space_key: array(b, 32),
-        room_id: array(b, 64),
-        public_key: array(b, 80),
-        salt: array::<SALT_SIZE>(b, 112),
+    start(session, true)
+}
+
+/// [`dw_start`] with the room's key itself in place of the space key: a
+/// space whose keys come from its MLS group (ADR 0052).
+#[unsafe(no_mangle)]
+pub extern "C" fn dw_start_room(session: u32) -> i32 {
+    start(session, false)
+}
+
+fn start(session: u32, from_space_key: bool) -> i32 {
+    let setup = with_buffer(|b| {
+        let key: [u8; 32] = array(b, 32);
+        let room_id = array(b, 64);
+        Setup {
+            session,
+            secret: array(b, 0),
+            room_key: if from_space_key {
+                room_key(&key, &room_id)
+            } else {
+                key
+            },
+            room_id,
+            public_key: array(b, 80),
+            salt: array::<SALT_SIZE>(b, 112),
+        }
     });
     let client = Client::new(&setup);
     let ok = client.is_some();

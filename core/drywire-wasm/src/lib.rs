@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use drywire_proto::control::{SECRET_SIZE, new_hello, new_ping, verify_handshake};
 use drywire_proto::crypto::{
     ANNOUNCEMENT_MESSAGE_SIZE, AudioKey, KEY_SIZE, ROOM_ID_SIZE, VerifyingKey,
-    announcement_message, room_key, sender_key, verify_announce,
+    announcement_message, sender_key, verify_announce,
 };
 use drywire_proto::header::{
     ANNOUNCE_SIZE, FLAG_END_OF_SPURT, HELLO_SIZE, PING_SIZE, SALT_SIZE, SIGNATURE_SIZE,
@@ -40,8 +40,9 @@ pub struct Setup {
     pub session: u32,
     /// Its session secret.
     pub secret: [u8; SECRET_SIZE],
-    /// The space key, from the invitation link.
-    pub space_key: [u8; KEY_SIZE],
+    /// The room's key: from the space's MLS group (ADR 0052), or derived
+    /// from the space key of an older space (`room_key`).
+    pub room_key: [u8; KEY_SIZE],
     /// The room's id.
     pub room_id: [u8; ROOM_ID_SIZE],
     /// This client's Ed25519 public key. The private key stays in
@@ -109,7 +110,7 @@ impl Client {
     /// Ed25519 point.
     pub fn new(setup: &Setup) -> Option<Client> {
         let public_key = VerifyingKey::from_bytes(&setup.public_key).ok()?;
-        let room_key = room_key(&setup.space_key, &setup.room_id);
+        let room_key = setup.room_key;
         let key = AudioKey::new(&sender_key(&room_key, &setup.salt, &public_key));
         Some(Client {
             session: setup.session,
@@ -280,7 +281,7 @@ mod tests {
         let setup = Setup {
             session,
             secret: [seed ^ 0x55; 32],
-            space_key: [7; 32],
+            room_key: drywire_proto::crypto::room_key(&[7; 32], &[1; 16]),
             room_id: [9; 16],
             public_key: identity.verifying_key().to_bytes(),
             salt: [seed ^ 0xaa; 32],

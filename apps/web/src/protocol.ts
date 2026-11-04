@@ -11,6 +11,7 @@ type Exports = {
   dw_invitation(length: number): number;
   dw_login_message(audienceLength: number): number;
   dw_start(session: number): number;
+  dw_start_room(session: number): number;
   dw_hello(counter: bigint): number;
   dw_is_hello_ack(length: number, counter: bigint): number;
   dw_ping(number: number, clientTime: bigint): number;
@@ -107,17 +108,21 @@ export class Protocol {
     return this.out(this.x.dw_login_message(a.length));
   }
 
-  /** Starts the client of a session; salt is fresh randomness for epoch 0. */
+  /** Starts the client of a session; salt is fresh randomness for epoch 0.
+      The key is the space key of an older space, or the room key its MLS
+      group exported (ADR 0052). */
   start(s: {
     session: number;
     secret: Uint8Array;
-    spaceKey: Uint8Array;
+    key: { spaceKey: Uint8Array } | { roomKey: Uint8Array };
     roomId: Uint8Array;
     publicKey: Uint8Array;
     salt: Uint8Array;
   }): void {
-    this.put(s.secret, s.spaceKey, s.roomId, s.publicKey, s.salt);
-    if (this.x.dw_start(s.session >>> 0) !== 0) throw new ProtocolError("invalid public key");
+    const fromGroup = "roomKey" in s.key;
+    this.put(s.secret, "roomKey" in s.key ? s.key.roomKey : s.key.spaceKey, s.roomId, s.publicKey, s.salt);
+    const started = fromGroup ? this.x.dw_start_room(s.session >>> 0) : this.x.dw_start(s.session >>> 0);
+    if (started !== 0) throw new ProtocolError("invalid public key");
   }
 
   hello(counter: bigint): Bytes {
