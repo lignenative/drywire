@@ -257,7 +257,7 @@ export function createWebApi(protocol: Protocol, firstIdentity: Identity, codec:
       controls.clear();
       saveSpaces([...brought, ...kept]);
       saveRecovery(found.kind === "recovery" ? hex(secret) : null);
-      return api.listSpaces();
+      return { name: found.contents.name, spaces: await api.listSpaces() };
     },
 
     acceptInvitation: async (link: string, displayName: string) => {

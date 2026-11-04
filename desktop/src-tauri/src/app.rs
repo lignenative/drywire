@@ -117,6 +117,15 @@ pub struct AccountView {
     pub portable: bool,
 }
 
+/// What opening a code brought: the account's name and its spaces.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RestoredView {
+    /// The display name the vault holds.
+    pub name: String,
+    /// The spaces, as [`Desktop::spaces`] lists them.
+    pub spaces: Vec<SpaceView>,
+}
+
 /// A device code, waiting on an instance.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -295,7 +304,7 @@ impl Desktop {
         instance: &str,
         code: &str,
         replace: bool,
-    ) -> Result<Vec<SpaceView>, AppError> {
+    ) -> Result<RestoredView, AppError> {
         let (kind, contents) =
             drywire_control::open_vault(instance, code).map_err(|e| match e.status() {
                 Some(404) => AppError::new("code_unknown", e.to_string()),
@@ -343,7 +352,10 @@ impl Desktop {
         }
         self.clients.lock().expect("not poisoned").clear();
         self.rooms.reset();
-        self.spaces()
+        Ok(RestoredView {
+            name: contents.name.clone(),
+            spaces: self.spaces()?,
+        })
     }
 
     /// Redeems an invitation link and remembers its space.

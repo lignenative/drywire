@@ -289,7 +289,7 @@ export const simulated: Api = {
     }
     state.call = null;
     state.spaces = spaces("idle");
-    return resolve(state.spaces.map((s) => ({ ...s })));
+    return resolve({ name: "alex", spaces: state.spaces.map((s) => ({ ...s })) });
   },
   acceptInvitation: (_link: string, _displayName: string) => {
     // Joining by invitation adds the canvas's spaces when there were none.

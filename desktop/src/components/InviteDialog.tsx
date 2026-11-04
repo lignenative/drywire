@@ -140,8 +140,8 @@ function RestoreForm({ app, onBack }: { app: AppState; onBack: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await api.restoreAccount(instance.trim(), code.trim(), replacing !== null);
-      app.reloadSpaces();
+      const back = await api.restoreAccount(instance.trim(), code.trim(), replacing !== null);
+      app.restored(back.name, back.spaces);
       app.setInviteOpen(false);
     } catch (e) {
       if (isAppError(e) && e.code === "account_exists") {

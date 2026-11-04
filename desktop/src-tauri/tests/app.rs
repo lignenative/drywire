@@ -595,9 +595,11 @@ fn an_account_moves_to_another_app_with_a_code() {
         .unwrap_err();
     assert_eq!(err.code, "account_exists");
     assert_eq!(laptop.public_key().unwrap(), before, "nothing changed");
-    let spaces = laptop
+    let restored = laptop
         .restore_account(&relay.instance(), &code, true)
         .unwrap();
+    assert_eq!(restored.name, "alex", "the name the instance knows");
+    let spaces = restored.spaces;
     assert_eq!(laptop.public_key().unwrap(), pc.public_key().unwrap());
     assert_eq!(spaces.len(), 1);
     assert_eq!(spaces[0].name, "Team");

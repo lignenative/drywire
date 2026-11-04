@@ -8,7 +8,8 @@ use tauri_plugin_autostart::ManagerExt;
 use std::time::Duration;
 
 use crate::app::{
-    AccountView, CalibrationView, Desktop, DeviceCodeView, LoopbackView, Preferences, SpaceView,
+    AccountView, CalibrationView, Desktop, DeviceCodeView, LoopbackView, Preferences, RestoredView,
+    SpaceView,
 };
 use crate::error::AppError;
 use crate::session::{CallView, METER_FLOOR_DBFS};
@@ -39,7 +40,7 @@ pub fn new_device_code(desktop: State<'_, Desktop>) -> Result<DeviceCodeView, Ap
     desktop.new_device_code()
 }
 
-/// Becomes the account a code opens; returns the spaces it brings.
+/// Becomes the account a code opens; returns its name and spaces.
 #[tauri::command(async)]
 pub fn restore_account(
     app: AppHandle,
@@ -47,7 +48,7 @@ pub fn restore_account(
     instance: String,
     code: String,
     replace: bool,
-) -> Result<Vec<SpaceView>, AppError> {
+) -> Result<RestoredView, AppError> {
     let spaces = desktop.restore_account(&instance, &code, replace);
     shell::update_overlay(&app);
     shell::refresh_tray(&app, false);

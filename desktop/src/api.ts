@@ -171,6 +171,12 @@ export interface AccountView {
   portable: boolean;
 }
 
+/** What opening a code brought: the account's name and its spaces. */
+export interface RestoredView {
+  name: string;
+  spaces: SpaceView[];
+}
+
 /** A device code, waiting on an instance for ten minutes. */
 export interface DeviceCodeView {
   code: string;
@@ -197,9 +203,10 @@ const tauri = {
   newDeviceCode: () => invoke<DeviceCodeView>("new_device_code"),
   /** Becomes the account a code opens on `instance`. Refused with
       `account_exists` when this device already uses another account in
-      some space, unless `replace`. Returns the spaces, as listSpaces. */
+      some space, unless `replace`. Returns its name and its spaces, as
+      listSpaces gives them. */
   restoreAccount: (instance: string, code: string, replace: boolean) =>
-    invoke<SpaceView[]>("restore_account", { instance, code, replace }),
+    invoke<RestoredView>("restore_account", { instance, code, replace }),
   acceptInvitation: (link: string, displayName: string) =>
     invoke<SpaceView>("accept_invitation", { link, displayName }),
   listSpaces: () => invoke<SpaceView[]>("list_spaces"),

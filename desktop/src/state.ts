@@ -48,6 +48,8 @@ export interface AppState {
   setSettingsTab: (tab: SettingsTab) => void;
   setInviteOpen: (open: boolean) => void;
   accepted: (space: SpaceView, name: string) => void;
+  /** Another account is this device's now (ADR 0051): its name, its spaces. */
+  restored: (name: string, spaces: SpaceView[]) => void;
   setSettings: (settings: Settings) => void;
   setNarrowScreen: (screen: "spaces" | "call") => void;
 }
@@ -175,6 +177,16 @@ export function useAppState(): AppState {
     [readSettings],
   );
 
+  const restored = useCallback((name: string, list: SpaceView[]) => {
+    if (name) {
+      localStorage.setItem(NAME_KEY, name);
+      setDisplayName(name);
+    }
+    setSpaces(list);
+    const first = list.find((s) => s.rooms.length > 0);
+    if (first) setSelected({ instance: first.instance, spaceId: first.id, roomId: first.rooms[0].id });
+  }, []);
+
   const accepted = useCallback(
     (space: SpaceView, name: string) => {
       localStorage.setItem(NAME_KEY, name);
@@ -218,6 +230,7 @@ export function useAppState(): AppState {
     setSettingsTab,
     setInviteOpen,
     accepted,
+    restored,
     setSettings,
     setNarrowScreen,
   };
