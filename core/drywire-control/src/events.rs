@@ -52,6 +52,13 @@ fn decode(name: &str, data: &str) -> Result<Event, Error> {
         "join" => Event::Join(serde_json::from_str(data).map_err(bad)?),
         "leave" => Event::Leave(serde_json::from_str(data).map_err(bad)?),
         "disconnect" => Event::Disconnect(serde_json::from_str(data).map_err(bad)?),
+        "mls" => {
+            #[derive(serde::Deserialize)]
+            struct Epoch {
+                epoch: u64,
+            }
+            Event::Mls(serde_json::from_str::<Epoch>(data).map_err(bad)?.epoch)
+        }
         other => Event::Other(other.to_string()),
     })
 }

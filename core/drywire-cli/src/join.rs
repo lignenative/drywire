@@ -485,7 +485,7 @@ fn on_event(
                 }
             }
         }
-        Event::Other(_) => {}
+        Event::Mls(_) | Event::Other(_) => {}
     }
     None
 }

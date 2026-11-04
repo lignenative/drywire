@@ -5,13 +5,13 @@ use openmls::prelude::{tls_codec::Serialize as _, *};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 
-use crate::{CIPHERSUITE, Error, credential, mls};
+use crate::{CIPHERSUITE, Error, mls};
 
 /// The version of [`Device::save`]'s bytes.
 const STATE_VERSION: u8 = 1;
 
-/// This device in every space's group: its own signature key, certified by
-/// the account, and OpenMLS's state for each group and pending key
+/// This device in every space's group: its own signature key, and
+/// OpenMLS's state for each group and pending key
 /// package, which [`Device::save`] writes out whole.
 pub struct Device {
     pub(crate) provider: OpenMlsRustCrypto,
@@ -20,14 +20,16 @@ pub struct Device {
 }
 
 impl Device {
-    /// A new device of `account`, with a fresh signature key. A restored
-    /// device makes a new one too: the key never leaves the device, not
-    /// even in the account's vault.
-    pub fn new(account: &SigningKey) -> Result<Device, Error> {
-        let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).map_err(mls)?;
-        let public: [u8; 32] = signer.public().try_into().map_err(|_| Error::BadState)?;
-        let identity = credential::certify(account, &public);
-        Device::with(OpenMlsRustCrypto::default(), signer, &identity)
+    /// This device in the groups, signing with its own key: the one it
+    /// logs in with (ADR 0055).
+    pub fn new(key: &SigningKey) -> Result<Device, Error> {
+        let public = key.verifying_key().to_bytes();
+        let signer = SignatureKeyPair::from_raw(
+            CIPHERSUITE.signature_algorithm(),
+            key.to_bytes().to_vec(),
+            public.to_vec(),
+        );
+        Device::with(OpenMlsRustCrypto::default(), signer, &public)
     }
 
     fn with(
@@ -72,7 +74,7 @@ impl Device {
     }
 
     /// Everything this device holds, for its sealed store: the signature
-    /// key, its certificate, and every group's state. The bytes are as
+    /// key and every group's state. The bytes are as
     /// secret as the device's other keys.
     pub fn save(&self) -> Vec<u8> {
         let values = self
@@ -127,13 +129,6 @@ impl Device {
         )
         .ok_or(Error::BadState)?;
         Device::with(provider, signer, &identity)
-    }
-
-    /// The account this device belongs to.
-    pub fn account(&self) -> [u8; 32] {
-        self.identity()[..32]
-            .try_into()
-            .expect("a certificate starts with the account key")
     }
 
     fn identity(&self) -> &[u8] {

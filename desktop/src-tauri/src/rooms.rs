@@ -211,7 +211,7 @@ fn apply(sessions: &mut Option<HashMap<u32, Presence>>, event: Event) -> bool {
         Event::Leave(p) | Event::Disconnect(p) => sessions
             .as_mut()
             .is_some_and(|s| s.remove(&p.session).is_some()),
-        Event::Other(_) => false,
+        Event::Mls(_) | Event::Other(_) => false,
     }
 }
 

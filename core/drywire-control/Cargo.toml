@@ -19,4 +19,5 @@ ureq.workspace = true
 workspace = true
 
 [dev-dependencies]
+drywire-mls.workspace = true
 serde_json.workspace = true

@@ -887,7 +887,7 @@ messages as hex.
 | Request | Body → answer |
 | --- | --- |
 | `POST /v1/spaces/{space}/mls/key-packages` | `{device, key_package}` → `204`: this member's device waits to join; posting again replaces its key package |
-| `GET /v1/spaces/{space}/mls/key-packages` | → `[{device, public_key, key_package}]`, oldest first; `public_key` is the account the device posted for |
+| `GET /v1/spaces/{space}/mls/key-packages` | → `[{device, public_key, key_package}]`, oldest first; `public_key` is the first device key of the account that posted it |
 | `POST /v1/spaces/{space}/mls/commits` | `{epoch, commit, welcome, welcomed: [device]}` → `201` `{epoch}`, the epoch the commit started; `welcome` and `welcomed` only for a commit that adds devices |
 | `GET /v1/spaces/{space}/mls/commits?after=N` | → `[{epoch, commit}]`, the commits that started the epochs after `N`, in order, 64 at most |
 | `GET /v1/spaces/{space}/mls/welcome?device=…` | → `{epoch, welcome}`, for the identity that posted the device's key package only; `404` otherwise |
@@ -901,9 +901,10 @@ messages as hex.
   member's key package for it is refused (`409`), until the first one's
   key package and welcome are gone.
 - The server cannot tell a key package's content: the members' apps
-  check that its signature key is the `device` it was posted for, and
-  that its credential names the account in `public_key` (ADR 0052),
-  before they add it.
+  check that its signature key is the `device` it was posted for, that
+  its credential names that same key, and that it is one of a member's
+  `devices` (section 13.4), before they add it. A device signs in the
+  group with the key it logs in with (ADRs 0052 and 0055).
 - One welcome serves every device a commit adds, and is kept once. It
   may only name devices that wait: otherwise the whole commit is refused
   (`400`). A welcomed device stops waiting.

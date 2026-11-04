@@ -96,10 +96,16 @@ pub struct Room {
 /// A member of a space.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Member {
-    /// Their identity's public key.
+    /// Their identity's public key: their first device's.
     pub public_key: PublicKey,
     /// Their display name.
     pub name: String,
+    /// Their user name (ADR 0055); none for an account from before.
+    #[serde(default)]
+    pub username: Option<String>,
+    /// The keys of all their devices, the first included.
+    #[serde(default)]
+    pub devices: Vec<PublicKey>,
     /// `owner`, `admin` or `member`.
     pub role: String,
 }
@@ -130,10 +136,16 @@ pub struct Membership {
 /// An identity as the server knows it.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Identity {
-    /// The public key.
+    /// The public key: the account's first device's.
     pub public_key: PublicKey,
     /// The display name.
     pub name: String,
+    /// The user name (ADR 0055), once chosen.
+    #[serde(default)]
+    pub username: Option<String>,
+    /// The e-mail address it signs in with, shown to its owner only.
+    #[serde(default)]
+    pub email: Option<String>,
 }
 
 /// A new invitation: the code is in this answer only.
@@ -221,6 +233,9 @@ pub enum Event {
     Leave(Presence),
     /// The relay stopped hearing from someone.
     Disconnect(Presence),
+    /// The space's MLS group moved to this epoch, or a device waits to
+    /// join it (protocol section 16): fetch what is new.
+    Mls(u64),
     /// An event this client does not know, from a newer server.
     Other(String),
 }
