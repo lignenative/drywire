@@ -10,6 +10,7 @@ Section 6 of [`docs/spec.md`](../docs/spec.md) says where it is going.
 | [`drywire-proto`](drywire-proto/) | Packets, key derivation, AES-GCM, signed announcements, replay window; the control plane login message and invitation links. No I/O, no clock. |
 | [`drywire-core`](drywire-core/) | Opus (libopus, CELT only), the voice gate, the jitter buffer, and the client pipeline built on them: call parameters, sender, receiver and the encryption lock's state, mixer, relay link; the audio I/O trait with the Core Audio and WASAPI backends; a call wired to a UDP socket. |
 | [`drywire-control`](drywire-control/) | The control plane client: login with the device's identity, spaces, invitations, joining a room, presence events (HTTPS through ureq and rustls). |
+| [`drywire-mls`](drywire-mls/) | A space's MLS group (ADR 0052): each device's certified key, its groups' state for the sealed store, adding and removing devices, the room key of each epoch. No I/O. Not wired into the apps yet. |
 | [`drywire-cli`](drywire-cli/) | The `drywire` command-line client: creates spaces and invitation links, joins a room, talks, prints the statistics; WAV files instead of a sound card for headless tests. |
 | [`drywire-wasm`](drywire-wasm/) | `drywire-proto` as a WebAssembly module for the web client: hello, announcements, sealing and opening audio (ADR 0040). |
 | [`drywire-bench`](drywire-bench/) | Replays simulated network traces against the jitter buffer (`make bench`); its regression test runs in `make test`. |
