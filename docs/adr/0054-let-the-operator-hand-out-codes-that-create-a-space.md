@@ -1,6 +1,6 @@
 # 0054. Let the operator hand out codes that create a space
 
-Status: Accepted · 2026-11-04
+Status: Accepted · 2026-11-04 · to be replaced by ADR 0055 (anyone signed in creates)
 
 ## Context
 

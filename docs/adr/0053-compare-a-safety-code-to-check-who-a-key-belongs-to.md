@@ -1,6 +1,6 @@
 # 0053. Compare a safety code to check who a key belongs to
 
-Status: Accepted · 2026-11-04
+Status: Accepted · 2026-11-04 · over device keys once ADR 0055 ships
 
 ## Context
 
