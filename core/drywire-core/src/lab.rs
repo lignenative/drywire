@@ -406,9 +406,11 @@ mod tests {
         let delays = test.delays_ms();
         assert!(delays.len() >= 3, "{delays:?} of {} clicks", test.clicks());
         // Timed on a real clock, so only roughly: the exact delay is
-        // checked on a simulated clock below.
+        // checked on a simulated clock below. No lower bound: on a busy
+        // shared CI machine the callbacks bunch up, and a 12.5 ms device
+        // has measured as little as 0.3 ms.
         let median = test.median_ms().unwrap();
-        assert!((5.0..50.0).contains(&median), "{delays:?}");
+        assert!(median > 0.0 && median < 50.0, "{delays:?}");
     }
 
     /// A simulated device for a loopback test.
