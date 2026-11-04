@@ -93,7 +93,9 @@ func (d Dir) Send(_ context.Context, m Message) error {
 	}
 	var suffix [4]byte
 	rand.Read(suffix[:])
-	name := fmt.Sprintf("%s-%s.eml", now.UTC().Format("20060102T150405"), hex.EncodeToString(suffix[:]))
+	// To the nanosecond, so that the names sort as the mails were sent:
+	// the newest code for an address is the last file.
+	name := fmt.Sprintf("%s-%s.eml", now.UTC().Format("20060102T150405.000000000"), hex.EncodeToString(suffix[:]))
 	return os.WriteFile(filepath.Join(d.Path, name), raw, 0o600)
 }
 
