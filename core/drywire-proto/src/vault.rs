@@ -248,6 +248,21 @@ mod tests {
     const ID_VECTOR: &str = "2079b980fe62fb5d556bcd04252b5272df06a4cb49b62856f121d1a7a2c94561";
     const KEY_VECTOR: &str = "bf3d34d37b1b420ef4cb57c95e29cd69de59c0d859aadfea71c28b5e797e5831";
 
+    /// Sealed bytes for the secret 01 × 16, the nonce 02 × 12 and the
+    /// plaintext `{"name":"alex"}`: the web client's own implementation
+    /// (apps/web/src/vault.ts) is checked against the same bytes.
+    const SEALED_VECTOR: &str =
+        "01020202020202020202020202c4b32882c24761db6379d20a7cd413887ba4b217e29138955482efa7bde3b5";
+
+    #[test]
+    fn sealing_matches_the_vector() {
+        let code = VaultCode::from_secret([1; 16]);
+        assert_eq!(
+            hex(&code.seal(br#"{"name":"alex"}"#, [2; 12])),
+            SEALED_VECTOR
+        );
+    }
+
     #[test]
     fn a_vault_opens_with_its_code_only() {
         let code = VaultCode::from_secret([1; 16]);

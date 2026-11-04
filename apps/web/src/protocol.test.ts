@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { fromKeys, sign } from "./identity";
+import { fromSeed, sign } from "./identity";
 import { hex, Protocol, unhex } from "./protocol";
 
 const dir = new URL("../../../core/drywire-proto/vectors/", import.meta.url);
@@ -56,20 +56,10 @@ describe("the WebAssembly protocol module", () => {
 
   test("builds the announcement from the signature WebCrypto makes", async () => {
     const p = await sender();
-    // The vectors' seed as a WebCrypto key: PKCS #8 wraps a raw Ed25519 seed.
-    const pkcs8 = new Uint8Array([
-      ...unhex("302e020100300506032b657004220420"),
-      ...unhex(inputs.sender_seed),
-    ]);
-    const privateKey = await crypto.subtle.importKey("pkcs8", pkcs8, "Ed25519", false, ["sign"]);
-    const publicKey = await crypto.subtle.importKey(
-      "raw",
-      unhex(inputs.sender_public_key),
-      "Ed25519",
-      true,
-      ["verify"],
-    );
-    const identity = await fromKeys({ privateKey, publicKey });
+    // The vectors' seed, as the browser keeps an account's (identity.ts):
+    // WebCrypto must find the same public key the vectors name.
+    const identity = await fromSeed(unhex(inputs.sender_seed));
+    expect(hex(identity.publicKey)).toBe(inputs.sender_public_key);
     const announce = p.announce(await sign(identity, p.announcementMessage()));
     // Any valid signature will do; this engine's is RFC 8032's.
     expect(hex(announce)).toBe(hex(file("announce")));
