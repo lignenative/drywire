@@ -57,4 +57,9 @@ ignore = [
     # the compiler, never in the app; it goes when Tauri moves to newer
     # bindings, and is looked at again with the Linux phase.
     { id = "RUSTSEC-2024-0370", reason = "unmaintained build-time macro of Tauri's Linux GTK bindings" },
+    # Timing leaks in crypto-bigint 0.5, which OpenMLS's crypto provider
+    # brings for P-256 and P-384; drywire-mls refuses every suite but
+    # X25519 and Ed25519, so that code never handles a secret (as in
+    # core/deny.toml).
+    { id = "RUSTSEC-2026-0387", reason = "P-256/P-384 code never runs on secrets in drywire-mls" },
 ]

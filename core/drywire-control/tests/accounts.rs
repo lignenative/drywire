@@ -138,3 +138,58 @@ fn friends_sign_up_by_mail_and_meet_in_a_group() {
     );
     assert_eq!(pc.commits(&space, 0).unwrap().len(), 1);
 }
+
+#[test]
+fn the_group_keeps_itself_in_step() {
+    use drywire_control::{GroupState, SpaceGroup};
+    let server = Relay::start();
+    let instance = server.instance();
+    let alex = Client::new(&instance, key(1)).unwrap();
+    let sam = Client::new(&instance, key(2)).unwrap();
+    sign_in(&server, &alex, "alex@example.com");
+    alex.set_username("alex", "").unwrap();
+    sign_in(&server, &sam, "sam@example.com");
+    sam.set_username("sam", "").unwrap();
+    let team = alex.create_space("Team", "general", "alex").unwrap();
+    let (space, room) = (team.space.id, team.rooms[0].id);
+    alex.invite_user(&space, "sam").unwrap();
+    sam.accept_invitation(&space).unwrap();
+
+    let (alex_device, sam_device) = (Device::new(&key(1)).unwrap(), Device::new(&key(2)).unwrap());
+    let mut alex_group = SpaceGroup::new(space, &alex_device).unwrap();
+    let mut sam_group = SpaceGroup::new(space, &sam_device).unwrap();
+
+    // The owner's device makes the group; Sam's asks to join, and is let
+    // in at the owner's next round.
+    assert_eq!(
+        alex_group.sync(&alex, &alex_device, true).unwrap(),
+        GroupState::Ready(1)
+    );
+    assert_eq!(
+        sam_group.sync(&sam, &sam_device, false).unwrap(),
+        GroupState::Waiting
+    );
+    assert_eq!(
+        alex_group.sync(&alex, &alex_device, true).unwrap(),
+        GroupState::Ready(2)
+    );
+    assert_eq!(
+        sam_group.sync(&sam, &sam_device, false).unwrap(),
+        GroupState::Ready(2)
+    );
+    let key2 = alex_group.room_key(&alex_device, &room).unwrap();
+    assert_eq!(sam_group.room_key(&sam_device, &room), Some(key2));
+
+    // A device that restarts finds its group in its saved state.
+    let saved = Device::load(&sam_device.save()).unwrap();
+    assert_eq!(SpaceGroup::new(space, &saved).unwrap().epoch(), Some(2));
+
+    // Sam leaves the space: Alex's next round takes their device out, and
+    // the room key changes.
+    sam.leave_space(&space).unwrap();
+    assert_eq!(
+        alex_group.sync(&alex, &alex_device, true).unwrap(),
+        GroupState::Ready(3)
+    );
+    assert_ne!(alex_group.room_key(&alex_device, &room), Some(key2));
+}
