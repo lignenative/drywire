@@ -51,6 +51,14 @@
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-track: var(--track);
+  --color-soft: var(--soft);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-idle: var(--idle);
+  --color-below: var(--below);
+  --color-hush: var(--hush);
+  --color-badge: var(--badge);
+  --color-alarm: var(--alarm);
 
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
@@ -82,10 +90,23 @@
   --input: #2f3036;
   --track: #26272c;
 
+  /* Raised controls (kbd keys, the current settings tab), and the thin
+     lines between spaces and settings rows. */
+  --raised: #232428;
+  --line: #1d1e21;
+
   /* Text, from loud to quiet. */
+  --soft: #c9cad0;
   --subtle: #a3a4ab;
   --dim: #6f7078;
   --faint: #5a5b62;
+
+  /* Greys that carry a state: a switch or signal bar that is off, the
+     meter below the gate, a muted meter or an empty room, a badge. */
+  --idle: #3a3b41;
+  --below: #6b6c74;
+  --hush: #4a4b52;
+  --badge: #55565e;
 
   /* Signal green: sending, speaking, the main action. */
   --primary: #3ddc97;
@@ -95,6 +116,8 @@
   /* Leave and errors; danger is the text and icon shade. */
   --destructive: #d8434a;
   --danger: #ff8a8e;
+  /* A bad link and a muted microphone, mostly as a tint behind them. */
+  --alarm: #f2555a;
 
   /* Waiting, estimates, warnings. */
   --warning: #f5b84b;
@@ -120,5 +143,29 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* The bars next to a name while that person speaks: each grows and
+   shrinks on its own rhythm (SpeakingBars sets the delay and length). */
+@keyframes speaking-bar {
+  0%,
+  100% {
+    transform: scaleY(0.4);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@layer components {
+  .speaking-bar {
+    animation: speaking-bar 0.8s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .speaking-bar {
+    animation: none;
   }
 }
