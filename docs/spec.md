@@ -280,8 +280,9 @@ bytes. Keys and nonces are described in section 8.
 
 ## 8. Identity, spaces and security
 
-No account and no password: one key pair per device, invitations by link,
-and an encryption key the server never sees.
+No password and no e-mail: an account is a key pair its person's devices
+share, invitations are links, and the encryption key never reaches the
+server (ADR 0051).
 
 ### Identity
 
@@ -293,6 +294,13 @@ and an encryption key the server never sees.
   key.
 - The client authenticates to the control plane with a signed challenge, then
   receives a short-lived session token.
+- **The key pair is the account**, and it follows its person: a second
+  device gets it, with the spaces and their keys, from a **device code**
+  shown by a device that has it (valid ten minutes), or from the
+  **recovery code** the person keeps. Either code opens a vault the
+  instance stores sealed and cannot read (ADR 0051, protocol section 15).
+  One account holds one session: joining from a second device ends the
+  first's.
 
 ### Data model
 
@@ -351,6 +359,9 @@ sender_key  = HKDF(room_key,  salt = sender_salt,
   small trusted groups; group key management (MLS) addresses it later.
 - Removing a member: regenerate the invitation, which creates a new space key.
   Automatic rotation comes with MLS.
+- **Next** (ADR 0052, proposed): one MLS group per space, links without the
+  key, removal and forward secrecy by epoch, and safety codes to compare
+  two people's keys.
 
 ### Transport security and abuse
 
@@ -369,6 +380,8 @@ or Ligne Native for the hosted instance.
 | Data | Purpose | Where | Retention |
 | --- | --- | --- | --- |
 | Display name, public key, memberships, roles | Identify members of a space | Server, SQLite | Until the identity is deleted; identities inactive for 12 months are purged |
+| Recovery vault (sealed account key, name and spaces) | Give the account back on a new device | Server, SQLite, sealed with the person's code: unreadable to the operator | Until the identity is deleted, or replaced by a new code |
+| Device vault (the same, for one new device) | Add a device | Server, SQLite, sealed | 10 minutes, or until opened |
 | IP address and port | Route audio packets | Relay memory | Duration of the session only |
 | Presence (who is in which room) | Show who is online | Server memory | Duration of the session only, no history |
 | Access logs | Security, incident detection | Server | 1 year, minimised: no query string, headers or `Referer`, sensitive paths masked, full IP kept |
@@ -691,7 +704,7 @@ phase ends on a measurable criterion.
    **Exit**: a browser and a native client hold a call through the relay,
    and the web client's latency is measured with the reference method.
 8. **Public opening.** Hosted instance, quotas per space, several relay
-   regions, MLS, linking several devices to one identity (QR code), handling
+   regions, MLS (ADR 0052), handling
    of minors and impact assessment, features for esport teams (coach channel,
    caster return feed, tournament mode).
 
