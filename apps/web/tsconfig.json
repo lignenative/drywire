@@ -4,13 +4,22 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
+    "resolveJsonModule": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "types": ["bun", "vite/client"]
+    "noFallthroughCasesInSwitch": true,
+    "types": ["bun", "vite/client"],
+    // The desktop interface's files, and every package they import, are
+    // read from here, as Vite does (vite.config.ts): one copy of each.
+    "paths": {
+      "@/*": ["../../desktop/src/*"],
+      "*": ["./node_modules/@types/*", "./node_modules/*"]
+    }
   },
   "include": ["src", "vite.config.ts"]
 }

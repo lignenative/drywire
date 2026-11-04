@@ -27,11 +27,20 @@ type Exports = {
 export const HELLO_ACK = 0x03;
 export const PONG = 0x06;
 
+/** The audio flag of a talk spurt's last frame (protocol section 5). */
+const END_OF_SPURT = 0x02;
+
+/** The sender's session, from a packet's clear-text header (section 3). */
+export function sessionOf(packet: Uint8Array): number | null {
+  if (packet.length < 8) return null;
+  return new DataView(packet.buffer, packet.byteOffset, packet.byteLength).getUint32(4);
+}
+
 export type Invitation = { code: Bytes; spaceKey: Uint8Array; instance: string };
 
 /** What a packet from the relay turned out to be. */
 export type Received =
-  | { kind: "audio"; session: number; sequence: number; timestamp: number; frame: Bytes }
+  | { kind: "audio"; session: number; sequence: number; timestamp: number; end: boolean; frame: Bytes }
   | { kind: "announced" }
   | { kind: "control"; type: number }
   | { kind: "dropped"; reason: string };
@@ -158,6 +167,7 @@ export class Protocol {
       session: h.getUint32(4),
       sequence: h.getUint32(8),
       timestamp: h.getUint32(12),
+      end: (b[2] & END_OF_SPURT) !== 0,
       frame: b.slice(16),
     };
   }

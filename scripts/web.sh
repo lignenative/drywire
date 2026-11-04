@@ -7,9 +7,9 @@
 # invites "sam", an echo bot that sends back everything it hears; makes a
 # second invitation for the browser, and serves the web client with Vite on
 # 127.0.0.1:10057. Open the address it prints, which carries the
-# invitation in its fragment, and press the button: the page sends a
-# second of tone through the relay and plays back sam's echo. Ctrl-C stops
-# everything.
+# invitation in its fragment: the web client offers to join the space,
+# then join its room, allow the microphone, and hear yourself back from
+# sam about a second later. Ctrl-C stops everything.
 set -eu
 
 cd "$(dirname "$0")/.."

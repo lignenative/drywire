@@ -148,6 +148,14 @@ and can be switched in the settings (Display).
   only while the Voice page asks for its level and the window is on
   screen: the sound card closes a second after the last request, and
   before a call or the lab takes it (ADR 0044).
+- **The web client shares this interface.** `apps/web/` imports
+  `src/` as it is (ADR 0048) and hands `src/api.ts` its own
+  implementation of the commands (`provideApi`), so a change here shows
+  in both. `platform` is `web` there: the settings leave out the mute
+  shortcut, the overlay, launching at login and the loopback test. Keep
+  `src/` free of anything only a browser has, and do not move its files
+  without updating `apps/web/vite.config.ts` and `apps/web/tsconfig.json`.
+  `make test` typechecks and builds the web client against these files.
 - **The binary is `drywire-desktop`**, never `drywire`, which is the
   command-line client (ADR 0029). The installer and the window say
   "Drywire".
