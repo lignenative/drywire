@@ -48,7 +48,7 @@ export function CallView({ app, call, narrow = false }: { app: AppState; call: C
         sideOffset={8}
         anchor={header}
         collisionPadding={12}
-        className={cn(PANEL, "gap-3", narrow ? "w-[calc(100vw-24px)]" : "w-[364px]")}
+        className={cn(PANEL, "gap-3", narrow ? "w-[calc(100vw-1.5rem)]" : "w-91")}
       >
         <LockDetails call={call} state={lock} />
       </PopoverContent>
@@ -67,7 +67,7 @@ export function CallView({ app, call, narrow = false }: { app: AppState; call: C
         align="end"
         sideOffset={narrow ? 10 : 8}
         collisionPadding={12}
-        className={cn(PANEL, "gap-3", narrow ? "w-[calc(100vw-24px)]" : "w-[340px]")}
+        className={cn(PANEL, "gap-3", narrow ? "w-[calc(100vw-1.5rem)]" : "w-85")}
       >
         <LinkDetails call={call} poor={signal.poor} />
       </PopoverContent>
@@ -84,7 +84,7 @@ export function CallView({ app, call, narrow = false }: { app: AppState; call: C
               variant="ghost"
               onClick={() => app.setNarrowScreen("spaces")}
               aria-label={t("spaces.back")}
-              className="h-9 min-w-0 gap-2 rounded-[10px] px-2.5 text-[15px] font-semibold"
+              className="h-9 min-w-0 gap-2 rounded-[0.625rem] px-2.5 text-[0.9375rem] font-semibold"
             >
               <span className="truncate">{call.spaceName}</span>
               {multi && (
@@ -133,7 +133,7 @@ export function CallView({ app, call, narrow = false }: { app: AppState; call: C
                     align="start"
                     sideOffset={8}
                     anchor={narrow ? bar : undefined}
-                    className={cn(PANEL, "gap-3", narrow ? "w-[calc(100vw-24px)]" : "w-[340px]")}
+                    className={cn(PANEL, "gap-3", narrow ? "w-[calc(100vw-1.5rem)]" : "w-85")}
                   >
                     <PersonDetails person={p} />
                   </PopoverContent>
@@ -187,13 +187,13 @@ export function RoomHeader({
   children?: ReactNode;
 }) {
   return (
-    <header className="flex items-center gap-3 px-7 pt-[22px] pb-[18px]">
+    <header className="flex items-center gap-3 px-7 pt-5.5 pb-4.5">
       <div className="min-w-0 flex-1">
         <div ref={titleRef} className="flex items-center gap-1.5">
-          <span className="text-[22px] font-semibold tracking-[-0.02em]">{title}</span>
+          <span className="text-[1.375rem] font-semibold tracking-[-0.02em]">{title}</span>
           {afterTitle}
         </div>
-        <div className="text-[13px] text-muted-foreground">{sub}</div>
+        <div className="text-[0.8125rem] text-muted-foreground">{sub}</div>
       </div>
       {children}
     </header>
@@ -217,14 +217,14 @@ function LockButton({
         {...props}
         className={cn("-ml-2 size-11 rounded-xl hover:bg-transparent aria-expanded:bg-transparent", className)}
       >
-        <span className={cn("flex size-[30px] items-center justify-center rounded-[9px]", look.button)}>
+        <span className={cn("flex size-7.5 items-center justify-center rounded-[0.5625rem]", look.button)}>
           <LockIcon open={state !== "verified"} />
         </span>
       </Button>
     );
   }
   return (
-    <Button variant="ghost" {...props} className={cn("size-7 rounded-[8px]", look.button, className)}>
+    <Button variant="ghost" {...props} className={cn("size-7 rounded-[0.5rem]", look.button, className)}>
       <LockIcon open={state !== "verified"} className="size-4" />
     </Button>
   );
@@ -245,7 +245,7 @@ function SignalChip({ signal, className, ...props }: { signal: Signal } & React.
       variant="ghost"
       {...props}
       className={cn(
-        "h-[30px] gap-1.5 rounded-full border px-2.5 font-mono text-[13px] font-medium",
+        "h-7.5 gap-1.5 rounded-full border px-2.5 font-mono text-[0.8125rem] font-medium",
         signal.poor
           ? "border-alarm/45 bg-alarm/10 text-danger hover:bg-alarm/15 hover:text-danger"
           : signal.rttMs !== null
@@ -287,7 +287,7 @@ function CallBanner({ call, narrow }: { call: Call; narrow: boolean }) {
       <div
         role="status"
         className={cn(
-          "inline-flex max-w-[460px] items-center gap-2.5 rounded-xl border px-3.5 py-[9px] text-[13px]",
+          "inline-flex max-w-115 items-center gap-2.5 rounded-xl border px-3.5 py-2.25 text-[0.8125rem]",
           banner.warn ? "border-warning/35 bg-warning/10 text-warning-foreground" : "border-track bg-muted text-soft",
         )}
       >
@@ -315,17 +315,17 @@ function NameButton({
       {...props}
       className={cn(
         "h-auto justify-start rounded-xl py-0 pr-2.5 pl-0 text-left hover:bg-transparent aria-expanded:bg-transparent",
-        narrow ? "gap-3 rounded-[10px] py-0.5 pr-2" : "min-h-[50px] gap-4",
+        narrow ? "gap-3 rounded-[0.625rem] py-0.5 pr-2" : "min-h-12.5 gap-4",
         className,
       )}
     >
-      <span className={cn("flex shrink-0 items-center justify-center", narrow ? "h-[18px] w-[18px]" : "h-[26px] w-[22px]")}>
+      <span className={cn("flex shrink-0 items-center justify-center", narrow ? "h-4.5 w-4.5" : "h-6.5 w-5.5")}>
         {trust === "failed" && (
-          <LockIcon open role="img" aria-hidden={false} aria-label={t("person.rejected")} className={cn("text-warning", narrow ? "size-[18px]" : "size-5")} />
+          <LockIcon open role="img" aria-hidden={false} aria-label={t("person.rejected")} className={cn("text-warning", narrow ? "size-4.5" : "size-5")} />
         )}
         {speaking && <SpeakingBars size={narrow ? "md" : "lg"} label={t("person.speaking")} />}
         {trust === "pending" && !speaking && (
-          <LockIcon open role="img" aria-hidden={false} aria-label={t("person.checking")} className={cn("text-dim", narrow ? "size-[18px]" : "size-5")} />
+          <LockIcon open role="img" aria-hidden={false} aria-label={t("person.checking")} className={cn("text-dim", narrow ? "size-4.5" : "size-5")} />
         )}
         {muted && (
           <MicIcon
@@ -333,21 +333,21 @@ function NameButton({
             role="img"
             aria-hidden={false}
             aria-label={t("person.muted")}
-            className={cn("text-danger", narrow ? "size-5" : "size-[22px]")}
+            className={cn("text-danger", narrow ? "size-5" : "size-5.5")}
           />
         )}
       </span>
       <span
         className={cn(
           "font-semibold tracking-[-0.03em]",
-          narrow ? "text-[22px]" : "text-[34px]",
+          narrow ? "text-[1.375rem]" : "text-[2.125rem]",
           trust === "failed" ? "text-hush" : speaking ? "text-white" : "text-dim",
         )}
       >
         {person.name}
       </span>
       {person.me && (
-        <span className={cn("self-end font-normal text-muted-foreground", narrow ? "pb-1 text-[13px]" : "pb-2 text-sm")}>
+        <span className={cn("self-end font-normal text-muted-foreground", narrow ? "pb-1 text-[0.8125rem]" : "pb-2 text-sm")}>
           {t("call.you")}
         </span>
       )}
@@ -361,11 +361,11 @@ function AloneNotes({ call }: { call: Call }) {
   const alone = call.bound && call.participants.length === 1;
   if (!alone && call.gateChosen) return null;
   return (
-    <div className="mt-3.5 flex flex-col gap-1.5 text-[13px] text-muted-foreground">
+    <div className="mt-3.5 flex flex-col gap-1.5 text-[0.8125rem] text-muted-foreground">
       {alone && <span>{t("call.alone")}</span>}
       {!call.gateChosen && (
         <span className="flex items-center gap-2">
-          <span className="size-[7px] rounded-full bg-warning" />
+          <span className="size-1.75 rounded-full bg-warning" />
           {t("call.gateDefault")}
         </span>
       )}
@@ -407,7 +407,7 @@ function Controls({
           <Button
             variant="ghost"
             className={cn(
-              "relative h-12 gap-2 rounded-[14px] font-mono text-[13px] font-medium",
+              "relative h-12 gap-2 rounded-[0.875rem] font-mono text-[0.8125rem] font-medium",
               narrow
                 ? cn("px-3.5", gateOpen ? "bg-track" : "")
                 : cn("border px-4", gateOpen ? "border-idle bg-raised" : "border-border bg-secondary"),
@@ -418,7 +418,7 @@ function Controls({
         <GateIcon className={gateIcon} />
         {!narrow && gateLabel}
         {!call.gateChosen && (
-          <span className={cn("absolute size-[7px] rounded-full bg-warning", narrow ? "top-[9px] right-[9px]" : "top-2 right-2")} />
+          <span className={cn("absolute size-1.75 rounded-full bg-warning", narrow ? "top-2.25 right-2.25" : "top-2 right-2")} />
         )}
       </PopoverTrigger>
       <PopoverContent
@@ -426,7 +426,7 @@ function Controls({
         align="center"
         sideOffset={narrow ? 10 : 18}
         anchor={narrow ? barRef : undefined}
-        className={cn(PANEL, narrow ? "w-[calc(100vw-24px)]" : "w-[360px]")}
+        className={cn(PANEL, narrow ? "w-[calc(100vw-1.5rem)]" : "w-90")}
       >
         {children}
       </PopoverContent>
@@ -440,7 +440,7 @@ function Controls({
       title={shortcut}
       onClick={app.toggleMute}
       className={cn(
-        "h-12 gap-2.5 rounded-[14px] px-[18px] text-sm font-semibold",
+        "h-12 gap-2.5 rounded-[0.875rem] px-4.5 text-sm font-semibold",
         narrow ? "min-w-0 flex-1" : "border",
         call.muted
           ? cn("text-danger hover:text-danger", narrow ? "bg-alarm/16 hover:bg-alarm/20" : "border-alarm/45 bg-alarm/14 hover:bg-alarm/20")
@@ -459,7 +459,7 @@ function Controls({
       disabled={ended}
       aria-label={t("voice.leave")}
       onClick={app.leave}
-      className={cn("h-12 rounded-[14px]", narrow ? "w-[52px]" : "w-14")}
+      className={cn("h-12 rounded-[0.875rem]", narrow ? "w-13" : "w-14")}
     >
       <LeaveIcon className="size-5" />
     </Button>
@@ -469,7 +469,7 @@ function Controls({
       <div className={cn("flex justify-center px-3 pb-3.5", ended && "opacity-35")}>
         <div
           ref={barRef}
-          className="flex w-full items-center gap-1.5 rounded-[20px] border border-track bg-muted p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.4)]"
+          className="flex w-full items-center gap-1.5 rounded-[1.25rem] border border-track bg-muted p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.4)]"
         >
           {mute}
           {gate}
@@ -479,7 +479,7 @@ function Controls({
     );
   }
   return (
-    <div className="flex justify-center gap-2.5 px-7 pt-4 pb-[26px]">
+    <div className="flex justify-center gap-2.5 px-7 pt-4 pb-6.5">
       {gate}
       {mute}
       {leave}
@@ -492,8 +492,8 @@ function EndedNarrow({ app }: { app: AppState }) {
   const { t } = useLanguage();
   const call = app.call!;
   return (
-    <div role="alert" className="flex max-w-[360px] flex-col items-center gap-2 text-center">
-      <span className="text-[22px] font-semibold tracking-[-0.02em]">{t("ended.title")}</span>
+    <div role="alert" className="flex max-w-90 flex-col items-center gap-2 text-center">
+      <span className="text-[1.375rem] font-semibold tracking-[-0.02em]">{t("ended.title")}</span>
       <span className="text-sm text-subtle">{t("ended.help")}</span>
       <div className="mt-3 flex gap-2">
         <Button

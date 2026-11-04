@@ -21,8 +21,8 @@ const badgeVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
         // Drywire: a figure's provenance. Solid for a measurement, dashed
         // for an estimate, never the other way round (spec section 11).
-        measured: "h-auto rounded-[4px] border-badge px-1.5 py-0 text-[11px] leading-[17px] font-normal text-soft",
-        estimate: "h-auto rounded-[4px] border-dashed border-badge px-1.5 py-0 text-[11px] leading-[17px] font-normal text-subtle",
+        measured: "h-auto rounded-[0.25rem] border-badge px-1.5 py-0 text-[0.6875rem] leading-4.25 font-normal text-soft",
+        estimate: "h-auto rounded-[0.25rem] border-dashed border-badge px-1.5 py-0 text-[0.6875rem] leading-4.25 font-normal text-subtle",
       },
     },
     defaultVariants: {

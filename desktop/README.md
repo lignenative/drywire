@@ -49,8 +49,12 @@ mobile ones it adds).
   dropped, and its name dimmed). A click lists who is verified. The Rust
   side on `main` does not report it yet, so the lock is shown only in the
   simulated call until the branch that adds it is merged.
-- Narrow (under 640 px), the spaces are the first screen and a bar at the
-  bottom keeps the call one click away; a click on a room joins it.
+- Narrow (under 640 of the canvas's pixels, so 768 px at the default
+  scale), the spaces are the first screen and a bar at the bottom keeps
+  the call one click away; a click on a room joins it.
+- Drawn 1.2 times larger than the canvas's pixels, like the canvas's V3
+  page: every size is in rem, and `--ui-scale` in `src/index.css` sets
+  them all. The overlay stays at 1.
 - Accepts an invitation link and the name to show in that space. With no
   space yet, the window asks for one.
 - The settings have their own menu: Voice (the gate's threshold and its

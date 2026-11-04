@@ -44,15 +44,15 @@ function Row({
       className={cn(
         // Wrapping lets a row's details (the calibration's result) go
         // under it, across the whole width.
-        "flex flex-wrap items-center gap-x-4 py-[18px]",
+        "flex flex-wrap items-center gap-x-4 py-4.5",
         narrow && "gap-y-3",
         !last && "border-b border-line",
         className,
       )}
     >
       <div className={cn("min-w-0 flex-1", narrow && "basis-full")}>
-        <div className="text-[15px] font-medium">{title}</div>
-        {help && <div className="text-[13px] text-muted-foreground">{help}</div>}
+        <div className="text-[0.9375rem] font-medium">{title}</div>
+        {help && <div className="text-[0.8125rem] text-muted-foreground">{help}</div>}
       </div>
       {children}
     </div>
@@ -89,7 +89,7 @@ export function VoiceSection({ app, narrow }: { app: AppState; narrow: boolean }
   return (
     <>
       <Row title={t("settings.gate")} help={t("settings.gateHelp")} narrow={narrow} last={false}>
-        <div className={narrow ? "min-w-0 flex-1" : "w-[150px]"}>
+        <div className={narrow ? "min-w-0 flex-1" : "w-37.5"}>
           <GateMeter
             levelDbfs={level}
             gateDbfs={gate}
@@ -99,7 +99,7 @@ export function VoiceSection({ app, narrow }: { app: AppState; narrow: boolean }
             ringClassName="shadow-[0_0_0_2px_var(--background)]"
           />
         </div>
-        <span className="w-[52px] text-right font-mono text-[13px] font-medium">{formatDb(gate)}</span>
+        <span className="w-13 text-right font-mono text-[0.8125rem] font-medium">{formatDb(gate)}</span>
         <Calibration app={app} narrow={narrow} />
       </Row>
       <ShortcutRow app={app} narrow={narrow} />
@@ -152,11 +152,11 @@ function Calibration({ app, narrow }: { app: AppState; narrow: boolean }) {
         {left !== null ? t("settings.calibrating", { seconds: Math.max(left, 0) }) : t("settings.calibrate")}
       </Button>
       {(found || error) && (
-        <div className={cn("flex basis-full flex-col gap-2.5 rounded-[14px] bg-card p-4", !narrow && "mt-3 mb-1")}>
+        <div className={cn("flex basis-full flex-col gap-2.5 rounded-[0.875rem] bg-card p-4", !narrow && "mt-3 mb-1")}>
           {found && (
             <>
-              <span className="text-[13px] text-subtle">{t("settings.calibrateIntro")}</span>
-              <div className="flex flex-wrap gap-x-[18px] gap-y-1.5 text-[13px]">
+              <span className="text-[0.8125rem] text-subtle">{t("settings.calibrateIntro")}</span>
+              <div className="flex flex-wrap gap-x-4.5 gap-y-1.5 text-[0.8125rem]">
                 <span>
                   {t("settings.noise")} <span className="font-mono">{formatDb(found.noiseDbfs)}</span>
                 </span>
@@ -167,22 +167,22 @@ function Calibration({ app, narrow }: { app: AppState; narrow: boolean }) {
                   {t("settings.proposed")} <span className="font-mono">{formatDb(found.gateDbfs)}</span>
                 </span>
               </div>
-              {found.tooLoud && <p className="text-[13px] text-warning-foreground">{t("settings.tooLoud")}</p>}
+              {found.tooLoud && <p className="text-[0.8125rem] text-warning-foreground">{t("settings.tooLoud")}</p>}
               <div className="flex gap-2">
-                <Button onClick={apply} className="h-9 rounded-[10px] px-3.5 text-[13px] font-semibold">
+                <Button onClick={apply} className="h-9 rounded-[0.625rem] px-3.5 text-[0.8125rem] font-semibold">
                   {t("settings.apply")}
                 </Button>
                 <Button
                   variant="ghost"
                   onClick={() => setFound(null)}
-                  className="h-9 rounded-[10px] px-3.5 text-[13px] font-medium text-soft"
+                  className="h-9 rounded-[0.625rem] px-3.5 text-[0.8125rem] font-medium text-soft"
                 >
                   {t("settings.discard")}
                 </Button>
               </div>
             </>
           )}
-          {error && <p className="text-[13px] text-danger">{error}</p>}
+          {error && <p className="text-[0.8125rem] text-danger">{error}</p>}
         </div>
       )}
     </>
@@ -237,20 +237,20 @@ function ShortcutRow({ app, narrow }: { app: AppState; narrow: boolean }) {
         onKeyDown={record}
         onBlur={() => setRecording(false)}
         className={cn(
-          "h-9 gap-1 rounded-[10px] border-border bg-transparent px-2 dark:border-border dark:bg-transparent",
+          "h-9 gap-1 rounded-[0.625rem] border-border bg-transparent px-2 dark:border-border dark:bg-transparent",
           recording && "border-primary dark:border-primary",
         )}
       >
         {recording ? (
-          <span className="px-1 text-[13px] text-muted-foreground">{t("settings.shortcutRecording")}</span>
+          <span className="px-1 text-[0.8125rem] text-muted-foreground">{t("settings.shortcutRecording")}</span>
         ) : keys.length > 0 ? (
           keys.map((k) => (
-            <Kbd key={k} className="h-auto rounded-md bg-raised px-[7px] py-0.5 font-mono text-xs text-foreground">
+            <Kbd key={k} className="h-auto rounded-md bg-raised px-1.75 py-0.5 font-mono text-xs text-foreground">
               {keyLabel(k)}
             </Kbd>
           ))
         ) : (
-          <span className="px-1 text-[13px] text-muted-foreground">{t("settings.shortcutNone")}</span>
+          <span className="px-1 text-[0.8125rem] text-muted-foreground">{t("settings.shortcutNone")}</span>
         )}
       </Button>
     </Row>
@@ -265,10 +265,10 @@ export function SoundsSection({ app, narrow }: { app: AppState; narrow: boolean 
   const [volume, setVolume] = useState(saved);
   useEffect(() => setVolume(saved), [saved]);
   return (
-    <div className="flex flex-col gap-3.5 border-b border-line py-[18px]">
+    <div className="flex flex-col gap-3.5 border-b border-line py-4.5">
       <div>
-        <div className="text-[15px] font-medium">{t("settings.sounds")}</div>
-        <div className="text-[13px] text-muted-foreground">{t("settings.soundsHelp")}</div>
+        <div className="text-[0.9375rem] font-medium">{t("settings.sounds")}</div>
+        <div className="text-[0.8125rem] text-muted-foreground">{t("settings.soundsHelp")}</div>
       </div>
       <div className="flex items-center gap-3.5">
         <Slider
@@ -285,7 +285,7 @@ export function SoundsSection({ app, narrow }: { app: AppState; narrow: boolean 
           }}
           className="h-4 flex-1"
         />
-        <span className="w-14 text-right font-mono text-[13px] font-medium">
+        <span className="w-14 text-right font-mono text-[0.8125rem] font-medium">
           {volume === 0 ? t("settings.off") : `${volume} %`}
         </span>
       </div>
@@ -295,7 +295,7 @@ export function SoundsSection({ app, narrow }: { app: AppState; narrow: boolean 
             key={kind}
             variant="secondary"
             onClick={() => playPresence(kind, Math.max(volume, 20) / 100)}
-            className="h-9 gap-2 rounded-full pr-3.5 pl-2.5 text-[13px] font-medium"
+            className="h-9 gap-2 rounded-full pr-3.5 pl-2.5 text-[0.8125rem] font-medium"
           >
             <Play className="size-2.5 fill-primary text-primary" />
             {t(`settings.preview.${kind}`)}
@@ -315,7 +315,7 @@ function CanvasSwitch(props: React.ComponentProps<typeof Switch>) {
   return (
     <Switch
       {...props}
-      className="h-6 w-[42px] p-[3px] data-unchecked:bg-idle dark:data-unchecked:bg-idle [&>span]:size-[18px] [&>span]:bg-white! [&>span]:data-checked:translate-x-[18px]"
+      className="h-6 w-10.5 p-0.75 data-unchecked:bg-idle dark:data-unchecked:bg-idle [&>span]:size-4.5 [&>span]:bg-white! [&>span]:data-checked:translate-x-4.5"
     />
   );
 }
@@ -357,12 +357,12 @@ export function DisplaySection({ app, narrow }: { app: AppState; narrow: boolean
               value={c}
               aria-label={t(`settings.corner.${c}`)}
               className={cn(
-                "group/corner flex h-[30px] w-10 min-w-10 rounded-[8px] border border-border p-1 hover:bg-transparent aria-pressed:border-primary aria-pressed:bg-transparent",
+                "group/corner flex h-7.5 w-10 min-w-10 rounded-[0.5rem] border border-border p-1 hover:bg-transparent aria-pressed:border-primary aria-pressed:bg-transparent",
                 i < 2 ? "items-start" : "items-end",
                 i % 2 === 0 ? "justify-start" : "justify-end",
               )}
             >
-              <span className="h-1.5 w-2.5 rounded-[2px] bg-hush group-aria-pressed/corner:bg-primary" />
+              <span className="h-1.5 w-2.5 rounded-[0.125rem] bg-hush group-aria-pressed/corner:bg-primary" />
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
@@ -373,13 +373,13 @@ export function DisplaySection({ app, narrow }: { app: AppState; narrow: boolean
           value={[lang]}
           onValueChange={(v: string[]) => v[0] && pickLanguage(v[0])}
           spacing={0}
-          className="rounded-[10px] bg-card p-[3px]"
+          className="rounded-[0.625rem] bg-card p-0.75"
         >
           {LANGUAGES.map((l) => (
             <ToggleGroupItem
               key={l}
               value={l}
-              className="h-7 rounded-[7px]! px-3 text-[13px] font-semibold text-subtle hover:bg-transparent aria-pressed:bg-border aria-pressed:text-foreground"
+              className="h-7 rounded-[0.4375rem]! px-3 text-[0.8125rem] font-semibold text-subtle hover:bg-transparent aria-pressed:bg-border aria-pressed:text-foreground"
             >
               {t(`language.${l}`)}
             </ToggleGroupItem>
@@ -448,14 +448,14 @@ function DeviceTest({ narrow }: { narrow: boolean }) {
   const measured = result?.medianMs ?? null;
   const scale = Math.max(measured ?? 0, reported, 1);
   return (
-    <div className="flex flex-col gap-3 border-b border-line py-[18px]">
+    <div className="flex flex-col gap-3 border-b border-line py-4.5">
       <div className={cn("flex gap-4", narrow ? "flex-wrap items-center" : "items-center")}>
         <div className={cn("min-w-0 flex-1", narrow && "basis-full")}>
-          <div className="text-[15px] font-medium">
+          <div className="text-[0.9375rem] font-medium">
             {t("settings.deviceTest")}{" "}
-            <span className="text-[12.5px] font-normal text-dim">{t("settings.outOfCall")}</span>
+            <span className="text-[0.78125rem] font-normal text-dim">{t("settings.outOfCall")}</span>
           </div>
-          <div className="text-[13px] text-muted-foreground">{t("settings.deviceTestHelp")}</div>
+          <div className="text-[0.8125rem] text-muted-foreground">{t("settings.deviceTestHelp")}</div>
         </div>
         <Button variant="secondary" size="md" disabled={busy} onClick={run}>
           {busy ? t("settings.listening") : result ? t("settings.rerun") : t("settings.run")}
@@ -464,36 +464,36 @@ function DeviceTest({ narrow }: { narrow: boolean }) {
       {measured !== null && result && (
         <>
           <div className="flex flex-wrap items-baseline gap-2.5">
-            <span className="font-mono text-[28px] font-semibold tracking-[-0.02em]">{formatMs(measured)}</span>
+            <span className="font-mono text-[1.75rem] font-semibold tracking-[-0.02em]">{formatMs(measured)}</span>
             <Badge variant="measured">{t("badge.measured")}</Badge>
-            <span className="text-[13px] text-muted-foreground">
+            <span className="text-[0.8125rem] text-muted-foreground">
               {t("settings.deviceResult", { count: result.delaysMs.length })}
             </span>
           </div>
-          <div className="flex flex-col gap-1.5 text-[12.5px]">
+          <div className="flex flex-col gap-1.5 text-[0.78125rem]">
             <div className="flex items-center gap-2.5">
-              <span className="w-[110px] text-subtle">{t("settings.measured")}</span>
+              <span className="w-27.5 text-subtle">{t("settings.measured")}</span>
               <span className="flex flex-1">
-                <span className="h-2 rounded-[4px] bg-primary" style={{ width: `${(measured / scale) * 100}%` }} />
+                <span className="h-2 rounded-[0.25rem] bg-primary" style={{ width: `${(measured / scale) * 100}%` }} />
               </span>
               <span className="w-12 text-right font-mono">{formatMs(measured)}</span>
             </div>
             <div className="flex items-center gap-2.5">
-              <span className="w-[110px] text-subtle">{t("settings.systemSays")}</span>
+              <span className="w-27.5 text-subtle">{t("settings.systemSays")}</span>
               <span className="flex flex-1">
                 <span
-                  className="h-1.5 rounded-[4px] border border-dashed border-muted-foreground"
+                  className="h-1.5 rounded-[0.25rem] border border-dashed border-muted-foreground"
                   style={{ width: `${(reported / scale) * 100}%` }}
                 />
               </span>
               <span className="w-12 text-right font-mono text-subtle">{formatMs(reported)}</span>
             </div>
           </div>
-          <span className="text-[12.5px] text-muted-foreground">{t("settings.wireless")}</span>
+          <span className="text-[0.78125rem] text-muted-foreground">{t("settings.wireless")}</span>
         </>
       )}
-      {result && measured === null && <p className="text-[13px] text-warning-foreground">{t("settings.noClick")}</p>}
-      {error && <p className="text-[13px] text-danger">{error}</p>}
+      {result && measured === null && <p className="text-[0.8125rem] text-warning-foreground">{t("settings.noClick")}</p>}
+      {error && <p className="text-[0.8125rem] text-danger">{error}</p>}
     </div>
   );
 }
@@ -519,12 +519,12 @@ function DeviceKey({ narrow }: { narrow: boolean }) {
   };
 
   return (
-    <div className={cn("flex gap-4 py-[18px]", narrow ? "flex-col" : "items-start")}>
+    <div className={cn("flex gap-4 py-4.5", narrow ? "flex-col" : "items-start")}>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="text-[15px] font-medium">{t("settings.key")}</div>
-        <div className="text-[13px] text-muted-foreground">{t("settings.keyHelp")}</div>
-        {key && <code className="font-mono text-[12.5px] leading-[1.6] break-all text-subtle">{key}</code>}
-        {error && <p className="text-[13px] text-danger">{error}</p>}
+        <div className="text-[0.9375rem] font-medium">{t("settings.key")}</div>
+        <div className="text-[0.8125rem] text-muted-foreground">{t("settings.keyHelp")}</div>
+        {key && <code className="font-mono text-[0.78125rem] leading-[1.6] break-all text-subtle">{key}</code>}
+        {error && <p className="text-[0.8125rem] text-danger">{error}</p>}
       </div>
       <Button variant="secondary" size="md" disabled={!key} onClick={copy} className="self-start">
         {copied ? t("settings.copied") : t("settings.copy")}

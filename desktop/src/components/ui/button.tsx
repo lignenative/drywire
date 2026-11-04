@@ -24,20 +24,20 @@ const buttonVariants = cva(
       size: {
         default:
           "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        xs: "h-6 gap-1 rounded-[min(var(--radius-md),0.625rem)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-7 gap-1 rounded-[min(var(--radius-md),0.75rem)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
         icon: "size-8",
         "icon-xs":
-          "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+          "size-6 rounded-[min(var(--radius-md),0.625rem)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
         "icon-sm":
-          "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+          "size-7 rounded-[min(var(--radius-md),0.75rem)] in-data-[slot=button-group]:rounded-lg",
         "icon-lg": "size-9",
         // Drywire: the canvas's sizes. Calls to action and the call's
         // controls are 48 px high; small icon buttons 34 px.
-        xl: "h-12 gap-2.5 rounded-[14px] px-[22px] text-[15px] font-semibold [&_svg:not([class*='size-'])]:size-[18px]",
-        md: "h-[34px] gap-2 rounded-[10px] px-3 text-[13px] font-semibold",
-        "icon-md": "size-[34px] rounded-[10px] [&_svg:not([class*='size-'])]:size-[18px]",
+        xl: "h-12 gap-2.5 rounded-[0.875rem] px-5.5 text-[0.9375rem] font-semibold [&_svg:not([class*='size-'])]:size-4.5",
+        md: "h-8.5 gap-2 rounded-[0.625rem] px-3 text-[0.8125rem] font-semibold",
+        "icon-md": "size-8.5 rounded-[0.625rem] [&_svg:not([class*='size-'])]:size-4.5",
       },
     },
     defaultVariants: {

@@ -29,13 +29,13 @@ export function SettingsPage({ app }: { app: AppState }) {
     <div className="flex h-full overflow-hidden">
       <nav
         aria-label={t("settings.title")}
-        className="flex w-[248px] shrink-0 flex-col gap-0.5 border-r border-line bg-sidebar px-3 pt-[18px] pb-5"
+        className="flex w-62 shrink-0 flex-col gap-0.5 border-r border-line bg-sidebar px-3 pt-4.5 pb-5"
       >
-        <div className="flex items-center gap-1.5 pb-[18px]">
+        <div className="flex items-center gap-1.5 pb-4.5">
           <Button variant="ghost" size="icon-md" aria-label={t("settings.back")} onClick={app.closeSettings} className="text-subtle">
             <ChevronLeft />
           </Button>
-          <span className="text-[15px] font-semibold">{t("settings.title")}</span>
+          <span className="text-[0.9375rem] font-semibold">{t("settings.title")}</span>
         </div>
         {SETTINGS_TABS.map((id) => (
           <Button
@@ -44,7 +44,7 @@ export function SettingsPage({ app }: { app: AppState }) {
             aria-current={tab === id ? "page" : undefined}
             onClick={() => app.setSettingsTab(id)}
             className={cn(
-              "h-10 justify-start rounded-[10px] px-3 text-[14.5px] font-medium",
+              "h-10 justify-start rounded-[0.625rem] px-3 text-[0.90625rem] font-medium",
               tab === id ? "bg-raised text-white hover:bg-raised" : "text-subtle",
             )}
           >
@@ -52,11 +52,11 @@ export function SettingsPage({ app }: { app: AppState }) {
           </Button>
         ))}
         <span className="flex-1" />
-        <p className="px-3 text-[12.5px] text-dim">{t("settings.instant")}</p>
+        <p className="px-3 text-[0.78125rem] text-dim">{t("settings.instant")}</p>
       </nav>
       <div className="min-w-0 flex-1 overflow-y-auto px-14 pt-11 pb-10">
-        <div className="flex max-w-[600px] flex-col">
-          <h2 className="mb-1.5 text-[22px] font-semibold tracking-[-0.02em]">{t(`settings.tab.${tab}`)}</h2>
+        <div className="flex max-w-150 flex-col">
+          <h2 className="mb-1.5 text-[1.375rem] font-semibold tracking-[-0.02em]">{t(`settings.tab.${tab}`)}</h2>
           <Section tab={tab} app={app} narrow={false} />
         </div>
       </div>
@@ -84,31 +84,31 @@ export function NarrowSettings({ app }: { app: AppState }) {
       <div className="flex h-full flex-col overflow-hidden pt-1 pb-3">
         <header className="flex items-center gap-1 py-2 pr-5 pl-1.5">
           <Button variant="ghost" aria-label={t("settings.back")} onClick={app.closeSettings} className="size-11 rounded-xl text-subtle">
-            <ChevronLeft className="size-[22px]" />
+            <ChevronLeft className="size-5.5" />
           </Button>
         </header>
-        <div className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-y-auto px-4 pt-1 pb-4">
-          <h1 className="px-1 text-[30px] font-semibold tracking-[-0.03em]">{t("settings.title")}</h1>
-          <nav aria-label={t("settings.title")} className="flex flex-col overflow-hidden rounded-[18px] bg-muted">
+        <div className="flex min-h-0 flex-1 flex-col gap-4.5 overflow-y-auto px-4 pt-1 pb-4">
+          <h1 className="px-1 text-[1.875rem] font-semibold tracking-[-0.03em]">{t("settings.title")}</h1>
+          <nav aria-label={t("settings.title")} className="flex flex-col overflow-hidden rounded-[1.125rem] bg-muted">
             {SETTINGS_TABS.map((id, i) => (
               <Button
                 key={id}
                 variant="ghost"
                 onClick={() => setPage(id)}
                 className={cn(
-                  "h-[60px] justify-start gap-2.5 rounded-none pr-3.5 pl-[18px] text-[17px] font-medium",
+                  "h-15 justify-start gap-2.5 rounded-none pr-3.5 pl-4.5 text-[1.0625rem] font-medium",
                   i < SETTINGS_TABS.length - 1 && "border-b border-accent",
                 )}
               >
                 <span className="flex-1 text-left">{t(`settings.tab.${id}`)}</span>
-                <span className={cn("text-[15px] font-normal text-muted-foreground", values[id].mono && "font-mono")}>
+                <span className={cn("text-[0.9375rem] font-normal text-muted-foreground", values[id].mono && "font-mono")}>
                   {values[id].text}
                 </span>
-                <ChevronRight className="size-[18px] text-dim" strokeWidth={2.2} />
+                <ChevronRight className="size-4.5 text-dim" strokeWidth={2.2} />
               </Button>
             ))}
           </nav>
-          <p className="px-1 text-[13px] text-dim">{t("settings.instant")}</p>
+          <p className="px-1 text-[0.8125rem] text-dim">{t("settings.instant")}</p>
         </div>
       </div>
     );
@@ -123,12 +123,12 @@ export function NarrowSettings({ app }: { app: AppState }) {
           onClick={() => setPage(null)}
           className="h-11 gap-0.5 rounded-xl pr-2.5 pl-1 text-base font-medium text-subtle"
         >
-          <ChevronLeft className="size-[22px]" />
+          <ChevronLeft className="size-5.5" />
           {t("settings.title")}
         </Button>
       </header>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-1 pb-4">
-        <h1 className="mb-1 text-[30px] font-semibold tracking-[-0.03em]">{t(`settings.tab.${page}`)}</h1>
+        <h1 className="mb-1 text-[1.875rem] font-semibold tracking-[-0.03em]">{t(`settings.tab.${page}`)}</h1>
         <Section tab={page} app={app} narrow />
       </div>
     </div>

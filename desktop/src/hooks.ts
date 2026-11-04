@@ -34,12 +34,16 @@ export function useDragged(reported: number, save: (value: number) => void) {
   return [value, change] as const;
 }
 
-/** Below this width the window has no room for the side menu: the spaces
-    become the first screen, as on a phone (the canvas's narrow window). */
+/** Below this width, in the canvas's pixels, the window has no room for the
+    side menu: the spaces become the first screen, as on a phone (the
+    canvas's narrow window). */
 export const NARROW_PX = 640;
 
 export function useNarrow(): boolean {
-  const query = `(max-width: ${NARROW_PX - 1}px)`;
+  // The interface is drawn in rem (index.css), so the breakpoint grows with
+  // the root font size; a media query's rem would ignore it.
+  const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const query = `(max-width: ${(NARROW_PX * rootPx) / 16 - 0.02}px)`;
   const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
   useEffect(() => {
     const list = window.matchMedia(query);

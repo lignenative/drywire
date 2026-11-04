@@ -42,15 +42,15 @@ export function GateMeter({
   const left = meterPercent(GATE_MIN_DBFS);
   const width = meterPercent(GATE_MAX_DBFS) - left;
   return (
-    <div className={cn("relative", size === "md" ? "h-[26px]" : "h-[22px]")}>
+    <div className={cn("relative", size === "md" ? "h-6.5" : "h-5.5")}>
       <div
         className={cn(
-          "absolute inset-x-0 h-2 overflow-hidden rounded-[4px] bg-track",
-          size === "md" ? "top-[9px]" : "top-[7px]",
+          "absolute inset-x-0 h-2 overflow-hidden rounded-[0.25rem] bg-track",
+          size === "md" ? "top-2.25" : "top-1.75",
         )}
       >
         <div
-          className={cn("h-full rounded-[4px]", fill)}
+          className={cn("h-full rounded-[0.25rem]", fill)}
           style={{ width: `${levelDbfs === null ? 0 : meterPercent(levelDbfs)}%` }}
         />
       </div>
@@ -67,8 +67,8 @@ export function GateMeter({
         trackClassName="bg-transparent data-horizontal:h-full overflow-visible"
         indicatorClassName="bg-transparent"
         thumbClassName={cn(
-          "w-1 rounded-[2px] bg-foreground hover:ring-0 active:ring-0 after:-inset-x-3",
-          size === "md" ? "h-[22px]" : "h-5",
+          "w-1 rounded-[0.125rem] bg-foreground hover:ring-0 active:ring-0 after:-inset-x-3",
+          size === "md" ? "h-5.5" : "h-5",
           ringClassName,
         )}
       />
@@ -102,8 +102,8 @@ export function GateDetails({
     <>
       <div className="flex items-center gap-2">
         <span className="flex-1 text-sm font-semibold">{t("gate.title")}</span>
-        <Badge className={cn("h-auto px-2 py-0.5 text-[11.5px] font-semibold", pill.className)}>{pill.label}</Badge>
-        <span className="font-mono text-[13px] font-medium">{formatDb(gate)}</span>
+        <Badge className={cn("h-auto px-2 py-0.5 text-[0.71875rem] font-semibold", pill.className)}>{pill.label}</Badge>
+        <span className="font-mono text-[0.8125rem] font-medium">{formatDb(gate)}</span>
       </div>
       <GateMeter
         levelDbfs={call.inputDbfs}
@@ -111,17 +111,17 @@ export function GateDetails({
         onGate={setGate}
         fill={meterFill(call.muted ? "muted" : call.bound && call.inputDbfs >= gate ? "sending" : "below")}
       />
-      <p className="text-[12.5px] text-subtle">{t("gate.help")}</p>
+      <p className="text-[0.78125rem] text-subtle">{t("gate.help")}</p>
       {!call.gateChosen && (
-        <p className="flex items-center gap-2 text-[12.5px] text-warning-foreground">
-          <span className="size-[7px] shrink-0 rounded-full bg-warning" />
+        <p className="flex items-center gap-2 text-[0.78125rem] text-warning-foreground">
+          <span className="size-1.75 shrink-0 rounded-full bg-warning" />
           {t("gate.default")}
         </p>
       )}
       <Button
         variant="link"
         onClick={onCalibrate}
-        className="h-auto self-start p-0 text-[13px] font-semibold no-underline hover:no-underline"
+        className="h-auto self-start p-0 text-[0.8125rem] font-semibold no-underline hover:no-underline"
       >
         {t("gate.calibrate")}
       </Button>
@@ -139,14 +139,14 @@ export function PersonDetails({ person }: { person: Participant }) {
     <>
       <div className="flex items-baseline gap-2.5">
         <span className="text-lg font-semibold">{person.name}</span>
-        <span className={cn("flex-1 text-[12.5px]", person.speaking ? "text-primary" : "text-muted-foreground")}>
+        <span className={cn("flex-1 text-[0.78125rem]", person.speaking ? "text-primary" : "text-muted-foreground")}>
           {person.speaking ? t("person.speaking") : t("person.silent")}
         </span>
       </div>
       <div className="flex flex-col gap-1">
         <span className="text-xs text-muted-foreground">{t("person.mouthToEar")}</span>
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[22px] font-semibold tracking-[-0.02em]">
+          <span className="font-mono text-[1.375rem] font-semibold tracking-[-0.02em]">
             {person.estimateMs !== null ? `≈ ${formatMs(person.estimateMs)}` : "–"}
           </span>
           <Badge variant="estimate">{t("person.estimate")}</Badge>
@@ -154,7 +154,7 @@ export function PersonDetails({ person }: { person: Participant }) {
         <span className="text-xs text-muted-foreground">{t("person.estimateHelp")}</span>
       </div>
       <div className="flex flex-col gap-1.5">
-        <span className="flex justify-between text-[12.5px] text-subtle">
+        <span className="flex justify-between text-[0.78125rem] text-subtle">
           <span>{t("person.volume")}</span>
           <span className="font-mono text-foreground">{volume} %</span>
         </span>
@@ -168,7 +168,7 @@ export function PersonDetails({ person }: { person: Participant }) {
           className="h-4"
         />
       </div>
-      <span className="font-mono text-[11.5px] leading-normal text-muted-foreground">
+      <span className="font-mono text-[0.71875rem] leading-normal text-muted-foreground">
         {t("person.stats", {
           received: n(person.counters.received),
           played: n(person.counters.played),
@@ -190,7 +190,7 @@ export function LinkDetails({ call, poor }: { call: CallView; poor: boolean }) {
     <>
       <span className="text-sm font-semibold">{t("link.title")}</span>
       <div className="flex flex-col">
-        <div className="flex items-center gap-2 border-b border-raised py-2 text-[13px]">
+        <div className="flex items-center gap-2 border-b border-raised py-2 text-[0.8125rem]">
           <span className="flex-1 text-subtle">{t("link.rtt")}</span>
           <span className={cn("font-mono", poor && "text-danger")}>
             {up && call.rttMs !== null
@@ -201,29 +201,29 @@ export function LinkDetails({ call, poor }: { call: CallView; poor: boolean }) {
                 })
               : "–"}
           </span>
-          <Badge variant="measured" className="text-[10.5px] leading-[15px]">
+          <Badge variant="measured" className="text-[0.65625rem] leading-3.75">
             {t("badge.measured")}
           </Badge>
         </div>
-        <div className="flex items-center gap-2 border-b border-raised py-2 text-[13px]">
+        <div className="flex items-center gap-2 border-b border-raised py-2 text-[0.8125rem]">
           <span className="flex-1 text-subtle">{t("link.device")}</span>
           <span className="font-mono">{formatMs(call.deviceMs)}</span>
-          <Badge variant={call.deviceMeasured ? "measured" : "estimate"} className="text-[10.5px] leading-[15px]">
+          <Badge variant={call.deviceMeasured ? "measured" : "estimate"} className="text-[0.65625rem] leading-3.75">
             {call.deviceMeasured ? t("badge.measured") : t("badge.reported")}
           </Badge>
         </div>
-        <div className="flex items-center gap-2 py-2 text-[13px]">
+        <div className="flex items-center gap-2 py-2 text-[0.8125rem]">
           <span className="flex-1 text-subtle">{t("link.loss")}</span>
           <span className={cn("font-mono", badLoss && "text-danger")}>{Math.round(call.uplinkLossPct)} %</span>
         </div>
       </div>
       {call.devices.map((d) => (
         <div key={d.direction} className="flex flex-col gap-px">
-          <span className="text-[13px]">
+          <span className="text-[0.8125rem]">
             <span className="text-muted-foreground">{d.direction === "input" ? t("link.input") : t("link.output")}</span>{" "}
             · {d.name}
           </span>
-          <span className="font-mono text-[11.5px] text-muted-foreground">
+          <span className="font-mono text-[0.71875rem] text-muted-foreground">
             {t("link.detail", { mode: d.mode, buffer: formatMs(d.bufferMs), latency: formatMs(d.latencyMs) })}
           </span>
         </div>
@@ -286,10 +286,10 @@ export function LockDetails({ call, state }: { call: CallView; state: LockState 
       <div className="flex items-center gap-2">
         <LockIcon open={state !== "verified"} strokeWidth={2.2} className={cn("size-4", look.title)} />
         <span className="flex-1 text-sm font-semibold">{t("lock.title")}</span>
-        <Badge className={cn("h-auto px-2 py-0.5 text-[11.5px] font-semibold", look.pill)}>{pill}</Badge>
+        <Badge className={cn("h-auto px-2 py-0.5 text-[0.71875rem] font-semibold", look.pill)}>{pill}</Badge>
       </div>
-      <p className="text-[12.5px] text-subtle">{text}</p>
-      <div className="flex items-center gap-2 text-[12.5px] text-soft">
+      <p className="text-[0.78125rem] text-subtle">{text}</p>
+      <div className="flex items-center gap-2 text-[0.78125rem] text-soft">
         <KeyIcon className="size-3.5 text-muted-foreground" />
         {t("lock.server")}
       </div>
@@ -297,7 +297,7 @@ export function LockDetails({ call, state }: { call: CallView; state: LockState 
         {meFirst(call.participants).map((p) => {
           const trust = trustOf(call, p) ?? "pending";
           return (
-            <div key={p.session} className="flex h-8 items-center gap-2.5 text-[13px]">
+            <div key={p.session} className="flex h-8 items-center gap-2.5 text-[0.8125rem]">
               <span className="flex size-4 shrink-0 items-center justify-center">
                 {trust === "ok" && <Check className="size-3.5 text-primary" strokeWidth={2.6} />}
                 {trust === "pending" && <CheckingIcon className="text-muted-foreground" />}

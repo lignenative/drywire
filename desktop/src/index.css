@@ -2,7 +2,12 @@
    one place (ADR 0037). shadcn components read the variables below; our
    own components use the Tailwind classes they generate (bg-card,
    text-muted-foreground, text-danger…). The app is dark only, like the
-   mockup: <html class="dark"> turns on the components' dark variants. */
+   mockup: <html class="dark"> turns on the components' dark variants.
+
+   Every size is in rem, and 1rem is 16 of the canvas's pixels: the root
+   font size below scales the whole interface at once, and follows the
+   browser's own text size. The canvas draws its V3 page at the same
+   scale. */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./shadcn.css";
@@ -73,6 +78,10 @@
   color-scheme: dark;
   --radius: 0.75rem;
 
+  /* The interface drawn larger than the canvas's pixels: clearer, and
+     friendlier. The overlay keeps 1 (overlay.css). */
+  --ui-scale: 1.2;
+
   /* Graphite. */
   --background: #0f1012;
   --foreground: #ececef;
@@ -140,6 +149,7 @@
   }
   html {
     @apply font-sans;
+    font-size: calc(100% * var(--ui-scale));
   }
   body {
     @apply bg-background text-foreground;

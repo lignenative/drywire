@@ -1,6 +1,11 @@
 /* The overlay draws only its pills: the page stays transparent over the
    game, whatever the app's theme gives the body (index.css), and the
    window lets clicks through. Unlayered, so it wins over Tailwind's base. */
+:root {
+  /* The pills keep the canvas's size over a game (index.css scales the
+     app's window); :root, to win over index.css's own. */
+  --ui-scale: 1;
+}
 html,
 body {
   margin: 0;

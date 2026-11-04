@@ -5,11 +5,16 @@
 import { cn } from "cn";
 import type { SVGProps } from "react";
 
+/** A square of `px` canvas pixels, in rem so that it follows the
+    interface's scale (index.css). */
+function remSquare(px: number) {
+  return { width: `${px / 16}rem`, height: `${px / 16}rem` };
+}
+
 export function Logo({ size = 26, label }: { size?: number; label?: string }) {
   return (
     <svg
-      width={size}
-      height={size}
+      style={remSquare(size)}
       viewBox="0 0 44 44"
       role={label ? "img" : undefined}
       aria-label={label}
@@ -34,7 +39,7 @@ export function Logo({ size = 26, label }: { size?: number; label?: string }) {
 export function SignalBars({ bars, poor, size = 14 }: { bars: number; poor?: boolean; size?: number }) {
   const lit = poor ? "fill-alarm" : "fill-primary";
   return (
-    <svg width={size} height={size} viewBox="0 0 14 14" aria-hidden="true" className="shrink-0">
+    <svg style={remSquare(size)} viewBox="0 0 14 14" aria-hidden="true" className="shrink-0">
       <rect x="1" y="9" width="3" height="4" rx="1" className={bars >= 1 ? lit : "fill-idle"} />
       <rect x="5.5" y="5.5" width="3" height="7.5" rx="1" className={bars >= 2 ? lit : "fill-idle"} />
       <rect x="10" y="2" width="3" height="11" rx="1" className={bars >= 3 ? lit : "fill-idle"} />
@@ -52,7 +57,7 @@ function Stroke({ children, className, ...props }: SVGProps<SVGSVGElement>) {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
-      className={cn("size-[18px] shrink-0", className)}
+      className={cn("size-4.5 shrink-0", className)}
       {...props}
     >
       {children}
@@ -147,15 +152,15 @@ export function SpinIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
 export function SpeakingBars({ size = "md", label }: { size?: "sm" | "md" | "lg"; label: string }) {
   const bar = {
     sm: "w-0.5 h-3",
-    md: "w-[3px] h-3.5",
-    lg: "w-1 h-[26px]",
+    md: "w-0.75 h-3.5",
+    lg: "w-1 h-6.5",
   }[size];
   return (
-    <span role="img" aria-label={label} className={cn("flex items-center", size === "lg" ? "gap-[3px]" : "gap-0.5")}>
+    <span role="img" aria-label={label} className={cn("flex items-center", size === "lg" ? "gap-0.75" : "gap-0.5")}>
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className={cn("speaking-bar rounded-[2px] bg-primary", bar)}
+          className={cn("speaking-bar rounded-[0.125rem] bg-primary", bar)}
           style={{ animationDelay: `${i * -0.23}s`, animationDuration: `${0.7 + i * 0.17}s` }}
         />
       ))}

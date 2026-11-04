@@ -14,10 +14,10 @@ import { LeaveIcon, Logo, MicIcon, SettingsIcon, SignalBars, SpeakingBars } from
 export function SideMenu({ app }: { app: AppState }) {
   const { t } = useLanguage();
   return (
-    <aside className="flex w-[264px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-      <div className="flex items-center gap-2.5 px-4 pt-[18px] pb-2.5">
+    <aside className="flex w-66 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+      <div className="flex items-center gap-2.5 px-4 pt-4.5 pb-2.5">
         <Logo label={t("app.name")} />
-        <span className="text-[15px] font-bold tracking-[-0.02em]">{t("app.name")}</span>
+        <span className="text-[0.9375rem] font-bold tracking-[-0.02em]">{t("app.name")}</span>
       </div>
 
       <nav aria-label={t("spaces.label")} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pt-1 pb-3">
@@ -27,7 +27,7 @@ export function SideMenu({ app }: { app: AppState }) {
         <Button
           variant="ghost"
           onClick={() => app.setInviteOpen(true)}
-          className="mt-2.5 h-[34px] justify-start gap-2 rounded-[8px] px-2.5 text-[13px] font-medium text-muted-foreground"
+          className="mt-2.5 h-8.5 justify-start gap-2 rounded-[0.5rem] px-2.5 text-[0.8125rem] font-medium text-muted-foreground"
         >
           <Plus className="size-3.5" strokeWidth={2.2} />
           {t("spaces.join")}
@@ -45,17 +45,17 @@ function SpaceRows({ app, space, last }: { app: AppState; space: SpaceView; last
   const multi = isMultiRoom(space);
   return (
     <div className={cn("flex flex-col pt-2.5 pb-1.5", !last && "border-b border-line")}>
-      {multi && <span className="px-2.5 pb-1 text-[15px] font-semibold tracking-[-0.01em]">{space.name}</span>}
+      {multi && <span className="px-2.5 pb-1 text-[0.9375rem] font-semibold tracking-[-0.01em]">{space.name}</span>}
       {space.error && (
         <div className="flex flex-col gap-0.5 px-2.5 py-1">
-          <span className="text-[15px] font-semibold text-muted-foreground">{space.name}</span>
-          <span role="alert" className="flex items-center gap-2 text-[12.5px] text-warning-foreground">
-            <span className="size-[7px] rounded-full bg-warning" />
+          <span className="text-[0.9375rem] font-semibold text-muted-foreground">{space.name}</span>
+          <span role="alert" className="flex items-center gap-2 text-[0.78125rem] text-warning-foreground">
+            <span className="size-1.75 rounded-full bg-warning" />
             <span className="flex-1">{t("spaces.unreachable")}</span>
             <Button
               variant="ghost"
               onClick={app.reloadSpaces}
-              className="h-[26px] rounded-[7px] px-2 text-[12.5px] font-semibold text-warning-foreground hover:text-warning-foreground"
+              className="h-6.5 rounded-[0.4375rem] px-2 text-[0.78125rem] font-semibold text-warning-foreground hover:text-warning-foreground"
             >
               {t("spaces.retry")}
             </Button>
@@ -82,8 +82,8 @@ function RoomRow({ app, space, room, multi }: { app: AppState; space: SpaceView;
         aria-current={selected ? "page" : undefined}
         onClick={() => app.select(ref)}
         className={cn(
-          "h-auto justify-start gap-2 rounded-[10px] px-2.5 text-left whitespace-normal",
-          multi ? "min-h-[34px] text-sm font-medium" : "min-h-10 text-[15px] font-semibold",
+          "h-auto justify-start gap-2 rounded-[0.625rem] px-2.5 text-left whitespace-normal",
+          multi ? "min-h-8.5 text-sm font-medium" : "min-h-10 text-[0.9375rem] font-semibold",
           selected ? "bg-accent text-white hover:bg-accent" : multi ? "text-subtle" : "text-foreground",
         )}
       >
@@ -92,7 +92,7 @@ function RoomRow({ app, space, room, multi }: { app: AppState; space: SpaceView;
         {live && (
           <span
             title={t("spaces.here")}
-            className={cn("size-[7px] rounded-full", call.reconnecting ? "bg-warning" : "bg-primary")}
+            className={cn("size-1.75 rounded-full", call.reconnecting ? "bg-warning" : "bg-primary")}
           />
         )}
       </Button>
@@ -121,7 +121,7 @@ function LivePeople({ call, indent }: { call: CallView; indent: boolean }) {
         className={speaking ? "text-foreground" : "text-muted-foreground"}
       >
         {speaking && <SpeakingBars size="sm" label={t("person.speaking")} />}
-        {muted && <MicIcon muted role="img" aria-label={t("person.muted")} aria-hidden={false} strokeWidth={2.2} className="size-[13px] text-danger" />}
+        {muted && <MicIcon muted role="img" aria-label={t("person.muted")} aria-hidden={false} strokeWidth={2.2} className="size-3.25 text-danger" />}
       </PersonRow>
     );
   });
@@ -139,7 +139,7 @@ function PersonRow({
   children?: React.ReactNode;
 }) {
   return (
-    <div className={cn("flex h-6 items-center gap-2 pr-2.5 text-[13px]", indent ? "pl-[30px]" : "pl-5", className)}>
+    <div className={cn("flex h-6 items-center gap-2 pr-2.5 text-[0.8125rem]", indent ? "pl-7.5" : "pl-5", className)}>
       <span className="min-w-0 flex-1 truncate">{name}</span>
       {children}
     </div>
@@ -169,14 +169,14 @@ function VoicePanel({ app, call }: { app: AppState; call: CallView }) {
         aria-label={t("voice.show")}
         className="h-auto min-w-0 flex-1 flex-col items-stretch gap-0 rounded-none p-0 text-left hover:bg-transparent"
       >
-        <span className={cn("flex items-center gap-1.5 text-[13px] font-semibold", status.className)}>
+        <span className={cn("flex items-center gap-1.5 text-[0.8125rem] font-semibold", status.className)}>
           <SignalBars bars={signal.bars} poor={signal.poor} size={12} />
           {status.label}
           <span className={cn("font-mono text-xs font-medium", signal.poor ? "text-danger" : "text-muted-foreground")}>
             {signal.rttMs !== null ? formatMs(signal.rttMs) : signal.connecting ? "…" : "–"}
           </span>
         </span>
-        <span className="truncate text-[12.5px] font-normal text-subtle">{where}</span>
+        <span className="truncate text-[0.78125rem] font-normal text-subtle">{where}</span>
       </Button>
       <Button
         variant="ghost"
@@ -198,7 +198,7 @@ function UserBar({ app }: { app: AppState }) {
   return (
     <div className="flex items-center gap-1 pt-2.5 pr-2 pb-3 pl-5">
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[13.5px] font-semibold">{app.displayName}</div>
+        <div className="truncate text-[0.84375rem] font-semibold">{app.displayName}</div>
         <div className={cn("text-xs", muted ? "text-danger" : call ? "text-muted-foreground" : "text-dim")}>
           {muted ? t("me.muted") : call ? t("voice.inCall") : t("me.idle")}
         </div>
