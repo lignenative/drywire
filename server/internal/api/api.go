@@ -64,7 +64,8 @@ type Config struct {
 	// presents, which browsers pin (ADR 0039).
 	WebRelayHashes func() []string
 	// SpaceCreators may create spaces. Nil with AnyoneCreates false means
-	// nobody can: the instance only serves the spaces it has.
+	// the accounts with a user name can (ADR 0055); a list restricts
+	// creation to those keys.
 	SpaceCreators []store.Key
 	// AnyoneCreates lets every identity create spaces.
 	AnyoneCreates bool

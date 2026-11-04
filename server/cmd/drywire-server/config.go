@@ -41,7 +41,8 @@ const defaultAddr = "127.0.0.1:10050"
 //	DRYWIRE_DB              SQLite database, default drywire.db
 //	DRYWIRE_LEDGER          deletion ledger, default <DRYWIRE_DB>.deletions
 //	DRYWIRE_SPACE_CREATORS  who may create spaces: * for anyone, or public
-//	                        keys in hex separated by commas; default nobody
+//	                        keys in hex separated by commas; default every
+//	                        account with a user name (ADR 0055)
 //	DRYWIRE_MAX_MEMBERS     member limit of a new space, default 50
 //	DRYWIRE_SMTP_ADDR       where sign-in codes are sent from (ADR 0055): a
 //	                        provider's submission port, host:465 or :587,

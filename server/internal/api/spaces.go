@@ -67,7 +67,11 @@ func (s *Server) createSpace(w http.ResponseWriter, r *http.Request, c caller) {
 	if req.Room == "" {
 		req.Room = "general"
 	}
-	listed := s.cfg.AnyoneCreates || slices.Contains(s.cfg.SpaceCreators, c.key)
+	// Anyone signed in by e-mail with a user name creates spaces (ADR
+	// 0055), unless the operator lists who may: a self-hosted instance
+	// for a few people.
+	account := c.identity != nil && c.identity.Username != "" && len(s.cfg.SpaceCreators) == 0
+	listed := s.cfg.AnyoneCreates || account || slices.Contains(s.cfg.SpaceCreators, c.key)
 	var space store.Space
 	var err error
 	switch {
