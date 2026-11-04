@@ -10,7 +10,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'none'; form-action 'none'; base-uri 'none'">
+          content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'none'; img-src 'none'; form-action 'none'; base-uri 'none'">
     <meta name="referrer" content="no-referrer">
     <meta name="robots" content="noindex">
     <title>Drywire invitation</title>
@@ -22,15 +22,23 @@
       <h1 id="title">Drywire invitation</h1>
       <p id="problem" hidden></p>
       <section id="invitation" hidden>
-        <p id="lead"></p>
+        <p class="lead" id="lead"></p>
         <p class="instance" id="instance"></p>
-        <p><a class="button" id="open" href="#"></a></p>
-        <p id="cli"></p>
-        <pre id="command"></pre>
-        <p><button id="copy" type="button"></button></p>
+        <div class="actions">
+          <a class="button primary" id="open" href="#"></a>
+          <a class="button" id="browser" href="#" hidden></a>
+          <p class="hint" id="browser-note" hidden></p>
+        </div>
+        <div class="cli">
+          <p id="cli"></p>
+          <pre id="command"></pre>
+          <button id="copy" type="button"></button>
+        </div>
       </section>
-      <p class="note" id="private"></p>
-      <p class="note" id="get"></p>
+      <div class="notes">
+        <p id="private"></p>
+        <p id="get"></p>
+      </div>
       <noscript>
         <p>This page reads the invitation in your browser, with JavaScript,
         and sends nothing. Without it, paste the whole link into

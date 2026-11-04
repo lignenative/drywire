@@ -5,6 +5,18 @@
 // forbids every connection (connect-src 'none'), and the fragment, which
 // holds the invitation code and the space key, never leaves this page.
 
+/**
+ * Where the instance's own web client opens this invitation, or null. Every
+ * instance deployed with deploy/ serves it at its address (ADR 0049); the
+ * fragment goes with it, and still never reaches a server. Plain http only
+ * for a server on the same machine, as the clients allow.
+ */
+export function browserLink(instance, fragment) {
+  const local = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(instance);
+  if (!instance.startsWith("https://") && !local) return null;
+  return instance + "/#" + fragment;
+}
+
 /** Decodes base64url without padding; null if it is not exactly that. */
 export function base64url(text) {
   if (!/^[A-Za-z0-9_-]*$/.test(text) || text.length % 4 === 1) return null;

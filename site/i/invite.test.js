@@ -1,7 +1,7 @@
 // Run with `bun test` in site/ (make test does when Bun is installed).
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { base64url, readInvitation } from "./invite.js";
+import { base64url, browserLink, readInvitation } from "./invite.js";
 
 const manifest = JSON.parse(
   readFileSync(new URL("../../core/drywire-proto/vectors/manifest.json", import.meta.url)),
@@ -31,4 +31,11 @@ test("the page can make no request with the fragment", () => {
   for (const [, url] of html.matchAll(/(?:src|href)="([^"]*)"/g)) {
     expect(url).not.toMatch(/^(https?:)?\/\//);
   }
+});
+
+test("the instance's web client opens the same invitation", () => {
+  expect(browserLink("https://voice.example.org", "AQID")).toBe("https://voice.example.org/#AQID");
+  expect(browserLink("http://127.0.0.1:10057", "AQID")).toBe("http://127.0.0.1:10057/#AQID");
+  // Plain http elsewhere would carry the key in the clear: no button.
+  expect(browserLink("http://voice.example.org", "AQID")).toBeNull();
 });
