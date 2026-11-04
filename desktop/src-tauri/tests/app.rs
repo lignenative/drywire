@@ -18,7 +18,7 @@ use drywire_control::Client;
 use drywire_core::audio::file::{FileIo, Source};
 use drywire_core::audio::{AudioError, AudioIo, InputCallback, OutputCallback, StreamInfo};
 use drywire_core::opus::SAMPLE_RATE;
-use drywire_desktop::app::{Desktop, Devices, Preferences};
+use drywire_desktop::app::{Desktop, Devices, Preferences, SpaceView};
 use drywire_desktop::session::{CallView, LockState, Notice, Notices, PersonLock};
 use drywire_desktop::store::Store;
 use drywire_proto::crypto::SigningKey;
@@ -501,4 +501,59 @@ fn the_side_menu_sees_who_sits_in_every_room() {
     let json = serde_json::to_value(sam.spaces_now()).unwrap();
     assert!(json[0]["rooms"][0]["occupants"].is_array());
     sam.leave();
+}
+
+#[test]
+fn names_are_unknown_while_the_server_is_away() {
+    let mut relay = Relay::start();
+    let space_key = [0x5a; 32];
+    let owner = Client::new(&relay.instance(), SigningKey::from_bytes(&[0xa1; 32])).unwrap();
+    // Seven spaces: one more than an instance has followed.
+    let mut links = Vec::new();
+    for n in 0..7 {
+        let space = owner
+            .create_space(&format!("Team {n}"), "general", "owner")
+            .unwrap();
+        let (invitation, _) = owner
+            .invite(&space.space.id, &space_key, None, Some(1))
+            .unwrap();
+        if n == 0 {
+            // Someone sits in the first one.
+            owner.join(&space.rooms[0].id).unwrap();
+        }
+        links.push(invitation.to_link());
+    }
+    let (sam, _) = desktop("sam-away", devices(Vec::new()));
+    for link in &links {
+        sam.accept(link, "sam").unwrap();
+    }
+    sam.spaces().unwrap();
+    let known = |space: &SpaceView| space.rooms[0].occupants.is_some();
+    eventually("six spaces followed", || {
+        sam.spaces_now().iter().filter(|s| known(s)).count() == 6
+    });
+    // Let a seventh stream try its luck: still six.
+    std::thread::sleep(Duration::from_millis(300));
+    let now = sam.spaces_now();
+    assert_eq!(now.iter().filter(|s| known(s)).count(), 6, "{now:#?}");
+    let team0 = |now: &[SpaceView]| now.iter().find(|s| s.name == "Team 0").unwrap().clone();
+    assert_eq!(team0(&now).rooms[0].occupants, Some(vec!["owner".into()]));
+
+    // The server goes down: the names are no longer known, rather than
+    // shown as current, as soon as the streams end, before the first
+    // attempt to open them again (2 seconds later).
+    relay.stop();
+    let deadline = Instant::now() + Duration::from_millis(1500);
+    while sam.spaces_now().iter().any(known) {
+        assert!(Instant::now() < deadline, "{:#?}", sam.spaces_now());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // It comes back, having forgotten every session: the streams open
+    // again and say so.
+    relay.start_again();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while team0(&sam.spaces_now()).rooms[0].occupants != Some(vec![]) {
+        assert!(Instant::now() < deadline, "{:#?}", sam.spaces_now());
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }

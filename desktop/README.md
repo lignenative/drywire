@@ -139,7 +139,10 @@ and can be switched in the settings (Display).
   is followed on a thread of its own (`rooms.rs`), at most 6 per
   instance, under the server's limit of 8 event streams per identity;
   every change sends the spaces to the window as a `spaces` event, built
-  from the last listing without asking a server (ADR 0045).
+  from the last listing without asking a server (ADR 0045). A stream that
+  ends, breaks or stays silent for 45 seconds (three of the server's
+  keepalives) shows its rooms without names until a new one opens:
+  names are never shown as current when they may not be.
 - **The microphone opens out of a call only for the settings' meter**, and
   only while the Voice page asks for its level and the window is on
   screen: the sound card closes a second after the last request, and

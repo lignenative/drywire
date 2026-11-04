@@ -139,6 +139,8 @@ fn run(
         match client.events(&key.1) {
             Ok(events) => {
                 pause = RETRY_FIRST;
+                // The stream ends after its first error (`Events`): a
+                // broken or silent connection, or a bad event.
                 for event in events.flatten() {
                     if stop.load(Ordering::Relaxed) {
                         return;
@@ -153,6 +155,9 @@ fn run(
                         changed();
                     }
                 }
+                // Ended: whoever comes or goes now is missed until the next
+                // snapshot, so the names are unknown, not shown as current.
+                set(None);
             }
             // No longer a member, or the space is gone: forget it.
             Err(e) if e.status() == Some(404) => {
@@ -228,19 +233,38 @@ mod tests {
 
     #[test]
     fn an_instance_has_at_most_six_spaces_followed() {
-        // Nothing listens there: each stream fails to open, and its space
-        // stays unknown, but followed.
-        let identity = drywire_proto::crypto::SigningKey::from_bytes(&[1; 32]);
-        let client = Arc::new(Client::new("http://127.0.0.1:9", identity).unwrap());
+        // Nothing listens on these ports: each stream fails to open and
+        // its names stay unknown, but the space is followed all the same.
+        let client = |port: u16| {
+            let identity = drywire_proto::crypto::SigningKey::from_bytes(&[1; 32]);
+            Arc::new(Client::new(&format!("http://127.0.0.1:{port}"), identity).unwrap())
+        };
+        let (here, there) = (client(9), client(7));
         let rooms = Rooms::new(Arc::new(|| {}));
         for space in 0..8 {
-            rooms.follow(&client, Hex([space; 16]));
+            rooms.follow(&here, Hex([space; 16]));
         }
-        rooms.follow(&client, Hex([0; 16]));
-        assert_eq!(rooms.spaces.lock().unwrap().len(), MAX_PER_INSTANCE);
+        rooms.follow(&here, Hex([0; 16]));
+        rooms.follow(&there, Hex([9; 16]));
+        let mut followed: Vec<(String, u8)> = rooms
+            .spaces
+            .lock()
+            .unwrap()
+            .keys()
+            .map(|(instance, id)| (instance.clone(), id.0[0]))
+            .collect();
+        followed.sort();
+        let on = |instance: &Client, ids: &[u8]| {
+            ids.iter()
+                .map(|&id| (instance.instance().to_string(), id))
+                .collect::<Vec<_>>()
+        };
+        let mut expected = on(&here, &[0, 1, 2, 3, 4, 5]);
+        expected.extend(on(&there, &[9]));
+        expected.sort();
         assert_eq!(
-            rooms.occupants(client.instance(), &Hex([0; 16]), &Hex([1; 16])),
-            None
+            followed, expected,
+            "the first six here, once each; another instance has its own six"
         );
     }
 
