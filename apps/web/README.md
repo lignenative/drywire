@@ -38,6 +38,17 @@ Ed25519 in WebCrypto: Chrome or Edge 137+, Firefox 136+ on the desktop,
 Safari 26.4+ (ADR 0038 to 0040). Only Chromium has been tried so far
 (see "Measure").
 
+## On an instance
+
+Every instance deployed with [`deploy/`](../../deploy/README.md) serves
+this client at its own address, beside its API: the reverse proxy sends
+`/v1/…` to the control plane and the rest to `drywire-static`, which
+serves this directory's build (ADR 0049). `make deploy` builds it. Page
+and control plane share one origin, so no cross-origin request is made.
+To open an invitation in a browser, keep everything from the `#` of the
+link and put the instance's address before it:
+`https://voice.example.org/#…`.
+
 ## How it is built
 
 | File | What it does |

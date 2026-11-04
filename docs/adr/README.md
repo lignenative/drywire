@@ -65,3 +65,4 @@ Status: Accepted · YYYY-MM-DD
 | [0046](0046-follow-the-system-default-device-during-a-call.md) | Follow the system's default device during a call (proposed) |
 | [0047](0047-end-the-oldest-event-stream-rather-than-refuse-a-new-one.md) | End the oldest event stream rather than refuse a new one |
 | [0048](0048-share-the-desktop-interface-with-the-web-client.md) | Share the desktop interface with the web client |
+| [0049](0049-serve-the-web-client-from-each-instance-beside-its-api.md) | Serve the web client from each instance, beside its API |
