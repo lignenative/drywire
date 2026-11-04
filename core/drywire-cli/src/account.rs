@@ -287,7 +287,8 @@ pub fn recovery_code(args: Account) -> Result<(), String> {
     put_recovery_everywhere(&home, &code)?;
     home.set_recovery_secret(Some(&code.secret()))?;
     eprintln!(
-        "Your recovery code. Whoever has it has your account: keep it like a password,          offline. A new code replaces this one."
+        "Your recovery code. Whoever has it has your account: keep it like a password, \
+         offline. A new code replaces this one."
     );
     println!("{}", code.to_text());
     eprintln!(
