@@ -36,8 +36,9 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-          # Lets make test check that the Windows backend compiles.
-          targets: x86_64-pc-windows-msvc
+          # Lets make test check that the Windows backend compiles, and
+          # build the web client's WebAssembly module for its tests.
+          targets: x86_64-pc-windows-msvc, wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: |

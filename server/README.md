@@ -4,7 +4,7 @@
 packets between the members of a room, and the control plane, an HTTP API
 for identities, spaces, rooms and invitations kept in SQLite. Standard
 library only, plus `modernc.org/sqlite` (pure Go, so the binary stays
-static).
+static), and `quic-go` with `webtransport-go` for browsers.
 
 ## Run it
 
@@ -15,8 +15,8 @@ make dev
 ```
 
 This serves `127.0.0.1:10050`, UDP for the relay and TCP for the control
-plane, with its database in `.dev/drywire.db` and anyone allowed to create
-spaces:
+plane, and `127.0.0.1:10058` UDP for browsers (WebTransport), with its
+database in `.dev/drywire.db` and anyone allowed to create spaces:
 
 ```sh
 curl http://127.0.0.1:10050/healthz      # ok
@@ -30,6 +30,8 @@ curl http://127.0.0.1:10050/v1/status    # uptime, rooms, packet counters
 | `DRYWIRE_HTTP_ADDR` | `127.0.0.1:10050` | Control plane address |
 | `DRYWIRE_PUBLIC_URL` | `http://` + `DRYWIRE_HTTP_ADDR` | The instance's origin as clients reach it, such as `https://voice.example.org`: logins are signed for it and invitation links carry it |
 | `DRYWIRE_PUBLIC_RELAY` | `DRYWIRE_UDP_ADDR` | The relay's address as clients reach it, such as `voice.example.org:10050` |
+| `DRYWIRE_WEB_ADDR` | none (`make dev`: `127.0.0.1:10058`) | UDP address of the relay's WebTransport side, for browsers (ADR 0038). Unset, no browser can join |
+| `DRYWIRE_PUBLIC_WEB_RELAY` | `DRYWIRE_WEB_ADDR` | That address as browsers reach it, `host:port` |
 | `DRYWIRE_DB` | `drywire.db` (`make dev`: `.dev/drywire.db`) | SQLite database |
 | `DRYWIRE_LEDGER` | `DRYWIRE_DB` + `.deletions` | Deletion ledger (ADR 0019); keep it out of backups |
 | `DRYWIRE_SPACE_CREATORS` | nobody (`make dev`: `*`) | Who may create spaces: `*` for anyone, or public keys in hex, comma-separated |
@@ -72,6 +74,17 @@ anything a user wrote. The access log (JSON lines) is minimised as the spec
 says (section 9): client address, method and route pattern
 (`GET /v1/spaces/{space}`, never the path itself), status and duration; no
 query string, header or `Referer`. Keep it a year at most.
+
+### Browsers
+
+Browsers cannot send UDP: with `DRYWIRE_WEB_ADDR` set, the server also
+speaks WebTransport (HTTP/3) on that UDP port, at `/v1/relay`, and
+browsers send the same packets as its datagrams (ADR 0038). The relay
+copies packets between browsers and native clients alike. Its
+certificate is made in memory, renewed every six days, and pinned by
+the browsers with the hashes the join answer gives (ADR 0039). This
+side uses `quic-go` and `webtransport-go` (MIT), the server's only
+dependencies besides SQLite.
 
 ### A first space
 

@@ -56,6 +56,14 @@ if [ -f "$root/core/Cargo.toml" ]; then
 		echo "note: Windows build check skipped; run: rustup target add x86_64-pc-windows-msvc"
 	fi
 
+	# The web client's module (ADR 0040) must keep building for the browser.
+	if rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
+		echo "==> core (WebAssembly build check)"
+		cargo clippy --target wasm32-unknown-unknown -p drywire-wasm -- -D warnings
+	else
+		echo "note: WebAssembly build check skipped; run: rustup target add wasm32-unknown-unknown"
+	fi
+
 	# Licenses, bans and sources work offline; CI also checks advisories.
 	if command -v cargo-deny >/dev/null 2>&1; then
 		echo "==> core (cargo deny)"
@@ -82,6 +90,27 @@ if [ -f "$root/scripts/js-licenses.test.ts" ]; then
 		PATH="$PATH:$HOME/.bun/bin" bun test ./scripts
 	else
 		echo "note: scripts tests skipped; install Bun (https://bun.sh)"
+	fi
+fi
+
+if [ -f "$root/apps/web/package.json" ]; then
+	echo "==> web client (Bun)"
+	cd "$root/apps/web"
+	if ! has_bun; then
+		echo "note: web client skipped; install Bun (https://bun.sh)"
+	elif ! rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
+		echo "note: web client skipped; run: rustup target add wasm32-unknown-unknown"
+	else
+		PATH="$PATH:$HOME/.bun/bin"
+		# The tests run the module the browser loads, against the vectors.
+		(cd "$root/core" && cargo build -q --release -p drywire-wasm --target wasm32-unknown-unknown)
+		mkdir -p public
+		cp "$root/core/target/wasm32-unknown-unknown/release/drywire_wasm.wasm" public/drywire.wasm
+		bun install --frozen-lockfile
+		bun run typecheck
+		bun test
+		cd "$root"
+		bun scripts/js-licenses.ts apps/web
 	fi
 fi
 

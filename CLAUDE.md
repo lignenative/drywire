@@ -29,8 +29,8 @@ fixed in the same change.
   fonts the interface bundles and nothing else (ADR 0037).
 - Forbidden: GPL, LGPL, AGPL, and anything without a clear license.
 - Go server: standard library only, except `modernc.org/sqlite` (control
-  plane) and `quic-go` (web client), both accepted in the spec. Any other
-  dependency needs an ADR first.
+  plane), and `quic-go` with `webtransport-go` (browsers, ADR 0038), all
+  accepted in the spec. Any other dependency needs an ADR first.
   `go-licenses` (`scripts/go-licenses.sh`) checks their licenses in CI, and
   in `make test` when installed.
 - Rust core: every new crate is checked against the list above; `cargo deny`
@@ -103,7 +103,8 @@ silently to another port. Each one can be moved with an environment variable.
 | 10050/udp | Relay | `DRYWIRE_UDP_ADDR` |
 | 10051 | Vite dev server, desktop UI | `DEV_PORT` |
 | 10052 | Project site preview (later) | `SITE_PORT` |
-| 10057 | Vite dev server, web client (later) | `WEB_PORT` |
+| 10057 | Vite dev server, web client | `WEB_PORT` |
+| 10058/udp | Relay, WebTransport side for browsers | `DRYWIRE_WEB_ADDR` |
 
 ## Commands and tests
 
@@ -114,8 +115,9 @@ make help     # list the commands
 make test     # gofmt, go vet, go test -race, go-licenses; cargo fmt, clippy, test; Windows clippy; cargo deny;
               # desktop: typecheck, bun test, JS licenses, then cargo fmt, clippy, test, deny
 make fmt      # gofmt and cargo fmt
-make dev      # run the relay on 127.0.0.1:10050
+make dev      # run the server on 127.0.0.1:10050, browsers' side on 10058/udp
 make live     # live call on this Mac: you, an echo bot, a local relay
+make web      # the web client, a local server and an echo bot: Vite on 127.0.0.1:10057
 make desktop  # the desktop app in development: Vite on 127.0.0.1:10051
 make ui       # the same interface in a browser, with a simulated call
 make vectors  # regenerate core/drywire-proto/vectors/ after a wire format change

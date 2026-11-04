@@ -6,12 +6,12 @@
 export
 
 .DEFAULT_GOAL := help
-.PHONY: help dev test fmt vectors bench live desktop ui deploy status logs backup restore
+.PHONY: help dev test fmt vectors bench live web desktop ui deploy status logs backup restore
 
 help: ## List the commands
 	@scripts/help.sh
 
-dev: ## Run the server locally: relay and control plane on 127.0.0.1:10050
+dev: ## Run the server locally: 127.0.0.1:10050, and 10058/udp for browsers
 	@scripts/dev.sh
 
 test: ## Run every test suite
@@ -28,6 +28,9 @@ bench: ## Replay simulated network traces against the jitter buffer
 
 live: ## Live call on this Mac: you, an echo bot and a local relay (headphones)
 	@scripts/live.sh
+
+web: ## The web client against a local server and an echo bot (127.0.0.1:10057)
+	@scripts/web.sh
 
 desktop: ## Run the desktop app in development (Vite on 127.0.0.1:10051)
 	@scripts/desktop.sh

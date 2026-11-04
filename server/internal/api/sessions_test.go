@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -125,6 +126,9 @@ func TestJoiningARoomGivesAWorkingRelaySession(t *testing.T) {
 	if a.Session == 0 || a.Relay != "voice.example.org:10050" || a.Room != room || len(a.Sessions) != 1 {
 		t.Fatalf("join answer %+v", a)
 	}
+	if a.WebRelay != nil {
+		t.Fatalf("web relay %+v on an instance without one", a.WebRelay)
+	}
 	b := sam.join(room.ID)
 	if len(b.Sessions) != 2 {
 		t.Fatalf("sam sees %+v", b.Sessions)
@@ -238,5 +242,23 @@ func TestDeletingARoomEmptiesIt(t *testing.T) {
 	}
 	if status := sam.do("POST", "/v1/rooms/"+scrims.ID.String()+"/join", nil, nil); status != http.StatusNotFound {
 		t.Fatalf("join a deleted room: %d", status)
+	}
+}
+
+func TestJoiningHandsBrowsersTheWebRelay(t *testing.T) {
+	hashes := []string{"aa", "bb"}
+	h := newHarness(t, Config{
+		AnyoneCreates:  true,
+		WebRelayURL:    "https://voice.example.org:10058/v1/relay",
+		WebRelayHashes: func() []string { return hashes },
+	})
+	alex, _, v := team(t, h)
+	a := alex.join(v.Rooms[0].ID)
+	if a.WebRelay == nil || a.WebRelay.URL != "https://voice.example.org:10058/v1/relay" ||
+		!slices.Equal(a.WebRelay.CertificateHashes, hashes) {
+		t.Fatalf("web relay %+v", a.WebRelay)
+	}
+	if a.Relay != "voice.example.org:10050" {
+		t.Fatalf("native clients lost the UDP relay: %q", a.Relay)
 	}
 }

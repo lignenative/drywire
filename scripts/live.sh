@@ -61,7 +61,7 @@ pids="$pids $relay"
 if ! wait_for "$relay" .dev/live-relay.log "drywire-server started" "the server"; then
 	echo "A port it needs ($DRYWIRE_UDP_ADDR udp, $DRYWIRE_HTTP_ADDR tcp) is probably" >&2
 	echo "taken, often by \`make dev\` or another \`make live\`. Stop that server, or" >&2
-	echo "move this one: make live DRYWIRE_UDP_ADDR=127.0.0.1:10058 DRYWIRE_HTTP_ADDR=127.0.0.1:10058" >&2
+	echo "move this one: make live DRYWIRE_UDP_ADDR=127.0.0.1:10059 DRYWIRE_HTTP_ADDR=127.0.0.1:10059" >&2
 	exit 1
 fi
 

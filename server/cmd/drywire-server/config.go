@@ -18,6 +18,7 @@ import (
 	"github.com/lignenative/drywire/server/internal/api"
 	"github.com/lignenative/drywire/server/internal/auth"
 	"github.com/lignenative/drywire/server/internal/store"
+	"github.com/lignenative/drywire/server/internal/web"
 )
 
 const defaultAddr = "127.0.0.1:10050"
@@ -30,6 +31,12 @@ const defaultAddr = "127.0.0.1:10050"
 //	                        default http://<DRYWIRE_HTTP_ADDR>
 //	DRYWIRE_PUBLIC_RELAY    the relay's address as clients reach it,
 //	                        default DRYWIRE_UDP_ADDR
+//	DRYWIRE_WEB_ADDR        UDP address of the relay's WebTransport side,
+//	                        for browsers (ADR 0038); default none: no
+//	                        browser can join (make dev: 127.0.0.1:10058)
+//	DRYWIRE_PUBLIC_WEB_RELAY
+//	                        that address as browsers reach it, host:port,
+//	                        default DRYWIRE_WEB_ADDR
 //	DRYWIRE_DB              SQLite database, default drywire.db
 //	DRYWIRE_LEDGER          deletion ledger, default <DRYWIRE_DB>.deletions
 //	DRYWIRE_SPACE_CREATORS  who may create spaces: * for anyone, or public
@@ -49,6 +56,7 @@ const defaultAddr = "127.0.0.1:10050"
 //	                        or a single file rotated by someone else
 type config struct {
 	udpAddr, httpAddr  string
+	webAddr            string // empty: no WebTransport
 	publicURL          string // set by setPublicAddresses
 	dbPath, ledgerPath string
 	tlsCert, tlsKey    string
@@ -72,6 +80,7 @@ func loadConfig() (config, error) {
 	c := config{
 		udpAddr:  envOr("DRYWIRE_UDP_ADDR", defaultAddr),
 		httpAddr: envOr("DRYWIRE_HTTP_ADDR", defaultAddr),
+		webAddr:  os.Getenv("DRYWIRE_WEB_ADDR"),
 		dbPath:   envOr("DRYWIRE_DB", "drywire.db"),
 		tlsCert:  os.Getenv("DRYWIRE_TLS_CERT"),
 		tlsKey:   os.Getenv("DRYWIRE_TLS_KEY"),
@@ -204,11 +213,19 @@ func trustedProxies(v string) ([]netip.Prefix, error) {
 	return proxies, nil
 }
 
-// setPublicAddresses fills in the public URL and relay address, which
-// default to the addresses the server really listens on.
-func (c *config) setPublicAddresses(httpAddr, udpAddr string) error {
+// setPublicAddresses fills in the public URL and relay addresses, which
+// default to the addresses the server really listens on. webAddr is
+// empty when the server serves no browser.
+func (c *config) setPublicAddresses(httpAddr, udpAddr, webAddr string) error {
 	if c.api.RelayAddr == "" {
 		c.api.RelayAddr = udpAddr
+	}
+	if webAddr != "" {
+		public := envOr("DRYWIRE_PUBLIC_WEB_RELAY", webAddr)
+		if _, _, err := net.SplitHostPort(public); err != nil {
+			return fmt.Errorf("DRYWIRE_PUBLIC_WEB_RELAY: %w", err)
+		}
+		c.api.WebRelayURL = "https://" + public + web.Path
 	}
 	public := os.Getenv("DRYWIRE_PUBLIC_URL")
 	if public == "" {

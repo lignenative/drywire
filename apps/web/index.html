@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Drywire web client check</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 48rem; }
+      input { width: 100%; font: inherit; }
+      pre { background: #f4f4f4; padding: 1rem; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>Drywire web client check</h1>
+    <p>
+      A developer's page: it joins a room, sends one second of tone through the relay over
+      WebTransport, end-to-end encrypted, and decodes what the other members send back.
+    </p>
+    <form>
+      <label>Invitation link <input id="link" required /></label>
+      <label>Display name <input id="name" value="web" required /></label>
+      <button>Join and send a tone</button>
+    </form>
+    <pre id="log"></pre>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

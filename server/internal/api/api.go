@@ -55,6 +55,13 @@ type Config struct {
 	// RelayAddr is the relay's UDP address as clients reach it
 	// ("voice.example.org:10050"). It is handed out with each session.
 	RelayAddr string
+	// WebRelayURL is where browsers reach the relay over WebTransport
+	// ("https://voice.example.org:10058/v1/relay"), handed out with each
+	// session; empty when the instance serves no browser (ADR 0038).
+	WebRelayURL string
+	// WebRelayHashes gives the hashes of the certificates WebRelayURL
+	// presents, which browsers pin (ADR 0039).
+	WebRelayHashes func() []string
 	// SpaceCreators may create spaces. Nil with AnyoneCreates false means
 	// nobody can: the instance only serves the spaces it has.
 	SpaceCreators []store.Key

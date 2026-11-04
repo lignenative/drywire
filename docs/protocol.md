@@ -23,6 +23,14 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
 - Every packet is one UDP datagram. There is no fragmentation and no
   reassembly at the Drywire level.
+- A browser, which cannot send UDP, sends the same packets as
+  WebTransport datagrams (RFC 9221) to the relay's WebTransport side
+  (section 13.6, ADR 0038), one packet per datagram. Everything in this
+  document applies unchanged, except that a `hello` binds the session to
+  the WebTransport session instead of an address (section 6.1). A
+  WebTransport datagram has less room than a UDP one, since QUIC adds its
+  own header: a browser keeps every packet within the
+  `maxDatagramSize` its browser reports, which a voice frame always is.
 - A datagram MUST NOT be larger than **1200 bytes**. That size fits in the
   path MTU of practically every network, including tunnels, so no datagram is
   fragmented by IP. The relay drops anything larger.
@@ -126,7 +134,9 @@ header (16) ‖ counter (8) ‖ mac (32)
   (compared in constant time) and the counter is greater than the last
   accepted one. It then **binds** the session to the source IP address and
   port of the datagram, replacing any earlier binding, and answers with
-  `hello_ack`.
+  `hello_ack`. A `hello` that arrives as a WebTransport datagram binds the
+  session to that WebTransport session, whatever address QUIC later moves
+  it to.
 - On a network change (Wi-Fi to cellular, new NAT mapping), the client sends a
   new `hello` from its new address.
 - An invalid `hello` gets no answer at all.
@@ -635,7 +645,7 @@ space the caller is not a member of answers `404`, as if it did not exist.
 
 | Request | Who | Body → answer |
 | --- | --- | --- |
-| `POST /v1/rooms/{room}/join` | member | → `{session, session_secret, relay, room, sessions}` |
+| `POST /v1/rooms/{room}/join` | member | → `{session, session_secret, relay, web_relay?, room, sessions}` |
 | `POST /v1/leave` | anyone logged in | → `204`, ends the caller's session |
 | `GET /v1/spaces/{space}/events` | member | → `text/event-stream` |
 
@@ -644,6 +654,12 @@ space the caller is not a member of answers `404`, as if it did not exist.
   relay's UDP address as `host:port`. `sessions` lists everyone in the
   room, the caller included, as `{session, room_id, public_key, name}`: the
   public keys verify their announcements (section 8.3).
+- `web_relay`, present when the instance serves browsers (ADR 0038), is
+  `{url, certificate_hashes}`: the WebTransport URL of the relay
+  (`https://host:port/v1/relay`), and the SHA-256 hashes, in hex, of the
+  certificates it may present. A browser passes them to
+  `serverCertificateHashes` (ADR 0039). The same session works on either
+  side of the relay; native clients ignore the field.
 - An identity holds **one session** on the instance. Joining a room ends
   the session it had, in this room or another.
 - A session ends when its client leaves, when its member is removed or
