@@ -414,8 +414,9 @@ logs rely on legitimate interest in security (art. 6(1)(f)).
 - **Cookies**: only strictly necessary ones. No analytics without consent,
   following CNIL rules.
 - **Processors** are listed in the privacy policy: the hosting provider (EU),
-  and later Apple Push Notification service and Firebase Cloud Messaging,
-  which involve transfers outside the EU.
+  the e-mail provider that sends the sign-in codes (eusend, Norway, data
+  in the EU, ADR 0056), and later Apple Push Notification service and
+  Firebase Cloud Messaging, which involve transfers outside the EU.
 - **Privacy policy** published on the project site before the first app store
   release (app stores require one).
 - **Minors**: in France, users under 15 need parental consent. Competitive

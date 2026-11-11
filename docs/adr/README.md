@@ -72,3 +72,4 @@ Status: Accepted · YYYY-MM-DD
 | [0053](0053-compare-a-safety-code-to-check-who-a-key-belongs-to.md) | Compare a safety code to check who a key belongs to |
 | [0054](0054-let-the-operator-hand-out-codes-that-create-a-space.md) | Let the operator hand out codes that create a space (to be replaced by 0055) |
 | [0055](0055-sign-in-with-an-email-code-and-a-unique-user-name.md) | Sign in with an e-mail code and a unique user name (accepted, built in the server and the apps) |
+| [0056](0056-send-sign-in-codes-through-eusends-smtp-relay.md) | Send sign-in codes through eusend's SMTP relay |
