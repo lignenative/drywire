@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -106,6 +107,11 @@ type SMTP struct {
 	Username string
 	Password string
 	From     string
+
+	// For tests: implicit TLS on another port than 465, and the
+	// certificate authorities to trust instead of the system's.
+	implicitTLS bool
+	roots       *x509.CertPool
 }
 
 // Send delivers m, giving up after 15 seconds.
@@ -121,9 +127,10 @@ func (s SMTP) Send(ctx context.Context, m Message) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	dialer := &net.Dialer{}
-	tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+	tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12, RootCAs: s.roots}
+	implicit := port == "465" || s.implicitTLS
 	var conn net.Conn
-	if port == "465" {
+	if implicit {
 		conn, err = (&tls.Dialer{NetDialer: dialer, Config: tlsConfig}).DialContext(ctx, "tcp", s.Addr)
 	} else {
 		conn, err = dialer.DialContext(ctx, "tcp", s.Addr)
@@ -139,7 +146,7 @@ func (s SMTP) Send(ctx context.Context, m Message) error {
 		return err
 	}
 	defer c.Close()
-	if port != "465" {
+	if !implicit {
 		if ok, _ := c.Extension("STARTTLS"); !ok {
 			return errors.New("mail: the server offers no STARTTLS")
 		}
